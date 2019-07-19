@@ -1119,7 +1119,7 @@ def pstarry_to_pshape(pstarry, Rstar):
 
 
 
-def calculate_model_flux(pshape, Rstar, tts, time_stamps, cadences):
+def calculate_model_flux(pshape, Rstar, tts, time_stamps, cadences, orbittype='Keplerian'):
     '''
     Generate a list of lightcurve models a series of individual transits using starry & exoplanet
 
@@ -1128,6 +1128,7 @@ def calculate_model_flux(pshape, Rstar, tts, time_stamps, cadences):
     omc: list of observed-minus-calculated ttv offset from a linear ephemeris [days]
     time_stamps: list of time stamps (one per transit)
     cadences: cadence of each transit
+    orbittype: 'Keplerian' or 'TTV'
 
     -- returns modellist: a list of model_stamps
     '''
@@ -1163,10 +1164,17 @@ def calculate_model_flux(pshape, Rstar, tts, time_stamps, cadences):
 
     # generate the light curve model
     exoSLC = exo.StarryLightCurve([u1, u2])
-    orbit  = exo.orbits.KeplerianOrbit(t0=T0, period=P, a=a, b=b, ecc=ecc, omega=w, r_star=Rstar)
+    if orbittype == 'Keplerian':
+        orbit  = exo.orbits.KeplerianOrbit(t0=T0, period=P, a=a, b=b, ecc=ecc, omega=w, r_star=Rstar)
+    elif orbittype == 'TTV':
+        orbit  = exo.orbits.TTVOrbit(transit_times=[tts], a=a, b=b, ecc=ecc, omega=w, r_star=Rstar)
 
     sc_model = 1 + exoSLC.get_light_curve(orbit=orbit, r=rp, t=np.hstack(sc_time), texp=SCIT/3600/24, oversample=1).eval()
     lc_model = 1 + exoSLC.get_light_curve(orbit=orbit, r=rp, t=np.hstack(lc_time), texp=LCIT/60/24, oversample=30).eval()
+
+    # workaround because get_light_curve is generating shape (N,1) arrays
+    sc_model = np.squeeze(sc_model)
+    lc_model = np.squeeze(lc_model)
 
     # turn it into a list
     j = 0
@@ -1180,7 +1188,7 @@ def calculate_model_flux(pshape, Rstar, tts, time_stamps, cadences):
         elif cad == 'long':
             modellist[i] = lc_model[lc_pos[k]:lc_pos[k+1]]
             k += 1
-            
+           
     return modellist
 
 
