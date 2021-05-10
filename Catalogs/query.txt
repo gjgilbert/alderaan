@@ -1,0 +1,8 @@
+OCCURENCE RATE COLUMNS
+
+https://exoplanetarchive.ipac.caltech.edu/cgi-bin/nstedAPI/nph-nstedAPI?table=keplerstellar&where=nkoi%3E0&select=distinct%20kepid,kepmag,nkoi,ntce,st_quarters,st_vet_date,dutycycle,dataspan,st_delivname
+
+
+CDPP COLUMNS
+
+https://exoplanetarchive.ipac.caltech.edu/cgi-bin/nstedAPI/nph-nstedAPI?table=keplerstellar&where=nkoi%3E0&select=distinct%20kepid,kepmag,nkoi,rrmscdpp03p0,rrmscdpp06p0,rrmscdpp09p0,rrmscdpp12p0,rrmscdpp15p0,st_delivname

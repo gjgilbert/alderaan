@@ -28,7 +28,7 @@ __all__ = ["make_chunklist",
 
 
 
-def make_chunklist(time, flux, cadno, Npts, sigma_reject=5.0, gap_tolerance=15, interpolate=True):
+def make_chunklist(time, flux, cadno, Npts, sigma_reject=5.0, gap_tolerance=15, interpolate=True, cover=0.95):
     """
     Make an array of 'chunks' of data uninterupted by transits or data gaps
     
@@ -45,9 +45,11 @@ def make_chunklist(time, flux, cadno, Npts, sigma_reject=5.0, gap_tolerance=15, 
     sigma_reject : float
         sigma threshold for rejection of noisy chunks (default=5.0)
     gap_tolerance : int
-        maximum number of consecutive missing cadences allowed (default=2)
+        maximum number of consecutive missing cadences allowed (default=15)
     interpolate : bool
         True to perform linear interpolation over small gaps (default=True)
+    cover : float between (0,1)
+        fractional coverage required to consider a chunk "good"
         
     Returns
     -------
@@ -68,7 +70,7 @@ def make_chunklist(time, flux, cadno, Npts, sigma_reject=5.0, gap_tolerance=15, 
         # check if there are gaps
         index = cadno[use] - cad_low
         gaps  = np.hstack([1,index[1:]-index[:-1]])
-        
+                
         # make sure there are no long stretches of consecutive missing cadences
         if gaps.max() <= gap_tolerance:
             # pull time and flux chunks
@@ -83,9 +85,10 @@ def make_chunklist(time, flux, cadno, Npts, sigma_reject=5.0, gap_tolerance=15, 
 
             t_chunk[empty] = np.interp(np.arange(Npts+1)[empty], index, t_chunk[~empty])
             f_chunk[empty] = np.interp(np.arange(Npts+1)[empty], index, f_chunk[~empty])
-
-            # require at least 99% coverage
-            if np.sum(empty)/Npts < 0.01:
+            f_chunk[empty] += np.random.normal(size=np.sum(empty))*np.std(f_chunk[~empty])
+                        
+            # require at least X% coverage (default = 95%)
+            if np.sum(~empty)/len(empty) > cover:
                 chunklist.append(f_chunk)
 
             i += Npts
@@ -101,7 +104,7 @@ def make_chunklist(time, flux, cadno, Npts, sigma_reject=5.0, gap_tolerance=15, 
     
     # convert list to array
     chunklist = np.array(chunklist)
-    
+        
     
     # reject any chunks with unusually high medians or variability
     loop = True
@@ -163,7 +166,7 @@ def generate_acf(time, flux, cadno, Npts, sigma_reject=5.0):
     acor = np.median(acor, axis=0)
     acor = acor[Npts:]/acor[Npts]
 
-    xcor = np.arange(Npts+1)*SCIT/3600/24
+    xcor = np.arange(Npts+1)
     wcor = np.ones(Npts+1)*astropy.stats.mad_std(acor[1:])
 
     # pull off the zero-lag value
@@ -205,7 +208,7 @@ def convert_frequency(freq, Q):
 
 
 
-def build_sho_model(x, y, var_method, low_freqs=None, high_freqs=None, extra_term=None, match_Q=True):
+def build_sho_model(x, y, var_method, test_freq=None, fmin=None, fmax=None, fixed_Q=None):
     """
     
     Must specify either var or var_method
@@ -222,15 +225,14 @@ def build_sho_model(x, y, var_method, low_freqs=None, high_freqs=None, extra_ter
         'global' --> var = np.var(y)
         'local' --> var = np.var(y - local_trend)
         'fit' --> logvar is a free hyperparameter in the GP model
-    low_freqs : list (optional)
-        list of at most one (ordinary, not angular) frequency
-    high_freqs : list (optional)
-        list of at most three (ordinary, not angular) frequencies
-    extra_term : string (optional)
-        'fixed' --> add an extra SHOTerm with fixed Q=1/sqrt(2)
-        'free' --> add an extra SHOTerm with logQ as a free hyperparameter in the GP model
-    match_Q : bool (default=True)
-        True to use the same Q value for all high frequency terms
+    test_freq : float (optional)
+        an (ordinary, not angular) frequency to initialize the model
+    fmin : float (optional)
+        lower bound on (ordinary, not angular) frequency
+    fmax : float (optional)
+        upper bound on (ordinary, not angular) frequency
+    fixed_Q : float (optional)
+        a fixed value for Q
         
     Returns
     -------
@@ -239,78 +241,43 @@ def build_sho_model(x, y, var_method, low_freqs=None, high_freqs=None, extra_ter
     """
     with pm.Model() as model:
         
-        # set up the low frequency terms
-        if low_freqs is not None:
-            logSw4 = pm.Normal('logSw4', mu=np.log(np.var(y)), sd=15.0)
-            logQ   = pm.Uniform('logQ',  lower=np.log(1/np.sqrt(2)), upper=np.log(100))
-
-            w0 = convert_frequency(2*pi*low_freqs[0], T.exp(logQ))
-            logw0 = pm.Normal('logw0', mu=np.log(w0), sd=np.log(1.1))
-
-            kernel = exo.gp.terms.SHOTerm(log_Sw4=logSw4, log_w0=logw0, log_Q=logQ)
+        # amplitude parameter
+        logSw4 = pm.Normal('logSw4', mu=np.log(np.var(y)), sd=15.0)
+        
+        
+        # qualify factor
+        if fixed_Q is not None:
+            logQ = pm.Deterministic('logQ', T.log(fixed_Q))
+        else:
+            logQ = pm.Uniform('logQ',  lower=np.log(1/np.sqrt(2)), upper=np.log(100))
+        
+        
+        # frequency; for Q > 0.7, the difference between standard and damped frequency is minimal
+        if fmin is None and fmax is None:
+            if test_freq is None:
+                logw0 = pm.Normal('logw0', mu=0.0, sd=15.0)
+            else:
+                test_w0 = convert_frequency(2*pi*test_freq[0], T.exp(logQ))
+                logw0 = pm.Normal('logw0', mu=np.log(test_w0), sd=np.log(1.1))
+                
+                
+        if fmin is not None or fmax is not None:
+            if fmin is None: logwmin = None
+            else: logwmin = np.log(2*pi*fmin)
+                
+            if fmax is None: logwmax = None
+            else: logwmax = np.log(2*pi*fmax)
             
-
-        if high_freqs is not None:
-            logS1 = pm.Normal('logS1', mu=np.log(np.var(y)), sd=15.0)
-            logQ1 = pm.Uniform('logQ1', lower=2.0, upper=10.0)
-
-            w1 = convert_frequency(2*pi*high_freqs[0], T.exp(logQ1))
-            
-            try:
-                kernel += exo.gp.terms.SHOTerm(log_S0=logS1, w0=w1, log_Q=logQ1)
-            except:
-                kernel = exo.gp.terms.SHOTerm(log_S0=logS1, w0=w1, log_Q=logQ1)
-
-
-            if len(high_freqs) > 1:
-                logS2 = pm.Normal('logS2', mu=np.log(np.var(y)), sd=15.0)
-
-                if match_Q:
-                    logQ2 = pm.Deterministic('logQ2', logQ1)
-                else:
-                    logQ2 = pm.Uniform('logQ2', lower=2.0, upper=10.0)
-
-                w2 = convert_frequency(2*pi*high_freqs[1], T.exp(logQ2))
-
-                kernel += exo.gp.terms.SHOTerm(log_S0=logS2, w0=w2, log_Q=logQ2)
-
-
-            if len(high_freqs) > 2:
-                logS3 = pm.Normal('logS3', mu=np.log(np.var(y)), sd=15.0)
-
-                if match_Q:
-                    logQ3 = pm.Deterministic('logQ3', logQ1)
-                else:
-                    logQ3 = pm.Uniform('logQ3', lower=2.0, upper=10.0)
-
-                w3 = convert_frequency(2*pi*high_freqs[2], T.exp(logQ3))
-
-                kernel += exo.gp.terms.SHOTerm(log_S0=logS3, w0=w3, log_Q=logQ3)
-
-
-            if len(high_freqs) > 3:
-                warnings.warn('%d frequencies given but only modeling the first 3' %len(high_freqs))
-
-
-
-        if extra_term == 'free':
-            logSw4_x = pm.Normal('logSw4_x', mu=np.log(np.var(y)), sd=15.0)
-            logw0_x  = pm.Normal('logw0_x', mu=0.0, sd=15.0)
-            logQ_x   = pm.Normal('logQ_x',  mu=0.0, sd=5.0)
-
-            try:
-                kernel += exo.gp.terms.SHOTerm(log_Sw4=logSw4_x, log_w0=logw0_x, log_Q=logQ_x)
-            except:
-                kernel = exo.gp.terms.SHOTerm(log_Sw4=logSw4_x, log_w0=logw0_x, log_Q=logQ_x)
-
-        elif extra_term == 'fixed':
-            logSw4_x = pm.Normal('logSw4_x', mu=np.log(np.var(y)), sd=15.0)
-            logw0_x  = pm.Normal('logw0_x', mu=0.0, sd=15.0)
-
-            try:
-                kernel += exo.gp.terms.SHOTerm(log_Sw4=logSw4_x, log_w0=logw0_x, Q=1/np.sqrt(2))
-            except:
-                kernel = exo.gp.terms.SHOTerm(log_Sw4=logSw4_x, log_w0=logw0_x, Q=1/np.sqrt(2))
+            if test_freq is None:
+                logw0 = pm.Bound(pm.Normal, lower=logwmin, upper=logwmax)('logw0', mu=0.0, sd=15.0)
+                
+            else:
+                test_w0 = convert_frequency(2*pi*test_freq[0], T.exp(logQ))
+                logw0 = pm.Bound(pm.Normal, lower=logwmin, upper=logwmax)('logw0', mu=np.log(test_w0), sd=np.log(1.1))
+        
+    
+        # here's the kernel
+        kernel = exo.gp.terms.SHOTerm(log_Sw4=logSw4, log_w0=logw0, log_Q=logQ)
 
             
         # set the variance
@@ -380,7 +347,7 @@ def make_covariance_matrix(acf, size=None):
 
 
 
-def model_acf(xcor, acor, fcut, sigma=5.0, method='smooth'):
+def model_acf(xcor, acor, fcut, fmin=None, fmax=None, crit_fap=0.003, method='smooth', window_length=None):
     """
     Model an empirical autocorrelation function (ACF) using one of several methods
     
@@ -393,62 +360,58 @@ def model_acf(xcor, acor, fcut, sigma=5.0, method='smooth'):
         empirical autocorrelation function power at each time lag
     fcut : float
         cutoff value for seperating high vs. low frequencies
-    sigma : float
-        threshold for finding significant frequencies in FFT of autocorrelation function
+    fmin : float (optional)
+        minimum frequency to check; if not provided this will be set to 1/baseline
+    fmax : float (optional)
+        maximum frequency to check; if not provided this will be set to the Nyquist frequency
+    crit_fap : float
+        critical false alarm probability for significant signals (default=0.003)
     method : string
         method to model low frequency component; either 'smooth', 'shoterm', or 'savgol'  (default='smooth')
+    window_length : int
+        size of boxcar smoothing window if method='smooth'; set automatically if not specified by user
         
         
     Returns
     -------
     acor_emp, acor_mod, xf, yf, freqs
     """
-    # identify signficant frequencies
-    xf, yf, freqs = FFT_estimator(xcor, acor, sigma=sigma)
+    # arrays to hold empirical and model ACF
+    acor_mod = np.zeros_like(acor)
+    acor_emp = acor.copy()
+    
+    # 1st model component (low frequency)
+    xf_L, yf_L, freqs_L, faps_L = FFT_estimator(xcor, acor_emp, fmin=fmin, fmax=fmax, crit_fap=crit_fap)
+    
+    low_freqs = freqs_L[freqs_L < fcut]
+    
 
-    low_freqs  = freqs[freqs < fcut]
-    high_freqs = freqs[freqs >= fcut]
-
-    if len(low_freqs) > 2:
-        low_freqs = low_freqs[[0,1]]
-
-    if len(high_freqs) > 3:
-        high_freqs = high_freqs[[0,1,2]]
-        
-    # arrays to hold empirical and model ACF with each subsequent term removed
-    acor_emp = np.zeros((3,len(acor)))
-    acor_mod = np.zeros_like(acor_emp)
-
-    acor_emp[0] = acor.copy()
-
-    # 1st model component (low frequency) 
+    # model the ACF with chosen method
     if method == 'shoterm':
         xcor_mirror = np.hstack([-xcor[::-1], xcor])
-        acor_mirror = np.hstack([acor_emp[0][::-1], acor_emp[0]])
+        acor_mirror = np.hstack([acor_emp[::-1], acor_emp])
         
-        if len(low_freqs) == 0:
-            extra_term = 'free'
-        else:
-            extra_term = 'fixed'
-        
-        model = build_sho_model(xcor_mirror, acor_mirror, var_method='fit', extra_term='fixed')
+        model = build_sho_model(xcor_mirror, acor_mirror, var_method='fit')
         
         with model:
             map_soln = exo.optimize(start=model.test_point)
             
-        acor_mod[0] = map_soln['gp_pred'][len(acor_emp[0]):]
+        acor_mod = map_soln['gp_pred'][len(acor_emp):]
         
+    
     elif method == 'smooth':
-        if len(low_freqs) > 0:
-            window_length = int(24*60/np.max(low_freqs)/2)
-        else:
-            window_length = int(len(acor_emp[0])/6)
+        if window_length is None:
+            if len(low_freqs) > 0:
+                window_length = int(24*60/np.max(low_freqs)/2)
+            else:
+                window_length = int(len(acor_emp)/6)
 
-        window_length = window_length + (window_length % 2) + 1
-
-        acor_mirror = np.hstack([acor_emp[0][::-1], acor_emp[0]])
-        acor_mod[0] = boxcar_smooth(acor_mirror, window_length)[len(acor_emp[0]):]
+            window_length = window_length + (window_length % 2) + 1
+        
+        acor_mirror = np.hstack([acor_emp[::-1], acor_emp])
+        acor_mod = boxcar_smooth(acor_mirror, window_length)[len(acor_emp):]
             
+    
     elif method == 'savgol':
         if len(low_freqs) > 0:
             window_length = int(24*60/np.max(low_freqs)/2)
@@ -457,54 +420,42 @@ def model_acf(xcor, acor, fcut, sigma=5.0, method='smooth'):
 
         window_length = window_length + (window_length % 2) + 1
         
-        
-        acor_mirror = np.hstack([acor_emp[0][::-1], acor_emp[0]])
-        acor_mirror = sig.savgol_filter(acor_mirror, polyorder=2, window_length=window_length)[len(acor_emp[0]):]
-        acor_mod[0] = boxcar_smooth(acor_mirror, 5)
+        acor_mirror = np.hstack([acor_emp[::-1], acor_emp])
+        acor_mod = sig.savgol_filter(acor_mirror, polyorder=2, window_length=window_length)[len(acor_emp):]
+        acor_mod = boxcar_smooth(acor_mod, 5)
     
     else:
         raise ValueError("method must be either 'shoterm', 'smooth', or 'savgol'")
+
+      
+    # check for any high-frequency components
+    xf_H, yf_H, freqs_H, faps_H = FFT_estimator(xcor, acor_emp-acor_mod, fmin=fmin, fmax=fmax, crit_fap=crit_fap, max_peaks=5)
     
-    acor_emp[1] = acor_emp[0] - acor_mod[0]
-
+    high_freqs  = freqs_H[freqs_H > fcut]
     
-    # 2nd model component (high frequency)
-    if len(high_freqs) > 0:
-        model = build_sho_model(xcor, acor_emp[1], high_freqs=high_freqs, var_method='fit', match_Q=True)
-
-        with model:
-            map_soln = exo.optimize(start=model.test_point)    
-
-        acor_mod[1] = map_soln['gp_pred']
-        acor_emp[2] = acor_emp[1] - acor_mod[1]
-
-    else:
-        acor_emp[2] = acor_emp[1] - acor_mod[1]
-        
-        
-    return acor_emp, acor_mod, xf, yf, freqs
+    
+    # combine freqs, return ACF and power spectrum
+    freqs = np.hstack([low_freqs, high_freqs])
+    
+    return acor_emp, acor_mod, xf_L, yf_L, freqs
 
 
 
-def generate_synthetic_noise(xcor, acor_emp, acor_mod, high_freqs, fcut, n, sigma):
+def generate_synthetic_noise(xcor, acor, n, sigma):
     """
     Generate synthetic correlated noise given a specified autorrelation function
     
     
     Parameters
     ----------
-    xcor :
-    
-    acor_emp :
-    
-    acor_mod :
-    
-    high_freqs :
-    
-    n :
-    
-    sigma :
-    
+    xcor : array-like
+        lag time values
+    acor : array-like
+        autocorrelation function power at each time lag
+    n : int
+        size of n x n covariance matrix
+    sigma : float
+        scale of white noise
     
     Returns
     -------
@@ -516,8 +467,8 @@ def generate_synthetic_noise(xcor, acor_emp, acor_mod, high_freqs, fcut, n, sigm
         gaussian noise vector used to generate red noise
     """
     # first make the covariance matrix
-    covmatrix = make_covariance_matrix(acor_mod[0]+acor_mod[1], n)
-
+    covmatrix = make_covariance_matrix(acor, n)
+    
     # decompose it
     try:
         L = np.linalg.cholesky(covmatrix)
@@ -526,17 +477,30 @@ def generate_synthetic_noise(xcor, acor_emp, acor_mod, high_freqs, fcut, n, sigm
         try:
             warnings.warn('Covariance matrix not positive definite...adjusting weights')
             
-            diagbool = np.eye(n) == 1
+            # decompose for eigenvalues and eigenvectors
+            # matrix was constructed to be symmetric - if eigh doesn't work there is a serious problem
+            eigenvalues, eigenvectors = np.linalg.eigh(covmatrix)
             
-            loop = True
-            while loop:
-                try:
-                    covmatrix[~diagbool] /= 1.02
-                    L = np.linalg.cholesky(covmatrix)
-                    loop = False
-                    
-                except:
-                    covmatrix[~diagbool] /= 1.02
+            # diagonalize
+            D = np.diag(eigenvalues)
+
+            # elementwise comparison with zero
+            Z = np.zeros_like(D)
+            Dz = np.maximum(D,Z)
+
+            # generate a positive semi-definite matrix
+            psdm = np.dot(np.dot(eigenvectors,Dz),eigenvectors.T)
+
+            # now make it positive definite
+            eps = np.min(np.abs(acor[acor != 0]))*1e-6
+            covmatrix = psdm + np.eye(n)*eps
+            
+            # renormalize
+            covmatrix = covmatrix / covmatrix.max()
+            
+            # do Cholesky decomposition
+            L = np.linalg.cholesky(covmatrix)
+            
 
         except:
             warnings.warn('Covariance matrix fatally broken...returning identity matrix')

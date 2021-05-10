@@ -1,0 +1,21 @@
+for koi in all_kois_list:
+    # load observables from csv file
+    observables = load(gaia_constrained_stellar_parameters)
+    
+    # relevant parameters and errors: T, logg, [Fe/H]
+    T, T_err, logg, logg_err, z, z_err = observables
+    
+    # empty lists to hold computed quadratic limb darkening parameters
+    u1_samples = []
+    u2_samples = []
+    
+    # draw N=250 probabilistic samples from Gaussian distributions
+    for i in range(250):
+        t_ = random.normal(mu=T, sigma=T_err)
+        g_ = random.normal(mu=logg, sigma=logg_err)
+        z_ = random.normal(mu=z, sigma=z_err)
+        
+        u1, u2 = EXOFAST.compute_limb_darkening(t_, g_, z_)
+        
+        u1_samples.append(u1)
+        u2_samples.append(u2)

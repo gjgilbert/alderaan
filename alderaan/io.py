@@ -13,9 +13,12 @@ from .LiteCurve import *
 
 __all__ = ["read_csv_file",
            "get_csv_data",
-           "read_sim_fits",
+           "save_sim_fits",
+           "load_sim_fits",
            "load_detrended_lightcurve",
-           "trace_to_hdulist"]
+           "trace_to_hdulist",
+           "load_cdpp_data",
+           "pull_cdpp_rms"]
 
 
 def read_csv_file(filename, k_index=0, v_index=1):
@@ -73,9 +76,61 @@ def get_csv_data(keyname, keys, values):
 
 
 
-def read_sim_fits(filename):
+def save_sim_fits(lklc, path=None, overwrite=False):
     """
-    Read in simulated data from a .fits file
+    Load simulated lightcurve data from a .fits file
+    The input to this funciton is the output of 'simulate_lightcurve.py'
+    
+    Parameters
+    ----------
+    lklc : lk.LightCurve
+        data to save
+    path : str
+        path to save target .fits file
+    
+    Returns
+    -------
+    if path = None, an HDUList is returnd
+    """
+    # make primary HDU
+    primary_hdu = pyfits.PrimaryHDU()
+    
+    # make header
+    header = primary_hdu.header
+    header["TARGETID"] = lklc.targetid
+    header["MISSION"]  = lklc.mission
+    header["CHANNEL"]  = lklc.channel
+    header["QUARTER"]  = lklc.quarter
+    header["QBITMASK"] = lklc.quality_bitmask
+    
+    
+    # make HDUList
+    hdulist = []
+    
+    hdulist.append(primary_hdu)
+    hdulist.append(pyfits.ImageHDU(data=lklc.time, name="TIME"))
+    hdulist.append(pyfits.ImageHDU(data=lklc.flux, name="FLUX"))
+    hdulist.append(pyfits.ImageHDU(data=lklc.flux_err, name="FLUX_ERR"))
+    hdulist.append(pyfits.ImageHDU(data=lklc.cadenceno, name="CADNO"))
+    hdulist.append(pyfits.ImageHDU(data=lklc.quality, name="QUALITY"))
+    hdulist.append(pyfits.ImageHDU(data=lklc.centroid_col, name="COL"))
+    hdulist.append(pyfits.ImageHDU(data=lklc.centroid_row, name="ROW"))
+    
+    hdulist = pyfits.HDUList(hdulist)
+    
+    # save/return results
+    if path is None:
+        return hdulist
+    
+    else:
+        hdulist.writeto(path, overwrite=overwrite)
+        return None
+
+
+
+def load_sim_fits(filename):
+    """
+    Load simulated lightcurve data from a .fits file
     The input to this funciton is the output of 'simulate_lightcurve.py'
     
     Parameters
@@ -91,17 +146,21 @@ def read_sim_fits(filename):
     with pyfits.open(filename) as hdulist:
         header = hdulist[0].header
         
-        data = lk.KeplerLightCurve(time = hdulist['time'].data, \
-                                   flux = hdulist['flux'].data, \
-                                   flux_err = hdulist['error'].data, \
-                                   cadenceno = hdulist['cadno'].data, \
-                                   quality = hdulist['quality'].data, \
-                                   quarter = header['QUARTER'], \
-                                   channel = header['CHANNEL'], \
-                                   targetid = header['KIC'], \
-                                   quality_bitmask = 'default')
+        data = lk.KeplerLightCurve(time = hdulist['TIME'].data,
+                                   flux = hdulist['FLUX'].data,
+                                   flux_err = hdulist['FLUX_ERR'].data,
+                                   centroid_col = hdulist['COL'].data,
+                                   centroid_row = hdulist['ROW'].data,
+                                   quality = hdulist['QUALITY'].data,
+                                   quality_bitmask = header['QBITMASK'],
+                                   channel = header['CHANNEL'],
+                                   quarter = header['QUARTER'],
+                                   mission = header['MISSION'],
+                                   cadenceno = hdulist['CADNO'].data,
+                                   targetid = header['TARGETID'])
         
         return data
+
 
 
 
@@ -174,3 +233,40 @@ def trace_to_hdulist(trace, varnames, target):
         hdulist.append(pyfits.ImageHDU(trace[vn], name=vn))
     
     return pyfits.HDUList(hdulist)
+
+
+
+def load_cdpp_data(filepath):
+    """
+    Reads cdpp datafile and returns a dictionary with rms_cdpp values at 3, 6, 9, 12, & 15 hr durations
+    """
+    keys, vals = read_csv_file(filepath)
+
+    data = {}
+    for k in keys: 
+        data[k] = get_csv_data(k, keys, vals)
+
+    data["rms03"] = data.pop("rrmscdpp03p0")
+    data["rms06"] = data.pop("rrmscdpp06p0")
+    data["rms09"] = data.pop("rrmscdpp09p0")
+    data["rms12"] = data.pop("rrmscdpp12p0")
+    data["rms15"] = data.pop("rrmscdpp15p0")
+    
+    return data
+
+
+
+def pull_cdpp_rms(data, kic):
+    """
+    Pulls rms cdpp data for a single KIC target
+    rms_cdpp array corresponds to durations of 3, 6, 9, 12, & 15 hrs
+    """
+    use = data["kepid"] == kic
+    
+    c03 = np.nanmean(data["rms03"][use])
+    c06 = np.nanmean(data["rms06"][use])
+    c09 = np.nanmean(data["rms09"][use])
+    c12 = np.nanmean(data["rms12"][use])
+    c15 = np.nanmean(data["rms15"][use])
+
+    return np.array([3.,6.,9.,12.,15.]), np.array([c03, c06, c09, c12, c15])

@@ -6,7 +6,12 @@ from   scipy import stats
 from   scipy.interpolate import interp1d
 import astropy
 from   astropy.io import fits as pyfits
+from   astropy.timeseries import LombScargle
+
 import lightkurve as lk
+import exoplanet as exo
+import pymc3 as pm
+import theano.tensor as T
 
 import csv
 import sys
@@ -16,6 +21,7 @@ from   copy import deepcopy
 
 from .constants import *
 from .LiteCurve import *
+from .utils import *
 
 import matplotlib.pyplot as plt
 
@@ -25,10 +31,9 @@ __all__ = ["cleanup_lkfc",
            "clip_outliers",
            "make_transitmask",
            "identify_gaps",
-           "flatten",
-           "fix_edges",
-           "detrend_single_quarter",
-           "stitch_lkc"]
+           "stitch_lkc",
+           "filter_ringing",
+           "flatten_with_gp"]
 
 
 
@@ -120,7 +125,7 @@ def remove_flagged_cadences(lklc, bitmask='default', return_mask=False):
 
 
 
-def clip_outliers(lklc, kernel_size, sigma_upper, sigma_lower):
+def clip_outliers(lklc, kernel_size, sigma_upper, sigma_lower, mask=None):
     """
     Docstring
     
@@ -129,6 +134,9 @@ def clip_outliers(lklc, kernel_size, sigma_upper, sigma_lower):
     lklc : lightkurve.KeplerLightCurve
     
     """
+    if mask is None:
+        mask = np.zeros(len(lklc.time), dtype="bool")
+    
     loop = True
     count = 0
     
@@ -137,6 +145,8 @@ def clip_outliers(lklc, kernel_size, sigma_upper, sigma_lower):
 
         bad = astropy.stats.sigma_clip(lklc.flux-smoothed, sigma_upper=sigma_upper, sigma_lower=sigma_lower, \
                                        stdfunc=astropy.stats.mad_std).mask
+        
+        bad = bad*~mask
 
         lklc.time = lklc.time[~bad]
         lklc.flux = lklc.flux[~bad]
@@ -145,6 +155,8 @@ def clip_outliers(lklc, kernel_size, sigma_upper, sigma_lower):
         lklc.cadenceno = lklc.cadenceno[~bad]
         lklc.centroid_row = lklc.centroid_row[~bad]
         lklc.centroid_col = lklc.centroid_col[~bad]
+        
+        mask = mask[~bad]
         
         if np.sum(bad) == 0:
             loop = False
@@ -190,16 +202,14 @@ def make_transitmask(time, tts, duration, masksize=1.5):
 
 
 
-def identify_gaps(lklc, transit_mask, break_tolerance, jump_tolerance=5.0):
+def identify_gaps(lc, break_tolerance, jump_tolerance=5.0):
     """
-    Search a lk.LightCurve for large time breaks and flux jumps
+    Search a LiteCurve for large time breaks and flux jumps
     
     Parameters
     ----------
-        lklc : lk.LightCurve() object
-            must have time, flux, and cadenceno attributes
-        transit_mask : array (bool)
-            True for each cadence near transit
+        lc : alderaan.LiteCurve() object
+            must have time, flux, and cadno attributes
         break_tolerance : int
             number of cadences considered a large gap in time
         jump_tolerance : float
@@ -210,262 +220,33 @@ def identify_gaps(lklc, transit_mask, break_tolerance, jump_tolerance=5.0):
         gap_locs : array
             indexes of identified gaps, including endpoints
     """
+    # 1D mask
+    mask = np.sum(np.atleast_2d(lc.mask, 0) == 0)
     
     # identify time gaps
-    breaks = lklc.cadenceno[1:]-lklc.cadenceno[:-1]
+    breaks = lc.cadno[1:]-lc.cadno[:-1]
     breaks = np.pad(breaks, (1,0), 'constant', constant_values=(1,0))
     break_locs = np.where(breaks > break_tolerance)[0]
     break_locs = np.pad(break_locs, (1,1), 'constant', constant_values=(0,len(breaks)+1))
     
     # identify flux jumps
-    jumps = lklc.flux[1:]-lklc.flux[:-1]
+    jumps = lc.flux[1:]-lc.flux[:-1]
     jumps = np.pad(jumps, (1,0), 'constant', constant_values=(0,0))
     big_jump = np.abs(jumps - np.median(jumps))/astropy.stats.mad_std(jumps) > 5.0
-    jump_locs = np.where(~transit_mask*big_jump)[0]
+    jump_locs = np.where(mask*big_jump)[0]
     
-    return np.sort(np.unique(np.hstack([break_locs, jump_locs])))
-
-
-
-def flatten(lklc, transit_win_length, savgol_win_length, transit_mask, combo_mask,
-            break_tolerance, polyorder=2, return_trend=False):
-    """
-    Docstring
-    """
-    # make lists to hold outputs
-    flux_flat = []
-    trend_flat = []    
+    gaps = np.sort(np.unique(np.hstack([break_locs, jump_locs])))
     
-    # identify gaps
-    gap_locs = identify_gaps(lklc, transit_mask, break_tolerance)
-    
+    # flag nearly-consecutive cadences identified as gaps
+    bad = np.hstack([False, (gaps[1:] - gaps[:-1]) < break_tolerance])
 
-    # break the data into contiguous segments and detrend
-    for i, gloc in enumerate(gap_locs[:-1]):
+    if bad[-1]:
+        bad[-1] = False
+        bad[-2] = True
         
-        # these are the really short segments
-        if gap_locs[i+1]-gap_locs[i] < transit_win_length:
-            t = lklc.time[gap_locs[i]:gap_locs[i+1]]
-            f = lklc.flux[gap_locs[i]:gap_locs[i+1]]
-            m = transit_mask[gap_locs[i]:gap_locs[i+1]]
-            
-            try:
-                pfit = np.polyfit(t[~m], f[~m], 1)
-                simple_trend = np.polyval(pfit, t)
-                
-            except:
-                try:
-                    simple_trend = np.median(f[~m])
-                except:
-                    simple_trend = np.ones_like(f)
-        
-            flux_flat.append(f/simple_trend)
-            trend_flat.append(simple_trend)
-        
-        
-        # these are the segments with enough data to do real detrending
-        else:
-            # grab segments of time, flux, cadno, masks
-            t = lklc.time[gap_locs[i]:gap_locs[i+1]]
-            f = lklc.flux[gap_locs[i]:gap_locs[i+1]]
-            c = lklc.cadenceno[gap_locs[i]:gap_locs[i+1]]
-
-            m_transit = transit_mask[gap_locs[i]:gap_locs[i+1]]
-            m_combo = combo_mask[gap_locs[i]:gap_locs[i+1]]
-            
-            
-            # fill small gaps with white noise
-            npts = c[-1]-c[0] + 1
-            dt = np.min(t[1:]-t[:-1])
-            
-            t_interp = np.linspace(t.min(),t.max()+dt*3/2, npts)
-            f_interp = np.ones_like(t_interp)
-            c_interp = np.arange(c.min(), c.max()+1)
-
-            data_exists = np.isin(c_interp, c)
-
-            f_interp[data_exists] = f
-            f_interp[~data_exists] = np.random.normal(loc=np.median(f), scale=np.std(f), \
-                                                      size=np.sum(~data_exists))
-            
-            # apply Savitsky-Golay filter
-            try:
-                savgol_trend = sig.savgol_filter(f_interp, window_length=savgol_win_length, polyorder=polyorder)
-                savgol_trend = savgol_trend[data_exists]
-            except:
-                try:
-                    pfit = np.polyfit(t_interp[~m_transit], f_interp[~m_transit], polyorder)
-                    savgol_trend = np.polyval(pfit, t_interp[data_exists])
-                except:
-                    savgol_trend = np.median(f_interp[data_exists])
-
-            
-            # replace points near transit (where S-G will give a bad detrending estimate)
-            half_transit_win_length = int(np.floor(transit_win_length/2))
-            half_savgol_win_length = int(np.floor(savgol_win_length/2))
-
-            transit_trend = np.zeros_like(savgol_trend)
-            bad = np.zeros_like(transit_trend, dtype='bool')
-
-            for i in range(len(t)):
-                if m_combo[i] == True:
-                    
-                    istart = int(np.max([0, i - half_savgol_win_length]))
-                    iend   = int(np.min([len(t)+1, i + 1 + half_savgol_win_length]))
-
-                    t_chunk = t[istart:iend]
-                    f_chunk = f[istart:iend]
-                    m_transit_chunk = m_transit[istart:iend]
-
-                    if np.sum(~m_transit_chunk) > 1.2*half_savgol_win_length:
-                        try:
-                            pfit = np.polyfit(t_chunk[~m_transit_chunk], f_chunk[~m_transit_chunk], polyorder)
-                            transit_trend[i] = np.polyval(pfit, t[i])
-                        except:
-                            bad[i] = True 
-
-                    else:
-                        bad[i] = True
-                        
-                        
-            # put together componets for 1st estimate of full trend
-            full_trend = np.copy(savgol_trend)
-            full_trend[m_combo] = transit_trend[m_combo]
-            
-            
-            # interpolate over poorly fit cadences or points in transit
-            leftedge  = t < t[~bad].min()
-            rightedge = t > t[~bad].max()
-            edges = leftedge + rightedge
-
-            _fxn = interp1d(t[~bad], full_trend[~bad])
-
-            full_trend[~edges*bad] = _fxn(t[~edges*bad])
-            full_trend[leftedge*bad] = full_trend[np.where(~bad)[0].min()]
-            full_trend[rightedge*bad] = full_trend[np.where(~bad)[0].max()]
-
-
-            # fix the edges of the segment
-            final_trend = fix_edges(t, f, full_trend, m_transit, savgol_win_length)
-         
-
-            # save flattened flux and trend for output
-            flux_flat.append(f/final_trend)
-            trend_flat.append(final_trend)
-            
-            #plt.figure(figsize=(20,4))
-            #plt.plot(t, f, c='lightgrey')
-            #plt.plot(t[m_combo], f[m_combo], '.', c='grey')
-            #plt.plot(t[m_transit], f[m_transit], '.', c='k')
-            #plt.plot(t, final_trend, c='red', lw=3)
-            #plt.show()
+    gaps = gaps[~bad]
     
-    
-    # replace flux with flattened flux and return
-    lklc.flux = np.hstack(flux_flat)
-    
-    if return_trend:
-        return lklc, np.hstack(trend_flat)
-    else:
-        return lklc
-
-
-    
-def fix_edges(time, flux, trend, mask, savgol_win_length):
-    """
-    Docstring
-    """    
-    trend_fixed = np.copy(trend)
-    
-    # half window length (for convenience)
-    half_savgol_win_length = int(np.floor(savgol_win_length/2))
-    
-    
-    # avoid overfitting points near edges
-    try:
-        t_left = time[:savgol_win_length]
-        f_left = flux[:savgol_win_length]
-        m_left = mask[:savgol_win_length]
-
-        trend_fixed[:half_savgol_win_length+1] = 0.5*(trend[half_savgol_win_length+1] \
-                                                      + trend[:half_savgol_win_length+1])
-    except:
-        pass
-
-    try:
-        t_right = time[-(1+savgol_win_length):]
-        f_right = flux[-(1+savgol_win_length):]
-        m_right = mask[-(1+savgol_win_length):]
-
-        trend_fixed[-(1+half_savgol_win_length):] = 0.5*(trend[-(1+half_savgol_win_length)] + \
-                                                         trend[-(1+half_savgol_win_length):])
-    except:
-        pass
-
-
-    # fix exponential ramp at beginning of each segment
-    def _exp(theta, x):
-        return theta[0] + theta[1]*np.exp(-x/np.abs(theta[2]))
-
-    res_fxn = lambda theta, x, y: y - _exp(theta, x)
-
-    # must have at least 3 "anchor points" to avoid extrapolation errors
-    if np.sum(mask[:5]) < 3:
-
-        t_left = time[:3*savgol_win_length]
-        f_left = flux[:3*savgol_win_length]/trend_fixed[:3*savgol_win_length]
-        m_left = mask[:3*savgol_win_length]
-
-        bas = np.median(f_left[~m_left])
-        amp = f_left[0] - f_left[-1]
-        tau = t_left[half_savgol_win_length] - t_left[0]
-
-        theta_in = np.array([bas, amp, tau])
-        theta_out, success = op.leastsq(res_fxn, theta_in, \
-                                        args=(t_left[~m_left]-t_left[0], f_left[~m_left]))
-
-        exp_trend = _exp(theta_out, t_left-t_left[0])
-
-        trend_fixed[:3*savgol_win_length] *= exp_trend
-
-    return trend_fixed
-
-
-
-def detrend_single_quarter(lklc, planets, transit_win_length_list, outlier_win_length, savgol_win_length, \
-                            break_tolerance, polyorder=2, sigma_upper=5.0, sigma_lower=5.0, return_trend=False):
-    """
-    Docstring
-    """
-    # grab basic quantities
-    dt = np.min(lklc.time[1:]-lklc.time[:-1])
-    durs = np.zeros(len(planets), dtype='float64')
-    
-    for npl, p in enumerate(planets):
-        durs[npl] = p.duration
-    
-    
-    # do some simple cleanup
-    lklc = remove_flagged_cadences(lklc)
-    lklc = clip_outliers(lklc, kernel_size=outlier_win_length, sigma_upper=sigma_upper, sigma_lower=sigma_lower)
-    
-    
-    # make masks
-    transit_mask = np.zeros_like(lklc.time, dtype='bool')
-    combo_mask   = np.zeros_like(transit_mask)
-
-    for npl, p in enumerate(planets):
-        transit_mask_size = transit_win_length_list[npl]/(p.duration/dt)/2
-        combo_mask_size = transit_mask_size + savgol_win_length/(durs.max()/dt)/2
-        
-        transit_mask += make_transitmask(lklc.time, p.tts, p.duration, masksize=transit_mask_size)
-        combo_mask += make_transitmask(lklc.time, p.tts, durs.max(), masksize=combo_mask_size)
-    
-    # flatten
-    lklc = flatten(lklc, np.max(transit_win_length_list), savgol_win_length, transit_mask, combo_mask, break_tolerance)
-
-    return lklc
-
+    return gaps
 
 
 def stitch_lkc(lkc):
@@ -515,3 +296,277 @@ def stitch_lkc(lkc):
     litecurve.centroid_row = np.asarray(np.hstack(centroid_row), dtype='int')
     
     return litecurve
+
+
+
+def filter_ringing(lc, break_tolerance, fring, bw):
+    """
+    Filter out known long cadence instrumental ringing modes (see Gilliland+ 2010)
+    Applies a notch filter (narrow bandstop filter) at a set of user specified frequencies
+    
+    Parameters
+    ----------
+        lc : LiteCurve() object
+            must have time, flux, and cadno attributes
+        break_tolerance : int
+            number of cadences considered a large gap in time
+        fring : array-like
+            ringing frequencies in same units as lklc.time (i.e. if time is in days, fring is in days^-1)
+        bw : float
+            bandwidth of stopband (same units as fring)
+             
+    Returns
+    -------
+        flux_filtered : ndarray
+            flux with ringing modes filtered out
+    """
+    # make lists to hold outputs
+    flux_filtered = []
+
+    # identify gaps
+    gap_locs = identify_gaps(lc, break_tolerance, jump_tolerance=5.0)
+    
+
+    # break the data into contiguous segments and detrend
+    for i, gloc in enumerate(gap_locs[:-1]):
+        
+        # grab segments of time, flux, cadno, masks
+        t = lc.time[gap_locs[i]:gap_locs[i+1]]
+        f = lc.flux[gap_locs[i]:gap_locs[i+1]]
+        c = lc.cadno[gap_locs[i]:gap_locs[i+1]]
+
+        # fill small gaps with white noise
+        npts = c[-1]-c[0] + 1
+        dt = np.min(t[1:]-t[:-1])
+
+        t_interp = np.linspace(t.min(),t.max()+dt*3/2, npts)
+        f_interp = np.ones_like(t_interp)
+        c_interp = np.arange(c.min(), c.max()+1)
+
+        data_exists = np.isin(c_interp, c)
+
+        f_interp[data_exists] = f
+        f_interp[~data_exists] = np.random.normal(loc=np.median(f), scale=np.std(f), size=np.sum(~data_exists))
+        
+        
+        # now apply the filter
+        f_fwd_back = np.copy(f_interp)
+        f_back_fwd = np.copy(f_interp)
+        f_ramp = np.linspace(0,1,len(f_interp))
+        
+        for j, f0 in enumerate(fring):
+            b, a = sig.iirnotch(f0, Q=2*f0/bw, fs=1/dt)
+            f_fwd_back = sig.filtfilt(b, a, f_fwd_back, padlen=np.min([120, len(f_fwd_back)-2]))
+            f_back_fwd = sig.filtfilt(b, a, f_back_fwd[::-1], padlen=np.min([120, len(f_back_fwd/2)-1]))[::-1]
+            
+            f_filt = f_fwd_back*f_ramp + f_fwd_back*f_ramp[::-1]
+            
+        flux_filtered.append(f_filt[data_exists])
+          
+    return np.hstack(flux_filtered)
+
+
+
+def flatten_with_gp(lc, break_tolerance, min_period, return_trend=False):
+    """
+    Detrend the flux from an alderaan LiteCurve using a celerite RotationTerm GP kernel
+    The mean function of each uninterrupted segment of flux is modeled as an exponential
+    
+        Fmean = F0*(1+A*exp(-t/tau))
+    
+    Parameters
+    ----------
+    lc : alderaan.LiteCurve
+        must have .time, .flux and .mask attributes
+    break_tolerance : int
+        number of cadences considered a large gap in time
+    min_period : float
+        lower bound on primary period for RotationTerm kernel 
+    return_trend : bool (default=False)
+        if True, return the trend inferred from the GP fit
+        
+    Returns
+    -------
+    lc : alderaan.LiteCurve
+        LiteCurve with trend removed from lc.flux
+    gp_trend : ndarray
+        trend inferred from GP fit (only returned if return_trend == True)
+    """
+    # find gaps/breaks/jumps in the data
+    gaps = identify_gaps(lc, break_tolerance=break_tolerance)
+    gaps[-1] -= 1
+    
+    # initialize data arrays and lists of segments
+    gp_time = np.array(lc.time, dtype="float64")
+    gp_flux = np.array(lc.flux, dtype="float64")
+    gp_mask = np.sum(lc.mask, 0) == 0
+    gp_quarter = np.array(lc.quarter, dtype="int")
+
+    time_segs = []
+    flux_segs = []
+    mask_segs = []
+    seg_quarter = []
+
+    for i in range(len(gaps)-1):
+        time_segs.append(gp_time[gaps[i]:gaps[i+1]])
+        flux_segs.append(gp_flux[gaps[i]:gaps[i+1]])
+        mask_segs.append(gp_mask[gaps[i]:gaps[i+1]])
+        seg_quarter.append(gp_quarter[gaps[i]])
+
+    mean_flux = []
+    approx_var = []
+
+    for i in range(len(gaps)-1):
+        m = mask_segs[i]
+        mean_flux.append(np.mean(flux_segs[i][m]))
+        approx_var.append(np.var(flux_segs[i] - sig.medfilt(flux_segs[i], 13)))
+
+    
+    # group segments by quarter
+    quarters = np.unique(seg_quarter)
+    nseg = len(time_segs)
+    ngroup = len(quarters)
+    
+    seg_groups = [0]
+    for j, q in enumerate(quarters):
+        seg_groups.append(np.sum(np.array(seg_quarter) <= q))
+        
+    seg_groups = np.array(seg_groups)
+    
+    
+    # identify oscillation period to initialize GP    
+    ls_estimate = LombScargle(gp_time, gp_flux)
+    xf, yf = ls_estimate.autopower(minimum_frequency=1/91.0, maximum_frequency=4.0)
+    
+    peak_freq = xf[np.argmax(yf)]
+    peak_per  = 1/peak_freq
+    peak_fap  = ls_estimate.false_alarm_probability(yf.max())
+    
+    if peak_fap < 1e-4:
+        min_period = 0.5*peak_per
+        
+    
+    # set up lists to hold trend info
+    trend_maps = [None]*ngroup
+    
+    
+    # optimize the GP for each group of segments
+    for j in range(ngroup):
+        sg0 = seg_groups[j]
+        sg1 = seg_groups[j+1]
+        nuse = sg1-sg0
+
+        with pm.Model() as trend_model:
+
+            log_amp = pm.Normal("log_amp", mu=np.log(np.std(gp_flux)), sd=5)
+            log_per_off = pm.Normal("log_per_off", mu=np.log(peak_per-min_period), sd=5)
+            log_Q0_off = pm.Normal("log_Q0_off", mu=0, sd=10)
+            log_deltaQ = pm.Normal("log_deltaQ", mu=2, sd=10)
+            mix = pm.Uniform("mix", lower=0, upper=1)
+
+            P = pm.Deterministic("P", min_period + T.exp(log_per_off))
+            Q0 = pm.Deterministic("Q0", 1/T.sqrt(2) + T.exp(log_Q0_off))
+
+            kernel = exo.gp.terms.RotationTerm(log_amp=log_amp, period=P, Q0=Q0, log_deltaQ=log_deltaQ, mix=mix)
+
+
+            # exponential trend
+            logtau = pm.Normal("logtau", mu=np.log(3)*np.ones(nuse), sd=5*np.ones(nuse), shape=nuse)
+            exp_amp = pm.Normal('exp_amp', mu=np.zeros(nuse), sd=np.std(gp_flux)*np.ones(nuse), shape=nuse)
+
+
+            # nuissance parameters per segment
+            flux0 = pm.Normal('flux0', mu=np.array(mean_flux[sg0:sg1]), sd=np.std(gp_flux)*np.ones(nuse), shape=nuse)
+            logvar = pm.Normal('logvar', mu=np.log(approx_var[sg0:sg1]), sd=10*np.ones(nuse), shape=nuse)
+
+
+            # now set up the GP
+            ramp  = [None]*nuse
+            gp    = [None]*nuse
+            obs   = [None]*nuse
+
+            for i in range(nuse):
+                t = time_segs[sg0+i]
+                f = flux_segs[sg0+i]
+                m = mask_segs[sg0+i]
+
+                ramp[i]  = pm.Deterministic("ramp_{0}".format(i), 1 + exp_amp[i]*T.exp(-(t[m]-t[0])/T.exp(logtau[i])))
+                gp[i]    = exo.gp.GP(kernel, t[m], T.exp(logvar[i])*T.ones(len(t[m])))
+                obs[i]   = pm.Potential('obs_{0}'.format(i), gp[i].log_likelihood(f[m] - flux0[i]*ramp[i]))
+                
+
+        with trend_model:
+            trend_maps[j] = exo.optimize(start=trend_model.test_point, vars=[flux0, logvar])
+            trend_maps[j] = exo.optimize(start=trend_maps[j], vars=[log_amp, mix, log_per_off, log_Q0_off, log_deltaQ])
+            trend_maps[j] = exo.optimize(start=trend_maps[j], vars=[logtau, exp_amp])
+            trend_maps[j] = exo.optimize(start=trend_maps[j])
+            
+            
+    
+    
+    # now compute the trend from the MAP parameter estimates
+    # using gp.predict() inside the initial model was crashing jupyter
+    # seriously, don't try to do it...it's not worth the memory issues
+    
+    # set up mean and variance vectors
+    gp_mean  = np.ones_like(gp_flux)
+    gp_var   = np.ones_like(gp_flux)
+
+
+    for i in range(nseg):
+        j = np.argmin(seg_groups <= i) - 1
+
+        g0 = gaps[i]
+        g1 = gaps[i+1]
+
+        F0_  = trend_maps[j]["flux0"][i-seg_groups[j]]
+        A_   = trend_maps[j]["exp_amp"][i-seg_groups[j]]
+        tau_ = np.exp(trend_maps[j]["logtau"][i-seg_groups[j]])
+
+        t_ = gp_time[g0:g1] - gp_time[g0]
+
+        gp_mean[g0:g1] = F0_*(1 + A_*np.exp(-t_/tau_))
+        gp_var[g0:g1] = np.ones(g1-g0)*np.exp(trend_maps[j]["logvar"][i-seg_groups[j]])
+
+
+    # increase variance for cadences in transit (yes, this is hacky, but it works)
+    gp_var[~gp_mask] *= 1e12
+
+
+    # now evaluate the GP to get the final trend
+    gp_trend = np.zeros_like(gp_flux)
+
+    for j in range(ngroup):
+        start = gaps[seg_groups[j]]
+        end = gaps[seg_groups[j+1]]
+
+        m = gp_mask[start:end]
+
+        with pm.Model() as trend_model:
+
+            log_amp = trend_maps[j]["log_amp"]
+            P = trend_maps[j]["P"]
+            Q0 = trend_maps[j]["Q0"]
+            log_deltaQ = trend_maps[j]["log_deltaQ"]
+            mix = trend_maps[j]["mix"]
+
+            kernel = exo.gp.terms.RotationTerm(log_amp=log_amp, period=P, Q0=Q0, log_deltaQ=log_deltaQ, mix=mix)
+
+
+            gp = exo.gp.GP(kernel, gp_time[start:end], gp_var[start:end])
+
+            gp.log_likelihood(gp_flux[start:end] - gp_mean[start:end])
+
+            gp_trend[start:end] = gp.predict().eval() + gp_mean[start:end]   
+    
+    
+    
+    # now remove the trend
+    lc.flux  = lc.flux/gp_trend
+    
+    
+    # return results
+    if return_trend:
+        return lc, gp_trend
+    else:
+        return lc
