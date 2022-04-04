@@ -1,4 +1,6 @@
 import numpy as np
+import warnings
+
 import scipy.optimize as op
 import scipy.signal as sig
 from   scipy import stats
@@ -6,10 +8,12 @@ from   scipy import fftpack
 from   scipy.interpolate import interp1d
 import astropy.stats
 from   astropy.timeseries import LombScargle
-import warnings
-import theano.tensor as T
+
+import aesara_theano_fallback.tensor as T
+from   aesara_theano_fallback import aesara as theano
 
 from .constants import *
+
 
 __all__ = ["get_transit_depth",
            "get_sma",
@@ -18,11 +22,12 @@ __all__ = ["get_transit_depth",
            "get_ingress_duration",
            "boxcar_smooth",
            "bin_data",
-           "lorentzian",
            "heavyside",
+           "lorentzian",
            "FFT_estimator",
            "LS_estimator",
-           "get_autocorr_length"]
+           "get_autocorr_length",
+           "weighted_percentile"]
 
 
 def get_transit_depth(p, b):
@@ -35,8 +40,8 @@ def get_transit_depth(p, b):
     Eq. (1) of Mandel & Agol (2002)
     """
     # broadcasting
-    p = p*np.ones(np.asarray(b).shape)
-    b = b*np.ones(np.asarray(p).shape)
+    p = p*np.ones(np.atleast_1d(b).shape)
+    b = b*np.ones(np.atleast_1d(p).shape)
     
     # non-grazing transit (b <= 1-p)
     d = p**2
@@ -56,7 +61,7 @@ def get_transit_depth(p, b):
     # non-transiting (b >= 1+p)
     d[b >= 1+p] = 0.0
     
-    return d.clip(0,1)
+    return np.squeeze(d)
 
 
 def get_sma(P, Ms):
@@ -87,18 +92,19 @@ def get_dur_tot(P, rp, Rs, b, sma, ecc=None, w=None):
     ecc : eccentricity
     w : longitude of periastron [radians]
     """
-    sini = np.sin(np.arccos(b/(sma/Rs)))
-    argument = (Rs/sma) * np.sqrt((1+rp/Rs)**2 - b**2) / sini
-    
     if ecc is not None:
         Xe = np.sqrt(1-ecc**2)/(1+ecc*np.sin(w))
+        We = (1-ecc**2)/(1+ecc*np.sin(w))
     else:
         Xe = 1.0
+        We = 1.0
+        
+    sini = np.sin(np.arccos((b/We)/(sma/Rs)))
+    argument = (Rs/sma) * np.sqrt((1+rp/Rs)**2 - b**2) / sini
         
     Ttot = (P/pi)*np.arcsin(argument)*Xe
         
     return Ttot
-
 
 
 def get_dur_full(P, rp, Rs, b, sma, ecc=None, w=None):
@@ -114,27 +120,59 @@ def get_dur_full(P, rp, Rs, b, sma, ecc=None, w=None):
     ecc : eccentricity
     w : longitude of periastron [radians]
     """
-    sini = np.sin(np.arccos(b/(sma/Rs)))
-    argument = (Rs/sma) * np.sqrt((1-rp/Rs)**2 - b**2) / sini
-    
     if ecc is not None:
         Xe = np.sqrt(1-ecc**2)/(1+ecc*np.sin(w))
+        We = (1-ecc**2)/(1+ecc*np.sin(w))
     else:
         Xe = 1.0
-    
+        We = 1.0
+        
+    sini = np.sin(np.arccos((b/We)/(sma/Rs)))
+    argument = (Rs/sma) * np.sqrt((1-rp/Rs)**2 - b**2) / sini
+            
     Tfull = np.asarray((P/pi)*np.arcsin(argument))*Xe
     
     # correct for grazing transits
     grazing = np.asarray(b) > np.asarray(1 - rp/Rs)
     Tfull[grazing] = np.nan
     
-    return Tfull.clip(0,1)
+    return Tfull
 
+
+def get_dur_mid(P, b, aRs, ecc=None, w=None):
+    """
+    Ingress/egrees midpoint transit duration (1.5-3.5 contacts)
+    See Winn 2010
+    
+    P : period [days]
+    b : impact parameter
+    aRs : semimajor axis / stellar radius
+    ecc : eccentricity
+    w : longitude of periastron [radians]
+    """
+    if ecc is not None:
+        Xe = np.sqrt(1-ecc**2)/(1+ecc*np.sin(w))
+        We = (1-ecc**2)/(1+ecc*np.sin(w))
+    else:
+        Xe = 1.0
+        We = 1.0
+        
+    sini = np.sin(np.arccos((b/We)/(sma/Rs)))
+    argument = (1/aRs) * np.sqrt(1 - b**2) / sini
+    
+    Tmid = np.asarray((P/pi)*np.arcsin(argument))*Xe
+    
+    # correct for grazing transits
+    grazing = np.asarray(b) > 1
+    Tmid[grazing] = np.nan
+    
+    return Tmid
 
 
 def get_ingress_duration(P, rp, Rs, b, sma, ecc=None, w=None):
     """
     Ingress duration, assuming e=0 --> tau_ingress = tau_egress
+    This is modified from the usual definition to be defined for grazing transits
     See Winn 2010
     
     P : period [days]
@@ -148,14 +186,14 @@ def get_ingress_duration(P, rp, Rs, b, sma, ecc=None, w=None):
     T14 = get_dur_tot(P, rp, Rs, b, sma)
     T23 = get_dur_full(P, rp, Rs, b, sma)
     
-    tau = np.asarray(T14 - T23)
+    tau = np.asarray(T14 - T23)/2
     
     # correct for grazing transits
     grazing = np.asarray(b) > 1 - np.asarray(rp/Rs)
 
     tau[grazing] = np.asarray(T14)[grazing]/2
     
-    return tau.clip(0,1)
+    return tau
 
 
 
@@ -188,30 +226,34 @@ def boxcar_smooth(x, winsize, passes=2):
     return xsmooth
 
 
-def bin_data(times, data_in, bin_cadence):
+def bin_data(time, data, binsize):
     """
     Parameters
     ----------
-    times : ndarray
+    time : ndarray
         vector of time values
-    data_in : ndarray
+    data : ndarray
         corresponding vector of data values to be binned
-    bin_cadence : float
-        bin size for output data, in same units as times
+    binsize : float
+        bin size for output data, in same units as time
         
     Returns
     -------
-    data_out : ndarray
-        binned data
+    bin_centers : ndarray
+        center of each data (i.e. binned time)
+    binned_data : ndarray
+        data binned to selcted binsize
     """
-    binned_index = times//bin_cadence
-
-    data_out = []
+    bin_centers = np.hstack([np.arange(time.mean(),time.min()-binsize/2,-binsize),
+                            np.arange(time.mean(),time.max()+binsize/2,binsize)])
     
-    for i, bi in enumerate(np.unique(binned_index)):
-        data_out.append(np.mean(data_in[binned_index == bi]))
+    bin_centers = np.sort(np.unique(bin_centers))
+    binned_data = []
+    
+    for i, t0 in enumerate(bin_centers):
+        binned_data.append(np.mean(data[np.abs(time-t0) < binsize/2]))
         
-    return np.asarray(data_out)
+    return bin_centers, np.array(binned_data)
 
 
 def lorentzian(theta, x):
@@ -375,7 +417,7 @@ def FFT_estimator(x, y, fmin=None, fmax=None, crit_fap=0.003, nboot=1000, return
 
 def LS_estimator(x, y, fsamp=None, fap=0.1, return_levels=False, max_peaks=2):
     """
-    Generates a Lomb-Scargle periodogram and identifies significant frequencies from a data series
+    Generate a Lomb-Scargle periodogram and identify significant frequencies
     Assumes that data are nearly evenly sampled
     Optimized for finding marginal periodic TTV signals in OMC data; may not perform well for other applications
     
@@ -421,7 +463,7 @@ def LS_estimator(x, y, fsamp=None, fap=0.1, return_levels=False, max_peaks=2):
     loop = True
     while loop:
         lombscargle = LombScargle(xt, yt*hann[~out])
-        xf, yf = lombscargle.autopower(minimum_frequency=2.0/(xt.max()-xt.min()), \
+        xf, yf = lombscargle.autopower(minimum_frequency=1.5/(xt.max()-xt.min()), \
                                        maximum_frequency=0.25*fsamp, \
                                        samples_per_peak=10)
     
@@ -451,6 +493,7 @@ def LS_estimator(x, y, fsamp=None, fap=0.1, return_levels=False, max_peaks=2):
     
     else:
         return xf_out, yf_out, freqs, faps
+
 
     
 def get_autocorr_length(x):
@@ -485,3 +528,31 @@ def get_autocorr_length(x):
         win = len(taus) - 1
 
     return np.max([taus[win], 1.0])
+
+
+
+def weighted_percentile(a, q, w=None):
+    """
+    Compute the q-th percentile of data array a
+    Similar to np.percentile, but allows for weights (but not axis-wise computation)
+    """
+    a = np.array(a)
+    q = np.array(q)
+    
+    if w is None:
+        return np.percentile(a,q)
+    
+    else:
+        w = np.array(w)
+        
+        assert np.all(q >= 0) and np.all(q <= 100), "quantiles should be in [0, 100]"
+
+        order = np.argsort(a)
+        a = a[order]
+        w = w[order]
+
+        weighted_quantiles = np.cumsum(w) - 0.5 * w
+        weighted_quantiles -= weighted_quantiles[0]
+        weighted_quantiles /= weighted_quantiles[-1]
+    
+        return np.interp(q/100., weighted_quantiles, a)

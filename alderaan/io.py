@@ -1,8 +1,8 @@
-# import relevant modules
 import numpy as np
 import csv
 import sys
 import os
+
 import lightkurve as lk
 from   astropy.io import fits as pyfits
 import pymc3 as pm
@@ -78,19 +78,22 @@ def get_csv_data(keyname, keys, values):
 
 def save_sim_fits(lklc, path=None, overwrite=False):
     """
-    Load simulated lightcurve data from a .fits file
+    Save simulated lightcurve data to a .fits file
     The input to this funciton is the output of 'simulate_lightcurve.py'
     
     Parameters
     ----------
-    lklc : lk.LightCurve
-        data to save
-    path : str
-        path to save target .fits file
+        lklc : lk.LightCurve
+            data to save
+        path : str (optional)
+            path to save target .fits file
+        overwrite : bool
+            True to overwite any existing .fits file
     
     Returns
     -------
-    if path = None, an HDUList is returnd
+        hdulist : HDUList
+            only returned if save path is not specified
     """
     # make primary HDU
     primary_hdu = pyfits.PrimaryHDU()
@@ -108,13 +111,13 @@ def save_sim_fits(lklc, path=None, overwrite=False):
     hdulist = []
     
     hdulist.append(primary_hdu)
-    hdulist.append(pyfits.ImageHDU(data=lklc.time, name="TIME"))
-    hdulist.append(pyfits.ImageHDU(data=lklc.flux, name="FLUX"))
-    hdulist.append(pyfits.ImageHDU(data=lklc.flux_err, name="FLUX_ERR"))
-    hdulist.append(pyfits.ImageHDU(data=lklc.cadenceno, name="CADNO"))
-    hdulist.append(pyfits.ImageHDU(data=lklc.quality, name="QUALITY"))
-    hdulist.append(pyfits.ImageHDU(data=lklc.centroid_col, name="COL"))
-    hdulist.append(pyfits.ImageHDU(data=lklc.centroid_row, name="ROW"))
+    hdulist.append(pyfits.ImageHDU(data=lklc.time.value, name="TIME"))
+    hdulist.append(pyfits.ImageHDU(data=lklc.flux.value, name="FLUX"))
+    hdulist.append(pyfits.ImageHDU(data=lklc.flux_err.value, name="FLUX_ERR"))
+    hdulist.append(pyfits.ImageHDU(data=lklc.cadenceno.value, name="CADNO"))
+    hdulist.append(pyfits.ImageHDU(data=lklc.quality.value, name="QUALITY"))
+    hdulist.append(pyfits.ImageHDU(data=lklc.centroid_col.value, name="COL"))
+    hdulist.append(pyfits.ImageHDU(data=lklc.centroid_row.value, name="ROW"))
     
     hdulist = pyfits.HDUList(hdulist)
     
@@ -149,8 +152,6 @@ def load_sim_fits(filename):
         data = lk.KeplerLightCurve(time = hdulist['TIME'].data,
                                    flux = hdulist['FLUX'].data,
                                    flux_err = hdulist['FLUX_ERR'].data,
-                                   centroid_col = hdulist['COL'].data,
-                                   centroid_row = hdulist['ROW'].data,
                                    quality = hdulist['QUALITY'].data,
                                    quality_bitmask = header['QBITMASK'],
                                    channel = header['CHANNEL'],
@@ -187,8 +188,6 @@ def load_detrended_lightcurve(filename):
         litecurve.cadno = np.array(hdulist['CADNO'].data, dtype='int')
         litecurve.quarter = np.array(hdulist['QUARTER'].data, dtype='int')
         litecurve.channel = np.array(hdulist['CHANNEL'].data, dtype='int')
-        litecurve.centroid_col = np.array(hdulist['CENT_COL'].data, dtype='int')
-        litecurve.centroid_row = np.array(hdulist['CENT_ROW'].data, dtype='int')
         litecurve.mask = np.asarray(hdulist['MASK'].data, dtype='bool')
         
     return litecurve    
@@ -220,7 +219,10 @@ def trace_to_hdulist(trace, varnames, target):
     header = primary_hdu.header
 
     header['TARGET']  = target
-    header['NCHAINS'] = trace.nchains
+    try:
+        header['NCHAINS'] = trace.nchains
+    except:
+        header['NCHAINS'] = 1
 
     primary_hdu.header = header
     

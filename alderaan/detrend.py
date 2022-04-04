@@ -1,201 +1,104 @@
-# import relevant modules
 import numpy as np
-import scipy.optimize as op
-import scipy.signal as sig
-from   scipy import stats
-from   scipy.interpolate import interp1d
-import astropy
-from   astropy.io import fits as pyfits
-from   astropy.timeseries import LombScargle
-
-import lightkurve as lk
-import exoplanet as exo
-import pymc3 as pm
-import theano.tensor as T
-
-import csv
-import sys
-import os
+import matplotlib.pyplot as plt
 import warnings
 from   copy import deepcopy
 
+import scipy.signal as sig
+from   scipy.interpolate import interp1d
+import astropy
+from   astropy.timeseries import LombScargle
+
+import lightkurve as lk
+import pymc3 as pm
+import pymc3_ext as pmx
+import exoplanet as exo
+import aesara_theano_fallback.tensor as T
+from   aesara_theano_fallback import aesara as theano
+from   celerite2.theano import GaussianProcess
+from   celerite2.theano import terms as GPterms
+
 from .constants import *
 from .LiteCurve import *
-from .utils import *
-
-import matplotlib.pyplot as plt
 
 
 __all__ = ["cleanup_lkfc",
-           "remove_flagged_cadences",
-           "clip_outliers",
            "make_transitmask",
            "identify_gaps",
-           "stitch_lkc",
+           "flatten_with_gp",
            "filter_ringing",
-           "flatten_with_gp"]
+           "stitch"]
 
 
 
-def cleanup_lkfc(lkf_collection, kic):
+def cleanup_lkfc(lk_collection, kic):
     """
-    Join each quarter in a lk.LightCurveFileCollection into a single lk.LightCurveFile
+    Join each quarter in a lk.LightCurveCollection into a single lk.LightCurve
     Performs only the minimal detrending step remove_nans()
     
     Parameters
     ----------
-    lkf_collection : lk.LightCurveFileCollection
-        
-    kic : int
-        Kepler Input Catalogue (KIC) number for target
+        lk_collection : lk.LightCurveCollection
+            lk.LightCurveCollection() with (possibly) multiple entries per quarter
+        kic : int
+            Kepler Input Catalogue (KIC) number for target
     
     Returns
     -------
-    lkc : lk.LightCurveCollection
-    
+        lkc : lk.LightCurveCollection
+            lk.LightCurveCollection() with only one entry per quarter
     """
-    lkf_col = deepcopy(lkf_collection)
+    lk_col = deepcopy(lk_collection)
     
     quarters = []
-    for i, lkf in enumerate(lkf_col):
-        quarters.append(lkf.quarter)
+    for i, lkc in enumerate(lk_col):
+        quarters.append(lkc.quarter)
 
     data_out = []
     for q in np.unique(quarters):
-        lkf_list = []
+        lkc_list = []
         cadno   = []
 
-        for i, lkf in enumerate(lkf_col):
-            if (lkf.quarter == q)*(lkf.targetid==kic):
-                lkf_list.append(lkf)
-                cadno.append(lkf.cadenceno.min())
+        for i, lkc in enumerate(lk_col):
+            if (lkc.quarter == q)*(lkc.targetid==kic):
+                lkc_list.append(lkc)
+                cadno.append(lkc.cadenceno.min())
         
         order = np.argsort(cadno)
-        
-        lkfc_list = []
-        
-        for j in order:
-            lkfc_list.append(lkf_list[j])
+        lkc_list = [lkc_list[j] for j in order]
 
-        # the operation "stitch" converts a LightCurveFileCollection to a single LightCurve
-        lkfc_list = lk.LightCurveFileCollection(lkfc_list)
-        lklc = lkfc_list.PDCSAP_FLUX.stitch().remove_nans()
+        # the operation "stitch" converts a LightCurveCollection to a single LightCurve
+        lkc = lk.LightCurveCollection(lkc_list).stitch().remove_nans()
 
-        data_out.append(lklc)
+        data_out.append(lkc)
 
     return lk.LightCurveCollection(data_out)
 
 
 
-def remove_flagged_cadences(lklc, bitmask='default', return_mask=False):
-    """
-    Remove cadences flagged by Kepler pipeline data quality flags
-    See lightkurve documentation for description of input parameters
-
-    Parameters
-    ----------
-    lklc : lightkurve.KeplerLightCurve() object
-    
-    bitmask : string
-        'default', 'hard', or 'hardest' -- how aggressive to be on cutting flagged cadences
-    return_mask : bool
-        'True' to return a mask of flagged cadences (1=good); default=False
-
-    Returns
-    -------
-    lklc : LightCurve() object
-        with flagged cadences removed
-    qmask : array-like, bool
-        boolean mask indicating with cadences were removed (True=data is good quality)
-    """
-    qmask = lk.KeplerQualityFlags.create_quality_mask(lklc.quality, bitmask)
-    
-    lklc.time         = lklc.time[qmask]
-    lklc.flux         = lklc.flux[qmask]
-    lklc.flux_err     = lklc.flux_err[qmask]
-    lklc.centroid_col = lklc.centroid_col[qmask]
-    lklc.centroid_row = lklc.centroid_row[qmask]
-    lklc.cadenceno    = lklc.cadenceno[qmask]
-    lklc.quality      = lklc.quality[qmask]
-    
-    if return_mask:
-        return lklc, qmask
-    else:
-        return lklc
-
-
-
-def clip_outliers(lklc, kernel_size, sigma_upper, sigma_lower, mask=None):
-    """
-    Docstring
-    
-    Parameters
-    ----------
-    lklc : lightkurve.KeplerLightCurve
-    
-    """
-    if mask is None:
-        mask = np.zeros(len(lklc.time), dtype="bool")
-    
-    loop = True
-    count = 0
-    
-    while loop:
-        smoothed = sig.medfilt(lklc.flux, kernel_size=kernel_size)
-
-        bad = astropy.stats.sigma_clip(lklc.flux-smoothed, sigma_upper=sigma_upper, sigma_lower=sigma_lower, \
-                                       stdfunc=astropy.stats.mad_std).mask
-        
-        bad = bad*~mask
-
-        lklc.time = lklc.time[~bad]
-        lklc.flux = lklc.flux[~bad]
-        lklc.quality = lklc.quality[~bad]
-        lklc.flux_err = lklc.flux_err[~bad]
-        lklc.cadenceno = lklc.cadenceno[~bad]
-        lklc.centroid_row = lklc.centroid_row[~bad]
-        lklc.centroid_col = lklc.centroid_col[~bad]
-        
-        mask = mask[~bad]
-        
-        if np.sum(bad) == 0:
-            loop = False
-        else:
-            count += 1
-            
-        if count >= 3:
-            loop = False
-
-    return lklc    
-
-
-    
-def make_transitmask(time, tts, duration, masksize=1.5):
+def make_transitmask(time, tts, masksize):
     """
     Make a transit mask for a Planet
     
     Parameters
     ----------
-    time : array-like
-        time values at each cadence
-    tts : array-like
-        transit times for a single planet
-    duration : float
-        transit duration
-    masksize : float
-        size of mask window in number of transit durations from transit center (default=1.5 --> 3 transit durations masked)
+        time : array-like
+            time values at each cadence
+        tts : array-like
+            transit times for a single planet
+        masksize : float
+            size of mask window in same units as time
     
     Returns
     -------
         transitmask : array-like, bool
             boolean array (1=near transit; 0=not)
     """  
-    transitmask = np.zeros_like(time, dtype='bool')
+    transitmask = np.zeros(len(time), dtype='bool')
     
     tts_here = tts[(tts >= time.min())*(tts <= time.max())]
     
     for t0 in tts_here:
-        neartransit = np.abs(time-t0)/duration < masksize
+        neartransit = np.abs(time-t0) < masksize
         transitmask += neartransit
     
     return transitmask
@@ -204,21 +107,21 @@ def make_transitmask(time, tts, duration, masksize=1.5):
 
 def identify_gaps(lc, break_tolerance, jump_tolerance=5.0):
     """
-    Search a LiteCurve for large time breaks and flux jumps
+    Find gaps (breaks in time) and jumps (sudden flux changes) in a LiteCurve
     
     Parameters
     ----------
-        lc : alderaan.LiteCurve() object
-            must have time, flux, and cadno attributes
+        lc : LiteCurve
+            alderaan.LiteCurve() to be analyzed
         break_tolerance : int
-            number of cadences considered a large gap in time
+            number of cadences to be considered a gap in data
         jump_tolerance : float
-            number of sigma from median flux[i+1]-flux[i] to be considered a large jump in flux (default=5.0)
-            
+            sigma threshold for identifying jumps cadence-to-cadence flux variation
+        
     Returns
     -------
-        gap_locs : array
-            indexes of identified gaps, including endpoints
+        gaps : ndarray, dtype=int
+            array of indexes corresponding to the locations of gaps in lc.flux
     """
     # 1D mask
     mask = np.sum(np.atleast_2d(lc.mask, 0) == 0)
@@ -249,53 +152,177 @@ def identify_gaps(lc, break_tolerance, jump_tolerance=5.0):
     return gaps
 
 
-def stitch_lkc(lkc):
+
+def flatten_with_gp(lc, break_tolerance, min_period, kterm="RotationTerm", correct_ramp=True, return_trend=False):
     """
-    Stitch together multiple quarters of a lk.LightCurveCollection into a custom LiteCurve
+    Remove trends from a LiteCurve using celerite Gaussian processes
     
     Parameters
     ----------
-    lkc : lk.LightCurveCollection()
-    
+        lc : LiteCurve
+            alderaan.LiteCurve() to be flattened
+        break_tolerance : int
+            number of cadences to be considered a gap in data
+        min_period : float
+            minimum allowed period of GP kernel
+        kterm : string
+            must be either "RotationTerm" (default) or "SHOTerm"
+        correct_ramp : bool
+            True to include an exponential ramp in the model for each disjoint section of photometry
+        return_trend : bool
+            True to return the predicted GP trend
+        
     Returns
     -------
-    litecurve : LiteCurve() object
-        This is a custom class, similar but not idential to a lk.LightCurve object
+        lc : LiteCurve
+            alderaan.LiteCurve() with lc.flux and lc.error flattened and normalized
     """
-    litecurve = LiteCurve()
+    # identify primary oscillation period
+    ls_estimate = LombScargle(lc.time, lc.flux)
+    xf, yf = ls_estimate.autopower(minimum_frequency=1/(lc.time.max()-lc.time.min()), 
+                                   maximum_frequency=1/min_period)
     
-    time = []
-    flux = []
-    error = []
-    cadno = []
-    quarter = []
-    channel = []
-    centroid_col = []
-    centroid_row = []
-    mask = []
+    peak_freq = xf[np.argmax(yf)]
+    peak_per  = 1/peak_freq
     
-    # combine
-    for i, lc in enumerate(lkc):
-        time.append(lc.time)
-        flux.append(lc.flux)
-        error.append(lc.flux_err)
-        cadno.append(lc.cadenceno)
-        quarter.append(lc.quarter)
-        channel.append(lc.channel)
-        centroid_col.append(lc.centroid_col)
-        centroid_row.append(lc.centroid_row)
     
-    # linearize
-    litecurve.time = np.asarray(np.hstack(time), dtype='float')
-    litecurve.flux = np.asarray(np.hstack(flux), dtype='float')
-    litecurve.error = np.asarray(np.hstack(error), dtype='float')
-    litecurve.cadno = np.asarray(np.hstack(cadno), dtype='int')
-    litecurve.quarter = np.asarray(np.hstack(quarter), dtype='int')
-    litecurve.channel = np.asarray(np.hstack(channel), dtype='int')
-    litecurve.centroid_col = np.asarray(np.hstack(centroid_col), dtype='int')
-    litecurve.centroid_row = np.asarray(np.hstack(centroid_row), dtype='int')
+    # find gaps/jumps in the data   
+    gaps = identify_gaps(lc, break_tolerance=break_tolerance)
+    gaps[-1] -= 1
     
-    return litecurve
+    nseg = len(gaps) - 1
+    
+    # make adjustments for masked transits        
+    inds_ = np.arange(len(lc.time), dtype="int")[~lc.mask]
+    gaps_ = [np.sum(inds_ < g) for g in gaps]
+    time_ = lc.time[~lc.mask]
+    flux_ = lc.flux[~lc.mask]    
+    
+    
+    # break up data into segments bases on gaps/jumps 
+    seg  = np.zeros(len(lc.time), dtype="int")
+    seg_ = np.zeros(len(time_), dtype="int")
+    
+    for i in range(nseg):
+        seg[gaps[i]:gaps[i+1]] = i
+        seg_[gaps_[i]:gaps_[i+1]] = i
+    
+    
+    # define the mean function (exponential ramp)
+    if correct_ramp:
+        def mean_fxn(_t, _s, flux0, ramp_amp, log_tau):
+            mean = T.zeros(len(_t))
+
+            for i in range(len(np.unique(_s))):
+                t0 = _t[_s == i].min()
+                mean += flux0[i]*(1 + ramp_amp[i]*T.exp(-(_t-t0)/T.exp(log_tau[i])))*(_s == i)
+
+            return mean
+        
+    else:
+        def mean_fxn(_t, _s, flux0, ramp_amp=None, log_tau=None):
+            mean = T.zeros(len(_t))
+            
+            for i in range(len(np.unique(_s))):
+                mean += flux0[i]*(_s == i)
+                
+            return mean
+    
+
+    # here's the stellar rotation model
+    with pm.Model() as trend_model:
+        
+        # set up the kernal
+        log_sigma = pm.Normal("log_sigma", mu=np.log(np.std(flux_)), sd=5.0)
+        logP_off  = pm.Normal("logP", mu=np.log(peak_per - min_period), sd=2.0)
+        log_Q0    = pm.Normal("log_Q0", mu=0.0, sd=5.0, testval=np.log(0.5))
+        
+        sigma = pm.Deterministic("sigma", T.exp(log_sigma))
+        P = pm.Deterministic("P", min_period + T.exp(logP_off))
+        
+        
+        if kterm == "RotationTerm":
+            log_dQ = pm.Normal("log_dQ", mu=0.0, sd=5.0, testval=np.log(1e-3))
+            mix    = pm.Uniform("mix", lower=0, upper=1, testval=0.1)
+            kernel = GPterms.RotationTerm(sigma=sigma, period=P, Q0=T.exp(log_Q0), dQ=T.exp(log_dQ), f=mix)
+            
+        elif kterm == "SHOTerm":
+            kernel = GPterms.SHOTerm(sigma=sigma, w0=2*pi/P, Q=0.5 + T.exp(log_Q0))
+            
+        else:
+            raise ValueError("kterm must be 'RotationTerm' or 'SHOTerm'")
+        
+        
+        # mean function is an exponential trend (per segment)
+        approx_mean_flux = [np.mean(flux_[seg_ == i]) for i in range(nseg)]
+        
+        if correct_ramp:
+            flux0    = pm.Normal("flux0", mu=approx_mean_flux, sd=np.ones(nseg), shape=nseg)
+            ramp_amp = pm.Normal("ramp_amp", mu=0, sd=np.std(lc.flux), shape=nseg)
+            log_tau  = pm.Normal("log_tau", mu=0, sd=5, shape=nseg)
+            mean_    = pm.Deterministic("mean_", mean_fxn(time_, seg_, flux0, ramp_amp, log_tau))
+            
+        else:
+            flux0    = pm.Normal("flux0", mu=approx_mean_flux, sd=np.ones(nseg), shape=nseg)
+            ramp_amp = None
+            log_tau  = None
+            mean_    = pm.Deterministic("mean_", mean_fxn(time_, seg_, flux0))
+                
+            
+        # jitter
+        logjit = pm.Normal('logjit', mu=np.var(flux_ - sig.medfilt(flux_,13)), sd=5.0)
+
+        # now set up the GP
+        gp = GaussianProcess(kernel, t=time_, diag=T.exp(logjit)*T.ones(len(time_)), mean=mean_)
+        gp.marginal("gp", observed=flux_)
+        
+        # track mean predictions
+        full_mean_pred = pm.Deterministic("full_mean_pred", mean_fxn(lc.time, seg, flux0, ramp_amp, log_tau))
+        
+    
+    # optimize the GP hyperparameters
+    with trend_model:
+        trend_map = trend_model.test_point
+        trend_map = pmx.optimize(start=trend_map, vars=[flux0])
+        trend_map = pmx.optimize(start=trend_map, vars=[flux0, logjit])
+        
+        for i in range(1 + correct_ramp):
+            if kterm == "RotationTerm":
+                trend_map = pmx.optimize(start=trend_map, vars=[logjit, flux0, sigma, P, log_Q0, log_dQ, mix])
+            if kterm == "SHOTerm":
+                trend_map = pmx.optimize(start=trend_map, vars=[logjit, flux0, sigma, P, log_Q0])
+            if correct_ramp:
+                trend_map = pmx.optimize(start=trend_map, vars=[logjit, flux0, ramp_amp, log_tau])
+                
+        trend_map = pmx.optimize(start=trend_map)     
+        
+    
+    # reconstruct the GP to interpolate over masked transits
+    if kterm == "RotationTerm":
+        kernel = GPterms.RotationTerm(sigma  = trend_map["sigma"], 
+                                      period = trend_map["P"], 
+                                      Q0 = T.exp(trend_map["log_Q0"]),
+                                      dQ = T.exp(trend_map["log_dQ"]),
+                                      f  = trend_map["mix"])
+                                      
+    elif kterm == "SHOTerm":
+        kernel = GPterms.SHOTerm(sigma = trend_map["sigma"], 
+                                 w0 = 2*pi/trend_map["P"], 
+                                 Q  = 0.5 + T.exp(trend_map["log_Q0"]))
+    
+
+    gp = GaussianProcess(kernel, mean=0.0)
+    gp.compute(time_, diag=T.exp(trend_map["logjit"])*T.ones(len(time_)))
+        
+    full_trend =  gp.predict(flux_-trend_map["mean_"], lc.time).eval() + trend_map["full_mean_pred"]
+    
+    lc.flux /= full_trend
+    lc.error /= full_trend
+    
+    if return_trend:
+        return lc, full_trend
+    else:
+        return lc
 
 
 
@@ -304,6 +331,8 @@ def filter_ringing(lc, break_tolerance, fring, bw):
     Filter out known long cadence instrumental ringing modes (see Gilliland+ 2010)
     Applies a notch filter (narrow bandstop filter) at a set of user specified frequencies
     
+    The function does NOT change the lc.flux attribute directly, but rather returns a new flux array
+    
     Parameters
     ----------
         lc : LiteCurve() object
@@ -311,7 +340,7 @@ def filter_ringing(lc, break_tolerance, fring, bw):
         break_tolerance : int
             number of cadences considered a large gap in time
         fring : array-like
-            ringing frequencies in same units as lklc.time (i.e. if time is in days, fring is in days^-1)
+            ringing frequencies in same units as lc.time (i.e. if time is in days, fring is in days^-1)
         bw : float
             bandwidth of stopband (same units as fring)
              
@@ -367,206 +396,15 @@ def filter_ringing(lc, break_tolerance, fring, bw):
 
 
 
-def flatten_with_gp(lc, break_tolerance, min_period, return_trend=False):
+def stitch(litecurves):
     """
-    Detrend the flux from an alderaan LiteCurve using a celerite RotationTerm GP kernel
-    The mean function of each uninterrupted segment of flux is modeled as an exponential
-    
-        Fmean = F0*(1+A*exp(-t/tau))
-    
-    Parameters
-    ----------
-    lc : alderaan.LiteCurve
-        must have .time, .flux and .mask attributes
-    break_tolerance : int
-        number of cadences considered a large gap in time
-    min_period : float
-        lower bound on primary period for RotationTerm kernel 
-    return_trend : bool (default=False)
-        if True, return the trend inferred from the GP fit
-        
-    Returns
-    -------
-    lc : alderaan.LiteCurve
-        LiteCurve with trend removed from lc.flux
-    gp_trend : ndarray
-        trend inferred from GP fit (only returned if return_trend == True)
+    Combine a list of LiteCurves in a single LiteCurve
     """
-    # find gaps/breaks/jumps in the data
-    gaps = identify_gaps(lc, break_tolerance=break_tolerance)
-    gaps[-1] -= 1
+    combo = deepcopy(litecurves[0])
     
-    # initialize data arrays and lists of segments
-    gp_time = np.array(lc.time, dtype="float64")
-    gp_flux = np.array(lc.flux, dtype="float64")
-    gp_mask = np.sum(lc.mask, 0) == 0
-    gp_quarter = np.array(lc.quarter, dtype="int")
-
-    time_segs = []
-    flux_segs = []
-    mask_segs = []
-    seg_quarter = []
-
-    for i in range(len(gaps)-1):
-        time_segs.append(gp_time[gaps[i]:gaps[i+1]])
-        flux_segs.append(gp_flux[gaps[i]:gaps[i+1]])
-        mask_segs.append(gp_mask[gaps[i]:gaps[i+1]])
-        seg_quarter.append(gp_quarter[gaps[i]])
-
-    mean_flux = []
-    approx_var = []
-
-    for i in range(len(gaps)-1):
-        m = mask_segs[i]
-        mean_flux.append(np.mean(flux_segs[i][m]))
-        approx_var.append(np.var(flux_segs[i] - sig.medfilt(flux_segs[i], 13)))
-
-    
-    # group segments by quarter
-    quarters = np.unique(seg_quarter)
-    nseg = len(time_segs)
-    ngroup = len(quarters)
-    
-    seg_groups = [0]
-    for j, q in enumerate(quarters):
-        seg_groups.append(np.sum(np.array(seg_quarter) <= q))
-        
-    seg_groups = np.array(seg_groups)
-    
-    
-    # identify oscillation period to initialize GP    
-    ls_estimate = LombScargle(gp_time, gp_flux)
-    xf, yf = ls_estimate.autopower(minimum_frequency=1/91.0, maximum_frequency=4.0)
-    
-    peak_freq = xf[np.argmax(yf)]
-    peak_per  = 1/peak_freq
-    peak_fap  = ls_estimate.false_alarm_probability(yf.max())
-    
-    if peak_fap < 1e-4:
-        min_period = 0.5*peak_per
-        
-    
-    # set up lists to hold trend info
-    trend_maps = [None]*ngroup
-    
-    
-    # optimize the GP for each group of segments
-    for j in range(ngroup):
-        sg0 = seg_groups[j]
-        sg1 = seg_groups[j+1]
-        nuse = sg1-sg0
-
-        with pm.Model() as trend_model:
-
-            log_amp = pm.Normal("log_amp", mu=np.log(np.std(gp_flux)), sd=5)
-            log_per_off = pm.Normal("log_per_off", mu=np.log(peak_per-min_period), sd=5)
-            log_Q0_off = pm.Normal("log_Q0_off", mu=0, sd=10)
-            log_deltaQ = pm.Normal("log_deltaQ", mu=2, sd=10)
-            mix = pm.Uniform("mix", lower=0, upper=1)
-
-            P = pm.Deterministic("P", min_period + T.exp(log_per_off))
-            Q0 = pm.Deterministic("Q0", 1/T.sqrt(2) + T.exp(log_Q0_off))
-
-            kernel = exo.gp.terms.RotationTerm(log_amp=log_amp, period=P, Q0=Q0, log_deltaQ=log_deltaQ, mix=mix)
-
-
-            # exponential trend
-            logtau = pm.Normal("logtau", mu=np.log(3)*np.ones(nuse), sd=5*np.ones(nuse), shape=nuse)
-            exp_amp = pm.Normal('exp_amp', mu=np.zeros(nuse), sd=np.std(gp_flux)*np.ones(nuse), shape=nuse)
-
-
-            # nuissance parameters per segment
-            flux0 = pm.Normal('flux0', mu=np.array(mean_flux[sg0:sg1]), sd=np.std(gp_flux)*np.ones(nuse), shape=nuse)
-            logvar = pm.Normal('logvar', mu=np.log(approx_var[sg0:sg1]), sd=10*np.ones(nuse), shape=nuse)
-
-
-            # now set up the GP
-            ramp  = [None]*nuse
-            gp    = [None]*nuse
-            obs   = [None]*nuse
-
-            for i in range(nuse):
-                t = time_segs[sg0+i]
-                f = flux_segs[sg0+i]
-                m = mask_segs[sg0+i]
-
-                ramp[i]  = pm.Deterministic("ramp_{0}".format(i), 1 + exp_amp[i]*T.exp(-(t[m]-t[0])/T.exp(logtau[i])))
-                gp[i]    = exo.gp.GP(kernel, t[m], T.exp(logvar[i])*T.ones(len(t[m])))
-                obs[i]   = pm.Potential('obs_{0}'.format(i), gp[i].log_likelihood(f[m] - flux0[i]*ramp[i]))
-                
-
-        with trend_model:
-            trend_maps[j] = exo.optimize(start=trend_model.test_point, vars=[flux0, logvar])
-            trend_maps[j] = exo.optimize(start=trend_maps[j], vars=[log_amp, mix, log_per_off, log_Q0_off, log_deltaQ])
-            trend_maps[j] = exo.optimize(start=trend_maps[j], vars=[logtau, exp_amp])
-            trend_maps[j] = exo.optimize(start=trend_maps[j])
+    for i in range(1,len(litecurves)):
+        for k in combo.__dict__.keys():
+            if type(combo.__dict__[k]) is np.ndarray:
+                combo.__dict__[k] = np.hstack([combo.__dict__[k], litecurves[i].__dict__[k]])
             
-            
-    
-    
-    # now compute the trend from the MAP parameter estimates
-    # using gp.predict() inside the initial model was crashing jupyter
-    # seriously, don't try to do it...it's not worth the memory issues
-    
-    # set up mean and variance vectors
-    gp_mean  = np.ones_like(gp_flux)
-    gp_var   = np.ones_like(gp_flux)
-
-
-    for i in range(nseg):
-        j = np.argmin(seg_groups <= i) - 1
-
-        g0 = gaps[i]
-        g1 = gaps[i+1]
-
-        F0_  = trend_maps[j]["flux0"][i-seg_groups[j]]
-        A_   = trend_maps[j]["exp_amp"][i-seg_groups[j]]
-        tau_ = np.exp(trend_maps[j]["logtau"][i-seg_groups[j]])
-
-        t_ = gp_time[g0:g1] - gp_time[g0]
-
-        gp_mean[g0:g1] = F0_*(1 + A_*np.exp(-t_/tau_))
-        gp_var[g0:g1] = np.ones(g1-g0)*np.exp(trend_maps[j]["logvar"][i-seg_groups[j]])
-
-
-    # increase variance for cadences in transit (yes, this is hacky, but it works)
-    gp_var[~gp_mask] *= 1e12
-
-
-    # now evaluate the GP to get the final trend
-    gp_trend = np.zeros_like(gp_flux)
-
-    for j in range(ngroup):
-        start = gaps[seg_groups[j]]
-        end = gaps[seg_groups[j+1]]
-
-        m = gp_mask[start:end]
-
-        with pm.Model() as trend_model:
-
-            log_amp = trend_maps[j]["log_amp"]
-            P = trend_maps[j]["P"]
-            Q0 = trend_maps[j]["Q0"]
-            log_deltaQ = trend_maps[j]["log_deltaQ"]
-            mix = trend_maps[j]["mix"]
-
-            kernel = exo.gp.terms.RotationTerm(log_amp=log_amp, period=P, Q0=Q0, log_deltaQ=log_deltaQ, mix=mix)
-
-
-            gp = exo.gp.GP(kernel, gp_time[start:end], gp_var[start:end])
-
-            gp.log_likelihood(gp_flux[start:end] - gp_mean[start:end])
-
-            gp_trend[start:end] = gp.predict().eval() + gp_mean[start:end]   
-    
-    
-    
-    # now remove the trend
-    lc.flux  = lc.flux/gp_trend
-    
-    
-    # return results
-    if return_trend:
-        return lc, gp_trend
-    else:
-        return lc
+    return combo

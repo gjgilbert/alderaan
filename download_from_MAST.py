@@ -1,49 +1,29 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# This script downloads lightcurves for a single target from the MAST archive using Lightkurve. To use, specify the KOI identifier (e.g. 'K00137') and a directory (PRIMARY_DIR) to place the downloaded fits files into. Lightkurve creates a file structure based on each object's KIC identifier. These files can then be read back in using lk.search.open() in the script "main_pipeline.py".
-# 
-# This two-step procedure is necessary because the University of Chicago midway.rcc server does not allow connections to the internet on compute nodes. However, internet access is granted on the login node, so this script ("download_from_MAST.py") should first be run on the login node, after which the data reduction pipeline ("main_pipeline.py") can be run on the compute node using a slurm batch request.
+# This script downloads lightcurves for a single target from the MAST archive using Lightkurve. To use, specify the KOI identifier (e.g. 'K00137') and a directory (PRIMARY_DIR) to place the downloaded fits files into. Lightkurve creates a file structure based on each object's KIC identifier. These files can then be read back in for detrending and modeling in other scripts. This two-step procedure is necessary because the University of Chicago Midway-RCC server does not allow connections to the internet on compute nodes.
 
-# In[1]:
+# In[ ]:
 
 
 import numpy as np
-
-import csv
-import sys
-import os
-import importlib as imp
-import glob
-import warnings
-import argparse
-
 import lightkurve as lk
-
-from alderaan.constants import *
-from alderaan.utils import *
-from alderaan.LiteCurve import *
-import alderaan.io as io
-
-# flush buffer to avoid mixed outputs from progressbar
-sys.stdout.flush()
-
-# turn off FutureWarnings
-warnings.filterwarnings('ignore', category=FutureWarning)
+import argparse
+import warnings
 
 
 # # Manually set I/O parameters
 
-# In[2]:
+# In[ ]:
 
 
 # select mission, target, and paths
-#MISSION = "Kepler"
-#TARGET  = "K00351"
-#PRIMARY_DIR = '/Users/research/projects/alderaan/'
+MISSION = "Kepler"
+TARGET  = "K01681"
+PRIMARY_DIR = '/Users/research/projects/alderaan/'
 
 
-# In[3]:
+# In[ ]:
 
 
 # here's where we parse the inputs
@@ -62,7 +42,7 @@ except:
     pass
 
 
-# In[4]:
+# In[ ]:
 
 
 # directory in which to place MAST downloads
@@ -78,43 +58,76 @@ print(MAST_TARGET)
 
 # # Download the data from MAST
 
-# In[5]:
+# In[ ]:
 
 
-# download the SHORT CADENCE data -- this creates a LightCurveFileCollection
+# download the SHORT CADENCE data -- this creates a LightCurveCollection of KeplerLightCurves
 print('downloading short cadence data from MAST')
-sc_rawdata = lk.search_lightcurvefile(MAST_TARGET, cadence='short',                                       mission='Kepler').download_all(download_dir=DOWNLOAD_DIR)
+
+sc_searchresult = lk.search_lightcurve(MAST_TARGET, cadence="short", mission="Kepler")
+
+if len(sc_searchresult) > 0:
+    sc_rawdata = sc_searchresult.download_all(download_dir=DOWNLOAD_DIR)
+else:
+    print("...no short cadence data found")
+    sc_rawdata = []
 
 
-# In[6]:
+# In[ ]:
 
 
-# clean up the SHORT CADENCE data
-try:
-    sc_data = io.cleanup_lkfc(sc_rawdata, KIC)
+kic_ids = []
+sc_quarters = []
 
-    # identify which quarters are found in short cadence
-    sc_qlist = []
-    for i, scq in enumerate(sc_data):
-        sc_qlist.append(scq.quarter)
+for i, scrd in enumerate(sc_rawdata):
+    kic_ids.append(scrd.meta["KEPLERID"])
+    sc_quarters.append(scrd.meta["QUARTER"])
     
-except:
-    sc_data = None
-    sc_qlist = []
     
-    
+# check that all lightcurves are from the same object
+if len(kic_ids) > 0:
+    if np.sum(np.array(kic_ids) != kic_ids[0]):
+        raise ValueError("Search results returned data from multiple objects")
+        
+
+# here's the list of quarters w/ short cadence data
+sc_quarters = np.sort(np.unique(sc_quarters))
+
+
 # make a list of quarters where short cadence flux is unavailable
-qlist = np.arange(18)
-keep  = ~np.isin(qlist, np.unique(sc_qlist))
-lc_qlist = qlist[keep]
+qlist = np.arange(18, dtype="int")
+keep  = ~np.isin(qlist, np.unique(sc_quarters))
+lc_quarters = list(qlist[keep])
 
 
-# In[7]:
+# In[ ]:
 
 
-# download the LONG CADENCE data -- this creates a LightCurveFileCollection
+# download the LONG CADENCE data -- this creates a LightCurveCollection of KeplerLightCurves
 print('downloading long cadence data from MAST')
-lc_rawdata = lk.search_lightcurvefile(MAST_TARGET, cadence='long', quarter=lc_qlist,                                       mission='Kepler').download_all(download_dir=DOWNLOAD_DIR)    
+
+lc_searchresult = lk.search_lightcurve(MAST_TARGET, cadence="long", mission="Kepler", quarter=lc_quarters)
+
+if len(lc_searchresult) > 0:
+    lc_rawdata = lc_searchresult.download_all(download_dir=DOWNLOAD_DIR)
+else:
+    print("...no long cadence data found")
+    lc_rawdata = [] 
+
+
+# In[ ]:
+
+
+kic_ids = []
+
+for i, lcrd in enumerate(lc_rawdata):
+    kic_ids.append(lcrd.meta["KEPLERID"])
+    
+    
+# check that all lightcurves are from the same object
+if len(kic_ids) > 0:
+    if np.sum(np.array(kic_ids) != kic_ids[0]):
+        raise ValueError("Search results returned data from multiple objects")
 
 
 # In[ ]:

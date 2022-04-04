@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[ ]:
 
 
 import numpy as np
@@ -27,17 +27,17 @@ global_start_time = timer()
 
 # # Set preliminaries
 
-# In[2]:
+# In[ ]:
 
 
 # select mission, target, and paths
 MISSION = "Simulated"
 PRIMARY_DIR = '/home/gjgilbert/projects/alderaan/'
-TARGET_FILE = PRIMARY_DIR + "Temp/target_list-sim-BIG-eccentric.txt"
+TARGET_FILE = PRIMARY_DIR + "Target_lists/target_list-sim-BIG-eccentric.txt"
 OUTPUT_FILE = PRIMARY_DIR + "Catalogs/injection_and_recovery_results-BIG-ecc-v1.csv"
 
 
-# In[3]:
+# In[ ]:
 
 
 TRACE_DIR = PRIMARY_DIR + "Traces/"
@@ -53,7 +53,7 @@ with open(TARGET_FILE) as tfile:
     target_list = tfile.read().splitlines()
 
 
-# In[4]:
+# In[ ]:
 
 
 # only read results from objects on target_list
@@ -66,9 +66,9 @@ keep = np.isin(sim_ids, target_list)
 trace_files = list(np.array(trace_files)[keep])
 
 
-# # Build dictionary or results
+# # Build dictionary of results
 
-# In[8]:
+# In[ ]:
 
 
 results = {}
@@ -76,16 +76,14 @@ results = {}
 results["koi_id"] = []
 results["npl"] = []
 
-results["rstar"] = []
-results["mstar"] = []
 results["limbdark_1"] = []
 results["limbdark_2"] = []
 
-results["epoch"] = []
+results["epoch"]  = []
 results["period"] = []
-
-results["prad"] = []
+results["prad"]   = []
 results["impact"] = []
+results["rho"]    = []
 
 for z in range(4):
     results["logsw4_{0}".format(z)] = []
@@ -93,7 +91,7 @@ for z in range(4):
     results["logq_{0}".format(z)] = []
 
 
-# In[9]:
+# In[ ]:
 
 
 for i, tf in enumerate(trace_files):
@@ -109,9 +107,7 @@ for i, tf in enumerate(trace_files):
         NDRAWS, NPL = trace['RP'].shape
     
         # stellar parameters
-        RSTAR  = trace['RSTAR'].data
-        MSTAR  = trace['MSTAR'].data
-        U      = trace['U'].data
+        U = trace['U'].data
         U1, U2 = U[:,0], U[:,1]
     
         # planetary parameters
@@ -119,6 +115,7 @@ for i, tf in enumerate(trace_files):
         P    = trace['P'].data
         RP   = trace['RP'].data * RSRE    # [R_earth]
         B    = trace['B'].data
+        RHO  = trace['RHO'].data
         
 
         # GP parameters
@@ -141,32 +138,21 @@ for i, tf in enumerate(trace_files):
             results["koi_id"].append(KOI_ID)
             results["npl"].append(NPL)
             
-            results["rstar"].append(np.percentile(RSTAR, 50))
-            
-            try: results["mstar"].append(np.percentile(MSTAR, 50))
-            except: pass
-
             results["limbdark_1"].append(np.percentile(U1, 50))
             results["limbdark_2"].append(np.percentile(U2, 50))
 
             results["epoch"].append(np.percentile(T0[:,npl], 50))
             results["period"].append(np.percentile(P[:,npl], 50))
-
             results["prad"].append(np.percentile(RP[:,npl], 50))
-            #results["prade_err3m"].append(np.percentile(RP[:,npl],  0.135))
-            #results["prade_err2m"].append(np.percentile(RP[:,npl],  2.275))
-            #results["prade_err1m"].append(np.percentile(RP[:,npl], 15.865))
-            #results["prade_err1p"].append(np.percentile(RP[:,npl], 84.135))
-            #results["prade_err2p"].append(np.percentile(RP[:,npl], 97.725))
-            #results["prade_err3p"].append(np.percentile(RP[:,npl], 99.865))
-
             results["impact"].append(np.percentile(B[:,npl], 50))
-            #results["impact_err3m"].append(np.percentile(B[:,npl],  0.135))
-            #results["impact_err2m"].append(np.percentile(B[:,npl],  2.275))
-            #results["impact_err1m"].append(np.percentile(B[:,npl], 15.865))
-            #results["impact_err1p"].append(np.percentile(B[:,npl], 84.135))
-            #results["impact_err2p"].append(np.percentile(B[:,npl], 97.725))
-            #results["impact_err3p"].append(np.percentile(B[:,npl], 99.865))
+            results["rho"].append(np.percentile(RHO[:,npl], 50))
+           
+            #results["x_err3m"].append(np.percentile(X[:,npl],  0.135))
+            #results["x_err2m"].append(np.percentile(X[:,npl],  2.275))
+            #results["x_err1m"].append(np.percentile(X[:,npl], 15.865))
+            #results["x_err1p"].append(np.percentile(X[:,npl], 84.135))
+            #results["x_err2p"].append(np.percentile(X[:,npl], 97.725))
+            #results["x_err3p"].append(np.percentile(X[:,npl], 99.865))
             
             
             for z in range(4):
@@ -175,7 +161,7 @@ for i, tf in enumerate(trace_files):
                 results["logq_{0}".format(z)].append(np.median(LOGSW4[:,z]))
 
 
-# In[7]:
+# In[ ]:
 
 
 for k in results.keys():
@@ -199,3 +185,10 @@ if WRITENEW:
         writer = csv.writer(outfile)
         writer.writerow(results.keys())
         writer.writerows(zip(*results.values()))
+
+
+# In[ ]:
+
+
+
+
