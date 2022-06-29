@@ -1,14 +1,11 @@
 import numpy as np
-import warnings
-
 import scipy.optimize as op
 import scipy.signal as sig
-from   scipy import stats
-from   scipy import fftpack
-from   scipy.interpolate import interp1d
+import scipy.stats as stats
+import scipy.fftpack as fftpack
 import astropy.stats
 from   astropy.timeseries import LombScargle
-
+import warnings
 import aesara_theano_fallback.tensor as T
 from   aesara_theano_fallback import aesara as theano
 
@@ -17,17 +14,19 @@ from .constants import *
 
 __all__ = ["get_transit_depth",
            "get_sma",
-           "get_dur_tot",
-           "get_dur_full",
-           "get_ingress_duration",
+           "get_dur_14",
+           "get_dur_23",
+           "get_dur_cc",
            "boxcar_smooth",
-           "bin_data",
-           "heavyside",
-           "lorentzian",
            "FFT_estimator",
            "LS_estimator",
-           "get_autocorr_length",
-           "weighted_percentile"]
+           "bin_data",
+           "autocorr_length",
+           "weighted_percentile",
+           "lorentzian",
+           "heavyside"
+          ]
+
 
 
 def get_transit_depth(p, b):
@@ -64,6 +63,7 @@ def get_transit_depth(p, b):
     return np.squeeze(d)
 
 
+
 def get_sma(P, Ms):
     """
     Parameters
@@ -79,18 +79,17 @@ def get_sma(P, Ms):
 
 
 
-def get_dur_tot(P, rp, Rs, b, sma, ecc=None, w=None):
+def get_dur_14(P, aRs, b, ror, ecc=None, w=None):
     """
     Total transit duration (I-IV contacts)
     See Winn 2010 Eq. 14 & 16
     
-    P : period [days]
-    rp : planet radius [Solar radii]
-    Rs : stellar radius [Solar radii]
+    P : period
+    aRs : semimajor axis over stellar radius
     b : impact parameter
-    sma : semimajor axis [Solar radii]
+    ror : planet-to-star radius ratio
     ecc : eccentricity
-    w : longitude of periastron [radians]
+    w : argument of periastron [radians]
     """
     if ecc is not None:
         Xe = np.sqrt(1-ecc**2)/(1+ecc*np.sin(w))
@@ -99,26 +98,26 @@ def get_dur_tot(P, rp, Rs, b, sma, ecc=None, w=None):
         Xe = 1.0
         We = 1.0
         
-    sini = np.sin(np.arccos((b/We)/(sma/Rs)))
-    argument = (Rs/sma) * np.sqrt((1+rp/Rs)**2 - b**2) / sini
+    sini = np.sin(np.arccos((b/We)/(aRs)))
+    argument = (1/aRs) * np.sqrt((1+ror)**2 - b**2) / sini
         
     Ttot = (P/pi)*np.arcsin(argument)*Xe
         
     return Ttot
 
 
-def get_dur_full(P, rp, Rs, b, sma, ecc=None, w=None):
+
+def get_dur_23(P, aRs, b, ror, ecc=None, w=None):
     """
     Total transit duration (II-III contacts)
     See Winn 2010 Eq. 15 & 16
     
-    P : period [days]
-    rp : planet radius [Solar radii]
-    Rs : stellar radius [Solar radii]
+    P : period
+    aRs : semimajor axis over stellar radius
     b : impact parameter
-    sma : semimajor axis [Solar radii]
+    ror : planet-to-star radius ratio
     ecc : eccentricity
-    w : longitude of periastron [radians]
+    w : argument of periastron [radians]
     """
     if ecc is not None:
         Xe = np.sqrt(1-ecc**2)/(1+ecc*np.sin(w))
@@ -127,8 +126,8 @@ def get_dur_full(P, rp, Rs, b, sma, ecc=None, w=None):
         Xe = 1.0
         We = 1.0
         
-    sini = np.sin(np.arccos((b/We)/(sma/Rs)))
-    argument = (Rs/sma) * np.sqrt((1-rp/Rs)**2 - b**2) / sini
+    sini = np.sin(np.arccos((b/We)/(aRs)))
+    argument = (1/aRs) * np.sqrt((1-ror)**2 - b**2) / sini
             
     Tfull = np.asarray((P/pi)*np.arcsin(argument))*Xe
     
@@ -139,16 +138,16 @@ def get_dur_full(P, rp, Rs, b, sma, ecc=None, w=None):
     return Tfull
 
 
-def get_dur_mid(P, b, aRs, ecc=None, w=None):
+def get_dur_cc(P, aRs, b, ecc=None, w=None):
     """
     Ingress/egrees midpoint transit duration (1.5-3.5 contacts)
     See Winn 2010
     
-    P : period [days]
+    P : period
+    aRs : semimajor axis over stellar radius
     b : impact parameter
-    aRs : semimajor axis / stellar radius
     ecc : eccentricity
-    w : longitude of periastron [radians]
+    w : argument of periastron [radians]
     """
     if ecc is not None:
         Xe = np.sqrt(1-ecc**2)/(1+ecc*np.sin(w))
@@ -157,7 +156,7 @@ def get_dur_mid(P, b, aRs, ecc=None, w=None):
         Xe = 1.0
         We = 1.0
         
-    sini = np.sin(np.arccos((b/We)/(sma/Rs)))
+    sini = np.sin(np.arccos((b/We)/(aRs)))
     argument = (1/aRs) * np.sqrt(1 - b**2) / sini
     
     Tmid = np.asarray((P/pi)*np.arcsin(argument))*Xe
@@ -169,35 +168,8 @@ def get_dur_mid(P, b, aRs, ecc=None, w=None):
     return Tmid
 
 
-def get_ingress_duration(P, rp, Rs, b, sma, ecc=None, w=None):
-    """
-    Ingress duration, assuming e=0 --> tau_ingress = tau_egress
-    This is modified from the usual definition to be defined for grazing transits
-    See Winn 2010
-    
-    P : period [days]
-    rp : planet radius [Solar radii]
-    Rs : stellar radius [Solar radii]
-    b : impact parameter
-    sma : semimajor axis [Solar radii]
-    ecc : eccentricity
-    w : longitude of periastron [radians]
-    """
-    T14 = get_dur_tot(P, rp, Rs, b, sma)
-    T23 = get_dur_full(P, rp, Rs, b, sma)
-    
-    tau = np.asarray(T14 - T23)/2
-    
-    # correct for grazing transits
-    grazing = np.asarray(b) > 1 - np.asarray(rp/Rs)
 
-    tau[grazing] = np.asarray(T14)[grazing]/2
-    
-    return tau
-
-
-
-def boxcar_smooth(x, winsize, passes=2):
+def boxcar_smooth(x, winsize, passes=1):
     """
     Smooth a data array with a sliding boxcar filter
     
@@ -208,7 +180,7 @@ def boxcar_smooth(x, winsize, passes=2):
         winsize : int
             size of boxcar window
         passes : int
-            number of passes (default=2)
+            number of passes (default=1)
             
     Returns
     -------
@@ -224,77 +196,6 @@ def boxcar_smooth(x, winsize, passes=2):
     xsmooth = xsmooth[winsize:-winsize]
     
     return xsmooth
-
-
-def bin_data(time, data, binsize):
-    """
-    Parameters
-    ----------
-    time : ndarray
-        vector of time values
-    data : ndarray
-        corresponding vector of data values to be binned
-    binsize : float
-        bin size for output data, in same units as time
-        
-    Returns
-    -------
-    bin_centers : ndarray
-        center of each data (i.e. binned time)
-    binned_data : ndarray
-        data binned to selcted binsize
-    """
-    bin_centers = np.hstack([np.arange(time.mean(),time.min()-binsize/2,-binsize),
-                            np.arange(time.mean(),time.max()+binsize/2,binsize)])
-    
-    bin_centers = np.sort(np.unique(bin_centers))
-    binned_data = []
-    
-    for i, t0 in enumerate(bin_centers):
-        binned_data.append(np.mean(data[np.abs(time-t0) < binsize/2]))
-        
-    return bin_centers, np.array(binned_data)
-
-
-def lorentzian(theta, x):
-    """
-    Model a Lorentzian (Cauchy) function
-    
-    Parameters
-    ----------
-    theta : array-like
-        parameters for Lorentzian = [loc, scale, height, baseline]
-    x : array-like
-        1D array of x data values
-        
-    Returns
-    -------
-    pdf : array-like
-        Lorentzian probability density function
-    """
-    loc, scale, height, baseline = theta
-    
-    return height*stats.cauchy(loc=loc, scale=scale).pdf(x) + baseline
-
-
-
-def heavyside(x, x0=0., k=1000.):
-    """
-    Approximates the Heavyside step function with a smooth distribution
-    Implemented using theano tensors for easily setting bounds on PyMC3 deterministic variables
-    
-    H0 = 1/(1+T.exp(-2*k*(x-x0)))
-    
-    Parameters
-    ----------
-    x : array-like
-        input values at which to compute function
-    x0 : float
-        location of step
-    k : float (optional)
-        exponent factor in approximation (default=1000.)
-    """
-    return 1/(1+T.exp(-2*k*(x-x0)))
 
 
 
@@ -493,10 +394,41 @@ def LS_estimator(x, y, fsamp=None, fap=0.1, return_levels=False, max_peaks=2):
     
     else:
         return xf_out, yf_out, freqs, faps
-
-
     
-def get_autocorr_length(x):
+    
+    
+def bin_data(time, data, binsize):
+    """
+    Parameters
+    ----------
+    time : ndarray
+        vector of time values
+    data : ndarray
+        corresponding vector of data values to be binned
+    binsize : float
+        bin size for output data, in same units as time
+        
+    Returns
+    -------
+    bin_centers : ndarray
+        center of each data (i.e. binned time)
+    binned_data : ndarray
+        data binned to selcted binsize
+    """
+    bin_centers = np.hstack([np.arange(time.mean(),time.min()-binsize/2,-binsize),
+                            np.arange(time.mean(),time.max()+binsize/2,binsize)])
+    
+    bin_centers = np.sort(np.unique(bin_centers))
+    binned_data = []
+    
+    for i, t0 in enumerate(bin_centers):
+        binned_data.append(np.mean(data[np.abs(time-t0) < binsize/2]))
+        
+    return bin_centers, np.array(binned_data)
+
+
+
+def autocorr_length(x):
     """
     Determine the autocorrelation length of a 1D data vector
     
@@ -556,3 +488,48 @@ def weighted_percentile(a, q, w=None):
         weighted_quantiles /= weighted_quantiles[-1]
     
         return np.interp(q/100., weighted_quantiles, a)
+    
+    
+    
+def lorentzian(theta, x):
+    """
+    Model a Lorentzian (Cauchy) function
+    
+    Parameters
+    ----------
+    theta : array-like
+        parameters for Lorentzian = [loc, scale, height, baseline]
+    x : array-like
+        1D array of x data values
+        
+    Returns
+    -------
+    pdf : array-like
+        Lorentzian probability density function
+    """
+    loc, scale, height, baseline = theta
+    
+    return height*stats.cauchy(loc=loc, scale=scale).pdf(x) + baseline
+
+
+
+def heavyside(x, x0=0., k=1000.):
+    """
+    Approximates the Heavyside step function with a smooth distribution
+    Implemented using theano tensors for easily setting bounds on PyMC3 deterministic variables
+    
+    H0 = 1/(1+T.exp(-2*k*(x-x0)))
+    
+    Parameters
+    ----------
+    x : array-like
+        input values at which to compute function
+    x0 : float
+        location of step
+    k : float (optional)
+        exponent factor in approximation (default=1000.)
+    """
+    return 1/(1+T.exp(-2*k*(x-x0)))
+
+
+

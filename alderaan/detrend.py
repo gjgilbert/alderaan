@@ -8,7 +8,6 @@ from   scipy.interpolate import interp1d
 import astropy
 from   astropy.timeseries import LombScargle
 
-import lightkurve as lk
 import pymc3 as pm
 import pymc3_ext as pmx
 import exoplanet as exo
@@ -21,57 +20,11 @@ from .constants import *
 from .LiteCurve import *
 
 
-__all__ = ["cleanup_lkfc",
-           "make_transitmask",
+__all__ = ["make_transitmask",
            "identify_gaps",
            "flatten_with_gp",
            "filter_ringing",
            "stitch"]
-
-
-
-def cleanup_lkfc(lk_collection, kic):
-    """
-    Join each quarter in a lk.LightCurveCollection into a single lk.LightCurve
-    Performs only the minimal detrending step remove_nans()
-    
-    Parameters
-    ----------
-        lk_collection : lk.LightCurveCollection
-            lk.LightCurveCollection() with (possibly) multiple entries per quarter
-        kic : int
-            Kepler Input Catalogue (KIC) number for target
-    
-    Returns
-    -------
-        lkc : lk.LightCurveCollection
-            lk.LightCurveCollection() with only one entry per quarter
-    """
-    lk_col = deepcopy(lk_collection)
-    
-    quarters = []
-    for i, lkc in enumerate(lk_col):
-        quarters.append(lkc.quarter)
-
-    data_out = []
-    for q in np.unique(quarters):
-        lkc_list = []
-        cadno   = []
-
-        for i, lkc in enumerate(lk_col):
-            if (lkc.quarter == q)*(lkc.targetid==kic):
-                lkc_list.append(lkc)
-                cadno.append(lkc.cadenceno.min())
-        
-        order = np.argsort(cadno)
-        lkc_list = [lkc_list[j] for j in order]
-
-        # the operation "stitch" converts a LightCurveCollection to a single LightCurve
-        lkc = lk.LightCurveCollection(lkc_list).stitch().remove_nans()
-
-        data_out.append(lkc)
-
-    return lk.LightCurveCollection(data_out)
 
 
 
@@ -114,9 +67,9 @@ def identify_gaps(lc, break_tolerance, jump_tolerance=5.0):
         lc : LiteCurve
             alderaan.LiteCurve() to be analyzed
         break_tolerance : int
-            number of cadences to be considered a gap in data
+            number of cadences to be considered a (time) gap
         jump_tolerance : float
-            sigma threshold for identifying jumps cadence-to-cadence flux variation
+            sigma threshold for identifying (flux) jumps (i.e. cadence-to-cadence flux variation)
         
     Returns
     -------
@@ -166,7 +119,7 @@ def flatten_with_gp(lc, break_tolerance, min_period, kterm="RotationTerm", corre
         min_period : float
             minimum allowed period of GP kernel
         kterm : string
-            must be either "RotationTerm" (default) or "SHOTerm"
+            must be either 'RotationTerm' (default) or 'SHOTerm'
         correct_ramp : bool
             True to include an exponential ramp in the model for each disjoint section of photometry
         return_trend : bool
@@ -324,7 +277,7 @@ def flatten_with_gp(lc, break_tolerance, min_period, kterm="RotationTerm", corre
     else:
         return lc
 
-
+    
 
 def filter_ringing(lc, break_tolerance, fring, bw):
     """

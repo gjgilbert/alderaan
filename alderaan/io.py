@@ -1,167 +1,73 @@
 import numpy as np
-import csv
-import sys
-import os
-
 import lightkurve as lk
-from   astropy.io import fits as pyfits
-import pymc3 as pm
+from   copy import deepcopy
+from   astropy.io import fits
 
-from .constants import *
 from .LiteCurve import *
 
 
-__all__ = ["read_csv_file",
-           "get_csv_data",
-           "save_sim_fits",
-           "load_sim_fits",
-           "load_detrended_lightcurve",
-           "trace_to_hdulist",
-           "load_cdpp_data",
-           "pull_cdpp_rms"]
+__all__ = ["cleanup_lkfc",
+           "LightKurve_to_LiteCurve",
+           "load_detrended_lightcurve"
+          ]
 
 
-def read_csv_file(filename, k_index=0, v_index=1):
+
+def cleanup_lkfc(lk_collection, kic):
     """
-    Read a csv file and return keys and values for use in a dictionary
+    Join each quarter in a lk.LightCurveCollection into a single lk.LightCurve
+    Performs only the minimal detrending step remove_nans()
     
     Parameters
     ----------
-    filename : string
-        csv file
-    k_index : int
-        index where keys start
-    v_index: int
-        index where values start
-        
-    Returns
-    -------
-        keys : list of keys
-        values : list of values
-    """
-    data = []
-    with open(filename) as infile:
-        reader = csv.reader(infile)
-
-        for row in reader:
-            data.append(row)
-
-        keys   = data[k_index]
-        values = data[v_index:]
-
-        return keys, values
-
-
-    
-def get_csv_data(keyname, keys, values):
-    """
-    Put the keys and values outputs of read_csv_file() into a useable format
-    
-    Parameters
-    ----------
-    keyname : string
-        column definition
-    keys : list
-        keys
-    values : list
-        values corresponding to each key
-    """
-    kid = keys.index(keyname)
-    
-    outdata = []
-    for row in values:
-        outdata.append(row[kid])
-    
-    return outdata
-
-
-
-def save_sim_fits(lklc, path=None, overwrite=False):
-    """
-    Save simulated lightcurve data to a .fits file
-    The input to this funciton is the output of 'simulate_lightcurve.py'
-    
-    Parameters
-    ----------
-        lklc : lk.LightCurve
-            data to save
-        path : str (optional)
-            path to save target .fits file
-        overwrite : bool
-            True to overwite any existing .fits file
+        lk_collection : lk.LightCurveCollection
+            lk.LightCurveCollection() with (possibly) multiple entries per quarter
+        kic : int
+            Kepler Input Catalogue (KIC) number for target
     
     Returns
     -------
-        hdulist : HDUList
-            only returned if save path is not specified
+        lkc : lk.LightCurveCollection
+            lk.LightCurveCollection() with only one entry per quarter
     """
-    # make primary HDU
-    primary_hdu = pyfits.PrimaryHDU()
+    lk_col = deepcopy(lk_collection)
     
-    # make header
-    header = primary_hdu.header
-    header["TARGETID"] = lklc.targetid
-    header["MISSION"]  = lklc.mission
-    header["CHANNEL"]  = lklc.channel
-    header["QUARTER"]  = lklc.quarter
-    header["QBITMASK"] = lklc.quality_bitmask
-    
-    
-    # make HDUList
-    hdulist = []
-    
-    hdulist.append(primary_hdu)
-    hdulist.append(pyfits.ImageHDU(data=lklc.time.value, name="TIME"))
-    hdulist.append(pyfits.ImageHDU(data=lklc.flux.value, name="FLUX"))
-    hdulist.append(pyfits.ImageHDU(data=lklc.flux_err.value, name="FLUX_ERR"))
-    hdulist.append(pyfits.ImageHDU(data=lklc.cadenceno.value, name="CADNO"))
-    hdulist.append(pyfits.ImageHDU(data=lklc.quality.value, name="QUALITY"))
-    hdulist.append(pyfits.ImageHDU(data=lklc.centroid_col.value, name="COL"))
-    hdulist.append(pyfits.ImageHDU(data=lklc.centroid_row.value, name="ROW"))
-    
-    hdulist = pyfits.HDUList(hdulist)
-    
-    # save/return results
-    if path is None:
-        return hdulist
-    
-    else:
-        hdulist.writeto(path, overwrite=overwrite)
-        return None
+    quarters = []
+    for i, lkc in enumerate(lk_col):
+        quarters.append(lkc.quarter)
 
+    data_out = []
+    for q in np.unique(quarters):
+        lkc_list = []
+        cadno   = []
 
-
-def load_sim_fits(filename):
-    """
-    Load simulated lightcurve data from a .fits file
-    The input to this funciton is the output of 'simulate_lightcurve.py'
-    
-    Parameters
-    ----------
-    filename : str
-        path to target .fits file
-    
-    Returns
-    -------
-    data : lk.KeplerLightCurve
-        lightkurve object constaining relevant data
-    """
-    with pyfits.open(filename) as hdulist:
-        header = hdulist[0].header
+        for i, lkc in enumerate(lk_col):
+            if (lkc.quarter == q)*(lkc.targetid==kic):
+                lkc_list.append(lkc)
+                cadno.append(lkc.cadenceno.min())
         
-        data = lk.KeplerLightCurve(time = hdulist['TIME'].data,
-                                   flux = hdulist['FLUX'].data,
-                                   flux_err = hdulist['FLUX_ERR'].data,
-                                   quality = hdulist['QUALITY'].data,
-                                   quality_bitmask = header['QBITMASK'],
-                                   channel = header['CHANNEL'],
-                                   quarter = header['QUARTER'],
-                                   mission = header['MISSION'],
-                                   cadenceno = hdulist['CADNO'].data,
-                                   targetid = header['TARGETID'])
-        
-        return data
+        order = np.argsort(cadno)
+        lkc_list = [lkc_list[j] for j in order]
 
+        # the operation "stitch" converts a LightCurveCollection to a single LightCurve
+        lkc = lk.LightCurveCollection(lkc_list).stitch().remove_nans()
+
+        data_out.append(lkc)
+
+    return lk.LightCurveCollection(data_out)
+
+
+
+def LightKurve_to_LiteCurve(lklc):
+    return LiteCurve(time  = np.array(lklc.time.value, dtype="float"),
+                     flux  = np.array(lklc.flux.value, dtype="float"),
+                     error = np.array(lklc.flux_err.value, dtype="float"),
+                     cadno = np.array(lklc.cadenceno.value, dtype="int"),
+                     quarter = lklc.quarter*np.ones(len(lklc.time), dtype="int"),
+                     season  = (lklc.quarter%4)*np.ones(len(lklc.time), dtype="int"),
+                     channel = lklc.channel*np.ones(len(lklc.time), dtype="int"),
+                     quality = lklc.quality.value
+                    )
 
 
 
@@ -180,7 +86,7 @@ def load_detrended_lightcurve(filename):
     """     
     litecurve = LiteCurve() 
     
-    with pyfits.open(filename) as hdulist:
+    with fits.open(filename) as hdulist:
 
         litecurve.time = np.array(hdulist['TIME'].data, dtype='float64')
         litecurve.flux = np.array(hdulist['FLUX'].data, dtype='float64')
@@ -191,84 +97,3 @@ def load_detrended_lightcurve(filename):
         litecurve.mask = np.asarray(hdulist['MASK'].data, dtype='bool')
         
     return litecurve    
-    
-    
-
-def trace_to_hdulist(trace, varnames, target):
-    """
-    Convert a PyMC3 multitrace object into a pyfits.HDUList
-    Each PyMC3 variable will be assigned to its own extension as a pyfits.ImageHDU
-    
-    Parameters
-    ----------
-    trace : PyMC3 multitrace
-        output of pm.sample
-    varnames : list
-        list of variable names from the trace that you wish to save
-    target : string
-        name of target
-        
-    Returns
-    -------
-    hdulist : HDUList
-        pyfits (astropy.io.fits) object with each variable from trace saved as and ImageHDU
-    """  
-    # make primary HDU
-    primary_hdu = pyfits.PrimaryHDU()
-
-    header = primary_hdu.header
-
-    header['TARGET']  = target
-    try:
-        header['NCHAINS'] = trace.nchains
-    except:
-        header['NCHAINS'] = 1
-
-    primary_hdu.header = header
-    
-    # add it to HDU list
-    hdulist = []
-    hdulist.append(primary_hdu)
-    
-    # add all samples from trace
-    for i, vn in enumerate(varnames):
-        hdulist.append(pyfits.ImageHDU(trace[vn], name=vn))
-    
-    return pyfits.HDUList(hdulist)
-
-
-
-def load_cdpp_data(filepath):
-    """
-    Reads cdpp datafile and returns a dictionary with rms_cdpp values at 3, 6, 9, 12, & 15 hr durations
-    """
-    keys, vals = read_csv_file(filepath)
-
-    data = {}
-    for k in keys: 
-        data[k] = get_csv_data(k, keys, vals)
-
-    data["rms03"] = data.pop("rrmscdpp03p0")
-    data["rms06"] = data.pop("rrmscdpp06p0")
-    data["rms09"] = data.pop("rrmscdpp09p0")
-    data["rms12"] = data.pop("rrmscdpp12p0")
-    data["rms15"] = data.pop("rrmscdpp15p0")
-    
-    return data
-
-
-
-def pull_cdpp_rms(data, kic):
-    """
-    Pulls rms cdpp data for a single KIC target
-    rms_cdpp array corresponds to durations of 3, 6, 9, 12, & 15 hrs
-    """
-    use = data["kepid"] == kic
-    
-    c03 = np.nanmean(data["rms03"][use])
-    c06 = np.nanmean(data["rms06"][use])
-    c09 = np.nanmean(data["rms09"][use])
-    c12 = np.nanmean(data["rms12"][use])
-    c15 = np.nanmean(data["rms15"][use])
-
-    return np.array([3.,6.,9.,12.,15.]), np.array([c03, c06, c09, c12, c15])
