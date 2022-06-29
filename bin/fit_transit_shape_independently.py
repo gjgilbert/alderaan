@@ -1,10 +1,14 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Fit transit shape independently
+#######################################
+# - Fit Transit Shape Independently - #
+#######################################
 
-# In[ ]:
-
+# This script fits a transit lightcurve model for a single Kepler planet
+# Overlapping transits in multiplanet systems are removed
+# Transits are modeled using PyMC3/HMC following the umbrella sampling routine outlined in Gilbert 2022
+# The code outputs a posterior MCMC chain for a *single* umbrella window
 
 import os
 import sys
@@ -25,10 +29,6 @@ print("")
 global_start_time = timer()
 
 
-# #### Parse inputs
-
-# In[ ]:
-
 
 # MCMC parameters are always manually set w/in the code
 Nchain = 2
@@ -37,55 +37,47 @@ Ndraw  = 10000
 target_accept = 0.95
 
 
-# In[ ]:
-
-
-# Automatically set inputs (when running batch scripts)
+# parse inputs
 import argparse
 import matplotlib as mpl
 
-try:
-    parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
-    parser.add_argument("--mission", default=None, type=str, required=True,                         help="Mission name; can be 'Kepler' or 'Simulated'")
-    parser.add_argument("--target", default=None, type=str, required=True,                         help="Target name; format should be K00000 or S00000")
-    parser.add_argument("--planet_no", default=None, type=int, required=True,                         help="ALDERAAN zero-indexed planet identifier (i.e. *NOT* KOI_ID)")
-    parser.add_argument("--root_dir", default=None, type=str, required=True,                         help="Root directory for system")
-    parser.add_argument("--project_dir", default=None, type=str, required=True,                         help="Project directory for accessing lightcurve data and saving outputs")
-    parser.add_argument("--catalog", default=None, type=str, required=True,                         help="CSV file containing input planetary parameters")
-    parser.add_argument("--umbrella", default=None, type=str, required=True,                         help="Umbrella can be 'N', 'T', or 'G'")
-    parser.add_argument("--interactive", default=False, type=bool, required=False,                         help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
+parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
+parser.add_argument("--mission", default=None, type=str, required=True,
+                    help="Mission name; can be 'Kepler' or 'Simulated'")
+parser.add_argument("--target", default=None, type=str, required=True,
+                    help="Target name; format should be K00000 or S00000")
+parser.add_argument("--planet_no", default=None, type=int, required=True,
+                    help="ALDERAAN zero-indexed planet identifier (i.e. *NOT* KOI_ID)")
+parser.add_argument("--root_dir", default=None, type=str, required=True,
+                    help="Root directory for system")
+parser.add_argument("--project_dir", default=None, type=str, required=True,
+                    help="Project directory for accessing lightcurve data and saving outputs")
+parser.add_argument("--catalog", default=None, type=str, required=True,
+                    help="CSV file containing input planetary parameters")
+parser.add_argument("--umbrella", default=None, type=str, required=True,
+                    help="Umbrella can be 'N', 'T', or 'G'")
+parser.add_argument("--interactive", default=False, type=bool, required=False,
+                    help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
 
-    args = parser.parse_args()
-    MISSION      = args.mission
-    TARGET       = args.target
-    PLANET_NO    = args.planet_no
-    ROOT_DIR     = args.root_dir
-    PROJECT_DIR  = ROOT_DIR + args.project_dir
-    CATALOG      = PROJECT_DIR + 'Catalogs/' + args.catalog  
-    UMBRELLA     = args.umbrella  
-    
-    # set plotting backend
-    if args.interactive == False:
-        mpl.use('agg')
+args = parser.parse_args()
+MISSION      = args.mission
+TARGET       = args.target
+PLANET_NO    = args.planet_no
+ROOT_DIR     = args.root_dir
+PROJECT_DIR  = ROOT_DIR + args.project_dir
+CATALOG      = PROJECT_DIR + 'Catalogs/' + args.catalog  
+UMBRELLA     = args.umbrella  
 
-except:
-    pass
+# set plotting backend
+if args.interactive == False:
+    mpl.use('agg')
 
 
-# #### Set environment variables
-
-# In[ ]:
-
-
+# set environment variables
 sys.path.append(PROJECT_DIR)
 
 
-# #### Build directory structure
-
-# In[ ]:
-
-
-# directories in which to place pipeline outputs
+# build directory structure
 FIGURE_DIR    = PROJECT_DIR + 'Figures/' + TARGET + '/'
 TRACE_DIR     = PROJECT_DIR + 'Traces/' + TARGET + '/'
 QUICK_TTV_DIR = PROJECT_DIR + 'QuickTTVs/' + TARGET + '/'
@@ -109,11 +101,7 @@ if os.path.exists(NOISE_DIR) == False:
     os.mkdir(NOISE_DIR)
 
 
-# #### Import packages
-
-# In[ ]:
-
-
+# import packages
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -140,15 +128,11 @@ from   alderaan.LiteCurve import LiteCurve
 from   alderaan.Planet import Planet
 
 
-# In[ ]:
-
-
 # flush buffer to avoid mixed outputs from progressbar
 sys.stdout.flush()
 
 # turn off FutureWarnings
 warnings.filterwarnings("ignore", category=FutureWarning)
-
 
 # check for interactive matplotlib backends
 if np.any(np.array(['agg', 'png', 'svg', 'pdf', 'ps']) == mpl.get_backend()):
@@ -156,26 +140,17 @@ if np.any(np.array(['agg', 'png', 'svg', 'pdf', 'ps']) == mpl.get_backend()):
 else:
     iplot = True
     
-# print theano compiledir cache
+# echo theano cache directory
 print("theano cache: {0}\n".format(theano.config.compiledir))
 
 
-# # ################
-# # ----- DATA I/O -----
-# # ################
-
-# In[ ]:
-
+################
+# - DATA I/O - #
+################
 
 print("\nLoading data...\n")
 
-
-# ## Read in planet and stellar properties
-
-# In[ ]:
-
-
-# Read in the data from csv file
+# read in planet and star properties from csv file
 target_dict = pd.read_csv(CATALOG)
 
 
@@ -215,13 +190,9 @@ DEPTHS  = DEPTHS[order]
 DURS    = DURS[order]
 
 
-# ## Read in filtered lightcurves
-# #### These can be generated by running the script "analyze_autocorrelated_noise.py"
+# Read in filtered lightcurves
+# These can be generated by running the script "analyze_autocorrelated_noise.py"
 
-# In[ ]:
-
-
-# detrended lightcurves
 try:
     lc = io.load_detrended_lightcurve(DLC_DIR + TARGET + '_lc_filtered.fits')
     lc.season = lc.quarter % 4
@@ -235,13 +206,9 @@ except:
     sc = None
 
 
-# ## Read in quick transit times
-# #### These can be generated by running the script "detrend_and_estimate_ttvs.py"
+# Read in quick transit times
+# These can be generated by running the script "detrend_and_estimate_ttvs.py"
 
-# In[ ]:
-
-
-# transit times
 epochs = np.zeros(NPL)
 periods = np.zeros(NPL)
 ephemeris = [None]*NPL
@@ -289,21 +256,13 @@ if iplot: plt.show()
 else: plt.close()
 
 
-# # ####################
-# # --- PRELIMINARIES ---
-# # ####################
-
-# In[ ]:
-
+#####################
+# - PRELIMINARIES - #
+#####################
 
 print("\nRunning preliminaries...\n")
 
-
-# ## Establish time baseline
-
-# In[ ]:
-
-
+# establish time baseline
 time_min = []
 time_max = []
 
@@ -331,11 +290,7 @@ for npl in range(NPL):
         epochs[npl] -= adj*periods[npl]
 
 
-# ## Identify and remove overlapping transits
-
-# In[ ]:
-
-
+# identify and remove overlapping transits
 overlap = []
 
 for i in range(NPL):
@@ -351,12 +306,7 @@ transit_inds = [transit_inds[npl][~overlap[npl]] for npl in range(NPL)]
 quick_transit_times = [quick_transit_times[npl][~overlap[npl]] for npl in range(NPL)]
 
 
-# ## Track which quarter each transit falls in
-
-# In[ ]:
-
-
-# get list of quarters with observations
+# track which quarter each transit falls in
 if lc is not None:
     lc_quarters = np.unique(lc.quarter)
 else:
@@ -366,7 +316,6 @@ if sc is not None:
     sc_quarters = np.unique(sc.quarter)
 else:
     sc_quarters = np.array([])
-    
     
 quarters = np.sort(np.hstack([lc_quarters, sc_quarters]))
 seasons = np.sort(np.unique(quarters % 4))
@@ -397,11 +346,7 @@ for npl in range(NPL):
         transit_quarter[npl][(tts >= thresh[j])*(tts<thresh[j+1])] = q
 
 
-# ## Make transit masks
-
-# In[ ]:
-
-
+# make transit masks
 if sc is not None:
     sc_mask = np.zeros((NPL,len(sc.time)), dtype='bool')
     for npl in range(NPL):
@@ -414,12 +359,7 @@ if lc is not None:
         lc_mask[npl] = make_transitmask(lc.time, quick_transit_times[npl], masksize=1.5)
 
 
-# ## Grab data near transits
-
-# In[ ]:
-
-
-# grab data near transits for each quarter
+# Grab data near transits for each quarter
 all_time = [None]*18
 all_flux = [None]*18
 all_error = [None]*18
@@ -468,7 +408,6 @@ texp[np.array(all_dtype)=='short'] = scit
 texp[np.array(all_dtype)=='long'] = lcit
 
 
-
 # track mean and variance of each quarter
 mean_by_quarter = np.ones(18)*np.nan
 var_by_quarter = np.ones(18)*np.nan
@@ -486,13 +425,8 @@ for q in range(18):
             var_by_quarter[q] = np.var(lc.flux[lc.quarter == q])
 
 
-# ## Define Legendre polynomials
-
-# In[ ]:
-
-
-# Legendre polynomials for better orthogonality when fitting period and epoch; "x" is in the range (-1,1)
-# In practice only linear perturbations are used; higher orders are vestiges of a previous pipeline version
+# Use Legendre polynomials over transit times for better orthogonality; "x" is in the range (-1,1)
+# The current version of the code only uses 1st order polynomials, but 2nd and 3rd are retained for posterity
 Leg0 = []
 Leg1 = []
 Leg2 = []
@@ -510,12 +444,7 @@ for npl in range(NPL):
     Leg3.append(0.5*(5*x**3 - 3*x))
 
 
-# ## Set up GP noise priors
-
-# In[ ]:
-
-
-# Read in noise model GP priors from analyze_autocorrelated_noise.py
+# Read in GP noise model priors from analyze_autocorrelated_noise.py
 gp_percs = []
 
 for z in range(4):
@@ -576,18 +505,11 @@ for z in range(4):
         gp_priors[z]["logS"] = np.array([logS, np.sqrt(logS_var)])
 
 
-# # ############################
-# # ----- LIGHTCURVE FITTING -----
-# # ############################
-
-# In[ ]:
-
+##########################
+# - LIGHTCURVE FITTING - #
+##########################
 
 print("\nModeling Lightcurve...\n")
-
-
-# In[ ]:
-
 
 for npl in range(NPL):
     if npl == PLANET_NO:
@@ -758,18 +680,11 @@ for npl in range(NPL):
             summary = pm.summary(trace)
 
 
-# ## Write MCMC trace to .fits file
-
-# In[ ]:
-
+# Write MCMC trace to .fits file
 
 print("\nWriting MCMC trace to .fits\n")
 
-
-# In[ ]:
-
-
-#### Setting up header info
+# set up header info
 summary_info = [
                #['STATISTIC', 'DESCRIPTION'],
                ['MEAN',       'Mean of the posterior'],
@@ -807,10 +722,7 @@ SUMMARY_DTYPE = [('PARAM_NAME', 'U10'), ('MEAN', '<f8'), ('SD', '<f8'),
                  ('MCSE_SD', '<f8'), ('ESS_BULK', '<f8'), ('ESS_TAIL', '<f8'), ('R_HAT', '<f8')]
 
 
-# In[ ]:
-
-
-#### Build trace dataframe
+# build trace dataframe
 trace_df = pd.DataFrame()
 
 # split 2-dim LD_U into separate columns
@@ -854,10 +766,7 @@ if 'DUR14' in list(summary.index) and 'LN_DUR14' in list(summary.index):
     trace_df.drop('DUR14', axis=1, inplace=True)
 
 
-# In[ ]:
-
-
-### Build summary dataframe
+# build summary dataframe
 summary_df = pd.DataFrame(columns=summary.keys())
 
 def mapper_fluxzpt(index):
@@ -895,10 +804,7 @@ for idx in summary.index:
         summary_df.rename(index={idx: 'T0'}, inplace=True)
 
 
-# In[ ]:
-
-
-### Build primary HDU and header
+# build primary HDU and header
 timestamp = datetime.strptime(trace.posterior.attrs['created_at'], '%Y-%m-%dT%H:%M:%S.%f')
 
 hdu = fits.PrimaryHDU()
@@ -912,8 +818,9 @@ f_name = PROJECT_DIR + 'Traces/{0}/{0}-{1}_{2}_indep.fits'.format(TARGET, str(PL
 hdu.writeto(f_name, overwrite=True)
 
 
-### Store data from dataframes into a single FITS file
+# store data from dataframes into a single FITS file
 with fits.open(f_name) as hduL:
+    
     # Store trace data and summary data to HDUs for each model
     rec_data = trace_df.to_records(index=False)
     hdu_data = fits.BinTableHDU(data=rec_data, name='POSTERIOR')
@@ -923,7 +830,6 @@ with fits.open(f_name) as hduL:
     
     hduL.append(hdu_data)
     hduL.append(hdu_summ)
-    
     
     # posterior data
     data_head = hduL['POSTERIOR'].header
@@ -935,7 +841,6 @@ with fits.open(f_name) as hduL:
     for i, dinf in enumerate(data_info):
         data_head[dinf[0]] = (dinf[1], dinf[2])
     
-
     # MCMC sampler statistics
     summ_head = hduL['MCMC_STATS'].header
     
@@ -945,14 +850,10 @@ with fits.open(f_name) as hduL:
     hduL.writeto(f_name, overwrite=True)
 
 
-# ## Exit program
-
-# In[ ]:
-
+# Exit program
 
 print("")
 print("+"*shutil.get_terminal_size().columns)
 print("Exoplanet recovery complete {0}".format(datetime.now().strftime("%d-%b-%Y at %H:%M:%S")))
 print("Total runtime = %.1f min" %((timer()-global_start_time)/60))
 print("+"*shutil.get_terminal_size().columns)
-

@@ -1,10 +1,14 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# This script downloads lightcurves for a single target from the MAST archive using Lightkurve. To use, specify the KOI identifier (e.g. 'K00137') and a directory (PRIMARY_DIR) to place the downloaded fits files into. Lightkurve creates a file structure based on each object's KIC identifier. These files can then be read back in for detrending and modeling in other scripts. This two-step procedure is necessary because the University of Chicago Midway-RCC server does not allow connections to the internet on compute nodes.
+##########################
+# - Download from MAST - #
+##########################
 
-# In[ ]:
-
+# This script downloads lightcurves for a single target star from the MAST archive using lightkurve.py
+# To use, specify the KOI identifier (e.g. 'K00137') and a directory <PRIMARY_DIR> to place the downloaded fits files into. 
+# Lightkurve creates a file structure based on each object's KIC identifier. 
+# These files can then be read back in for detrending and modeling in other scripts.
 
 import numpy as np
 import lightkurve as lk
@@ -12,38 +16,20 @@ import argparse
 import warnings
 
 
-# # Manually set I/O parameters
+# parse inputs
+parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
 
-# In[ ]:
+parser.add_argument("--mission", default=None, type=str, required=True,
+                    help="Mission name")
+parser.add_argument("--target", default=None, type=str, required=True,
+                    help="Target name; see ALDERAAN documentation for acceptable formats")
+parser.add_argument("--primary_dir", default=None, type=str, required=True,
+                    help="Primary directory path for accessing lightcurve data and saving outputs")
 
-
-# select mission, target, and paths
-#MISSION = "Kepler"
-#TARGET  = "K01681"
-#PRIMARY_DIR = '/Users/research/projects/alderaan/'
-
-
-# In[ ]:
-
-
-# here's where we parse the inputs
-try:
-    parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
-    parser.add_argument("--mission", default=None, type=str, required=True,                         help="Mission name")
-    parser.add_argument("--target", default=None, type=str, required=True,                         help="Target name; see ALDERAAN documentation for acceptable formats")
-    parser.add_argument("--primary_dir", default=None, type=str, required=True,                         help="Primary directory path for accessing lightcurve data and saving outputs")
-
-    args = parser.parse_args()
-    MISSION     = args.mission
-    TARGET      = args.target
-    PRIMARY_DIR = args.primary_dir
-    
-except:
-    pass
-
-
-# In[ ]:
-
+args = parser.parse_args()
+MISSION     = args.mission
+TARGET      = args.target
+PRIMARY_DIR = args.primary_dir
 
 # directory in which to place MAST downloads
 DOWNLOAD_DIR = PRIMARY_DIR + 'MAST_downloads/'
@@ -51,19 +37,16 @@ DOWNLOAD_DIR = PRIMARY_DIR + 'MAST_downloads/'
 # make a target name lightkurve and MAST can understand
 MAST_TARGET = 'KOI-'+ str(int(TARGET[1:]))
 
-
 print("")
 print(MAST_TARGET)
 
+##########################
+# - SHORT CADENCE DATA - #
+##########################
 
-# # Download the data from MAST
-
-# In[ ]:
-
-
-# download the SHORT CADENCE data -- this creates a LightCurveCollection of KeplerLightCurves
 print('downloading short cadence data from MAST')
 
+# this creates a LightCurveCollection of KeplerLightCurves
 sc_searchresult = lk.search_lightcurve(MAST_TARGET, cadence="short", mission="Kepler")
 
 if len(sc_searchresult) > 0:
@@ -71,10 +54,6 @@ if len(sc_searchresult) > 0:
 else:
     print("...no short cadence data found")
     sc_rawdata = []
-
-
-# In[ ]:
-
 
 kic_ids = []
 sc_quarters = []
@@ -100,12 +79,13 @@ keep  = ~np.isin(qlist, np.unique(sc_quarters))
 lc_quarters = list(qlist[keep])
 
 
-# In[ ]:
+#########################
+# - LONG CADENCE DATA - #
+#########################
 
-
-# download the LONG CADENCE data -- this creates a LightCurveCollection of KeplerLightCurves
 print('downloading long cadence data from MAST')
 
+# this creates a LightCurveCollection of KeplerLightCurves
 lc_searchresult = lk.search_lightcurve(MAST_TARGET, cadence="long", mission="Kepler", quarter=lc_quarters)
 
 if len(lc_searchresult) > 0:
@@ -113,10 +93,6 @@ if len(lc_searchresult) > 0:
 else:
     print("...no long cadence data found")
     lc_rawdata = [] 
-
-
-# In[ ]:
-
 
 kic_ids = []
 
@@ -128,10 +104,3 @@ for i, lcrd in enumerate(lc_rawdata):
 if len(kic_ids) > 0:
     if np.sum(np.array(kic_ids) != kic_ids[0]):
         raise ValueError("Search results returned data from multiple objects")
-
-
-# In[ ]:
-
-
-
-

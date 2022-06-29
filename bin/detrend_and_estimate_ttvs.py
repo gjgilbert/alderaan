@@ -1,10 +1,15 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Detrend and Estimate TTVs
+#################################
+# - Detrend and Estimate TTVs - #
+#################################
 
-# In[1]:
-
+# This script detrends raw Kepler PDCSAP Flux to produce two data products
+# (1) flattened lightcurves with low frequency (t >> T14) flux variation removed
+# (2) estimates of individual transit times (i.e. TTVs) including a regularized model
+#
+# The script is initialized with an input CSV file specifying pre-identified planets (e.g. Kepler's DR25 catalog)
 
 import os
 import sys
@@ -25,53 +30,42 @@ print("")
 global_start_time = timer()
 
 
-# #### Parse inputs
-
-# In[2]:
-
-
-# Manually set inputs (while developing)
-MISSION     = 'Kepler'
-TARGET      = 'K00137'
-ROOT_DIR    = '/Users/research/'
-PROJECT_DIR = ROOT_DIR + 'projects/alderaan2/'
-CATALOG     = 'cumulative_koi_catalog.csv'
-
-
-# In[3]:
-
-
-# Automatically set inputs and backends (when running batch scripts)
+# parse inputs
 import argparse
 import matplotlib as mpl
 
-try:
-    parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
-    parser.add_argument("--mission", default=None, type=str, required=True,                         help="Mission name; can be 'Kepler' or 'Simulated'")
-    parser.add_argument("--target", default=None, type=str, required=True,                         help="Target name; format should be K00000 or S00000")
-    parser.add_argument("--root_dir", default=None, type=str, required=True,                         help="Root directory for system")
-    parser.add_argument("--project_dir", default=None, type=str, required=True,                         help="Project directory for accessing lightcurve data and saving outputs; i.e. <root_dir>/<project_dir>")
-    parser.add_argument("--catalog", default=None, type=str, required=True,                         help="CSV file containing input planet parameters; should be placed in <project_dir>/Catalogs/")
-    parser.add_argument("--interactive", default=False, type=bool, required=False,                         help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
+parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
 
-    args = parser.parse_args()
-    MISSION      = args.mission
-    TARGET       = args.target
-    ROOT_DIR     = args.root_dir
-    PROJECT_DIR  = ROOT_DIR + args.project_dir
-    CATALOG      = args.catalog  
+parser.add_argument("--mission", default=None, type=str, required=True, 
+                    help="Mission name; can be 'Kepler' or 'Simulated'")
+parser.add_argument("--target", default=None, type=str, required=True,
+                    help="Target name; format should be K00000 or S00000")
+parser.add_argument("--root_dir", default=None, type=str, required=True,
+                    help="Root directory for system")
+parser.add_argument("--project_dir", default=None, type=str, required=True,
+                    help="Project directory for accessing lightcurve data and saving outputs; i.e. <root_dir>/<project_dir>")
+parser.add_argument("--catalog", default=None, type=str, required=True,
+                    help="CSV file containing input planet parameters; should be placed in <project_dir>/Catalogs/")
+parser.add_argument("--interactive", default=False, type=bool, required=False,
+                    help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
+
+args = parser.parse_args()
+MISSION      = args.mission
+TARGET       = args.target
+ROOT_DIR     = args.root_dir
+PROJECT_DIR  = ROOT_DIR + args.project_dir
+CATALOG      = args.catalog  
+
+# set plotting backend
+if args.interactive == False:
+    mpl.use('agg')
+
     
-    # set plotting backend
-    if args.interactive == False:
-        mpl.use('agg')
-    
-except:
-    pass
+# set environment variables
+sys.path.append(PROJECT_DIR)
 
 
-# In[4]:
-
-
+# echo pipeline info
 print("")
 print("   MISSION : {0}".format(MISSION))
 print("   TARGET  : {0}".format(TARGET))
@@ -81,12 +75,7 @@ print("   Input catalog     : {0}".format(CATALOG))
 print("")
 
 
-# #### Build directory structure
-
-# In[5]:
-
-
-# directory in which to find raw lightcurve data
+# build directory structure
 if MISSION == 'Kepler': DOWNLOAD_DIR = PROJECT_DIR + 'MAST_downloads/'
 if MISSION == 'Simulated': DOWNLOAD_DIR = PROJECT_DIR + 'Simulations/'
 
@@ -114,19 +103,7 @@ if os.path.exists(NOISE_DIR) == False:
     os.mkdir(NOISE_DIR)
 
 
-# #### Set environment variables
-
-# In[6]:
-
-
-sys.path.append(PROJECT_DIR)
-
-
-# #### Import packages
-
-# In[7]:
-
-
+# import packages
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -156,10 +133,6 @@ import alderaan.omc as omc
 from   alderaan.LiteCurve import LiteCurve
 from   alderaan.Planet import Planet
 
-
-# In[8]:
-
-
 # flush buffer to avoid mixed outputs from progressbar
 sys.stdout.flush()
 
@@ -172,30 +145,20 @@ if np.any(np.array(['agg', 'png', 'svg', 'pdf', 'ps']) == mpl.get_backend()):
 else:
     iplot = True
     
-# check that theano environment is properly established
+# echo theano cache directory
 print("theano cache: {0}\n".format(theano.config.compiledir))
 
 
-# # ################
-# # ----- DATA I/O -----
-# # ################
-
-# In[ ]:
-
+################
+# - DATA I/O - #
+################
 
 print("\nLoading data...\n")
 
+# !!!WARNING!!! Kepler reference epochs are not always consistent between catalogs. If using DR25, you will need to correct from BJD to BJKD with an offset of 2454833.0 days - the exoplanet archive has already converted epochs to BJKD
 
-# ## Read in planet and stellar properties
-# 
-# ##### WARNING!!! Reference epochs are not always consistent between catalogs. If using DR25, you will need to correct from BJD to BJKD with an offset of 2454833.0 days - the cumulative exoplanet archive catalog has already converted epochs to BJKD
-
-# In[ ]:
-
-
-# Read in the data from csv file
+# read in planet and star properties from csv file
 target_dict = pd.read_csv(PROJECT_DIR + 'Catalogs/' + CATALOG)
-
 
 # set KOI_ID global variable
 if MISSION == "Kepler":
@@ -205,7 +168,6 @@ elif MISSION == "Simulated":
 else:
     raise ValueError("MISSION must be 'Kepler' or 'Simulated'")
 
-    
 # pull relevant quantities and establish GLOBAL variables
 use = np.array(target_dict['koi_id']) == KOI_ID
 
@@ -221,7 +183,6 @@ DEPTHS  = np.array(target_dict['depth'], dtype='float')[use]*1e-6          # [pp
 DURS    = np.array(target_dict['duration'], dtype='float')[use]/24         # [hrs] --> [days]
 IMPACTS = np.array(target_dict['impact'], dtype='float')[use]
 
-
 # do some consistency checks
 if all(k == KIC[0] for k in KIC): KIC = KIC[0]
 else: raise ValueError("There are inconsistencies with KIC in the csv input file")
@@ -236,12 +197,9 @@ if all(u == U2[0] for u in U2): U2 = U2[0]
 else: raise ValueError("There are inconsistencies with U2 in the csv input file")
 
 
-# ## Read in pre-downloaded lightcurve data
-# #### Kepler data can be retrieved by running the script "download_from_MAST.py"
-# #### Simulated data can be produced by running the script "simulate_lightcurve.py"
-
-# In[ ]:
-
+# Read in pre-downloaded lightcurve data
+# Kepler data can be retrieved by running the script "download_from_MAST.py"
+# Simulated data can be produced by running the script "simulate_lightcurve.py"
 
 # short cadence (load all available)
 try:
@@ -283,9 +241,6 @@ except:
 sc_quarters = []
 for i, scd in enumerate(sc_data):
     sc_quarters.append(scd.quarter)
-
-
-# In[ ]:
 
 
 # long cadence (only load quarters for which short cadence data do not exist)
@@ -334,9 +289,6 @@ for i, lcd in enumerate(lc_data):
     lc_quarters.append(lcd.quarter)
 
 
-# In[ ]:
-
-
 # convert lk.Lightcurve to custom LiteCurve objects
 sc_lite = []
 lc_lite = []
@@ -352,14 +304,11 @@ sc_data = sc_lite
 lc_data = lc_lite
 
 
-# # ####################
-# # --- PRELIMINARIES ---
-# # ####################
+#####################
+# - PRELIMINARIES - #
+#####################
 
-# ## Establish time baseline
-
-# In[ ]:
-
+# Establish time baseline
 
 print("Establishing observation baseline")
 
@@ -392,10 +341,7 @@ for npl in range(NPL):
         EPOCHS[npl] -= adj*PERIODS[npl]
 
 
-# ## Initialize Planet objects
-
-# In[ ]:
-
+# Initialize Planet objects
 
 print("Initializing {0} Planet objects".format(NPL))
 
@@ -433,22 +379,16 @@ for npl in range(NPL):
 planets = np.copy(sorted_planets)
 
 
-# # ############################
-# # ----- TRANSIT TIME SETUP -----
-# # ############################
-
-# In[ ]:
-
+##########################
+# - TRANSIT TIME SETUP - #
+##########################
 
 print("\nBuilding initial TTV model...\n")
 
 
-# ## Build starting TTV model
-# ##### "ephemeris" always refers to a *linear* ephemeris
-# ##### "transit_times" include non-linear TTVs (when they exist)
-
-# In[ ]:
-
+# Build starting TTV model
+# "ephemeris" always refers to a *linear* ephemeris
+# "transit_times" include non-linear TTVs (when they exist)
 
 # use Holczer+ 2016 TTVs where they exist
 HOLCZER_FILE = PROJECT_DIR + 'Catalogs/holczer_2016_kepler_ttvs.txt'
@@ -517,9 +457,6 @@ if MISSION == "Simulated":
     holczer_pers = np.array(holczer_pers)
 
 
-# In[ ]:
-
-
 # smooth and interpolate Holczer+ 2016 TTVs where they exist
 
 for npl in range(NPL):
@@ -576,9 +513,6 @@ for npl in range(NPL):
         if ~iplot: plt.close()
 
 
-# In[ ]:
-
-
 # check if Holczer TTVs exist, and if so, replace the linear ephemeris
 
 for npl, p in enumerate(planets):
@@ -609,9 +543,6 @@ for npl, p in enumerate(planets):
         pass
 
 
-# In[ ]:
-
-
 # plot the OMC TTVs
 fig, axes = plt.subplots(NPL, figsize=(12,3*NPL))
 if NPL == 1: axes = [axes]
@@ -628,20 +559,14 @@ plt.savefig(FIGURE_DIR + TARGET + '_ttvs_initial.png', bbox_inches='tight')
 if ~iplot: plt.close()
 
 
-# # #########################
-# # ----- 1ST DETRENDING -----
-# # #########################
-
-# In[ ]:
-
+######################
+# - 1ST DETRENDING - #
+######################
 
 print("\nDetrending lightcurves (1st pass)...\n")
 
 
-# ## Detrend the lightcurves
-
-# In[ ]:
-
+# Detrend the lightcurves
 
 # long cadence data
 break_tolerance = np.max([int(DURS.min()/(LCIT/60/24)*5/2), 13])
@@ -677,14 +602,9 @@ if len(lc_data) > 0:
 else:
     lc = None
 
-
-# In[ ]:
-
-
 # short cadence data
 break_tolerance = np.max([int(DURS.min()/(SCIT/3600/24)*5/2), 91])
 min_period = 1.0
-
 
 for i, scd in enumerate(sc_data):
     print("QUARTER {}".format(scd.quarter[0]))
@@ -717,11 +637,8 @@ else:
     sc = None
 
 
-# ## Make wide masks that track each planet individually
-# #### These masks have width 2.5 transit durations, which is probably wider than the masks used for detrending
-
-# In[ ]:
-
+# Make wide masks that track each planet individually
+# These masks have width 2.5 transit durations, which is probably wider than the masks used for detrending
 
 if sc is not None:
     sc_mask = np.zeros((NPL,len(sc.time)),dtype='bool')
@@ -745,11 +662,8 @@ else:
     lc_mask = None
 
 
-# ## Flag high quality transits (quality = 1)
-# #### Good transits must have  at least 50% photometry coverage in/near transit
-
-# In[ ]:
-
+# Flag high quality transits (quality = 1)
+# Good transits must have  at least 50% photometry coverage in/near transit
 
 for npl, p in enumerate(planets):
     count_expect_lc = int(np.ceil(p.duration/lcit))
@@ -782,12 +696,7 @@ for npl, p in enumerate(planets):
     p.quality = np.copy(quality)
 
 
-# ## Flag transits that overlap
-
-# In[ ]:
-
-
-# identify overlapping transits
+# Identify overlapping transits
 dur_max = np.max(DURS)
 overlap = []
 
@@ -802,11 +711,7 @@ for i in range(NPL):
     planets[i].overlap = np.copy(overlap[i])
 
 
-# ## Count up transits and calculate initial fixed transit times
-
-# In[ ]:
-
-
+# Count up transits and calculate initial fixed transit times
 num_transits = np.zeros(NPL)
 transit_inds = []
 fixed_tts = []
@@ -819,12 +724,7 @@ for npl, p in enumerate(planets):
     transit_inds[npl] -= transit_inds[npl].min()
 
 
-# ## Grab data near transits
-
-# In[ ]:
-
-
-# go quarter-by-quarter
+# Grab data near transits, going quarter-by-quarter
 all_time = [None]*18
 all_flux = [None]*18
 all_error = [None]*18
@@ -901,11 +801,7 @@ texp[np.array(all_dtype)=='short'] = scit
 texp[np.array(all_dtype)=='long'] = lcit
 
 
-# ## Pull basic transit parameters
-
-# In[ ]:
-
-
+# Pull basic transit parameters
 periods = np.zeros(NPL)
 epochs  = np.zeros(NPL)
 depths  = np.zeros(NPL)
@@ -920,12 +816,8 @@ for npl, p in enumerate(planets):
     impacts[npl] = p.impact
 
 
-# ## Define Legendre polynomials
-
-# In[ ]:
-
-
-# use Legendre polynomials over transit times for better orthogonality; "x" is in the range (-1,1)
+# Use Legendre polynomials over transit times for better orthogonality; "x" is in the range (-1,1)
+# The current version of the code only uses 1st order polynomials, but 2nd and 3rd are retained for posterity
 Leg0 = []
 Leg1 = []
 Leg2 = []
@@ -942,29 +834,17 @@ for npl, p in enumerate(planets):
     Leg2.append(0.5*(3*x**2 - 1))
     Leg3.append(0.5*(5*x**3 - 3*x))
 
-
-# In[ ]:
-
-
 print("")
 print("cumulative runtime = ", int(timer() - global_start_time), "s")
 print("")
 
 
-# # ############################
-# # ----- LIGHTCURVE FITTING -----
-# # ############################
+##########################
+# - LIGHTCURVE FITTING - #
+##########################
 
-# ## Fit transit SHAPE model
-
-# In[ ]:
-
-
+# Fit transit SHAPE model
 print('\nFitting transit SHAPE model...\n')
-
-
-# In[ ]:
-
 
 with pm.Model() as shape_model:
     # planetary parameters
@@ -1020,9 +900,7 @@ with pm.Model() as shape_model:
                            observed=all_flux[q])
 
 
-# In[ ]:
-
-
+# find maximum a posteriori (MAP) solution
 with shape_model:
     shape_map = shape_model.test_point
     shape_map = pmx.optimize(start=shape_map, vars=[flux0, log_jit])
@@ -1030,10 +908,7 @@ with shape_model:
     shape_map = pmx.optimize(start=shape_map, vars=[C0, C1])
     shape_map = pmx.optimize(start=shape_map)
 
-
-# In[ ]:
-
-
+    
 # grab transit times and ephemeris
 shape_transit_times = []
 shape_ephemeris = []
@@ -1041,10 +916,6 @@ shape_ephemeris = []
 for npl, p in enumerate(planets):
     shape_transit_times.append(shape_map['tts_{0}'.format(npl)])
     shape_ephemeris.append(shape_map['P'][npl]*transit_inds[npl] + shape_map['T0'][npl])
-
-
-# In[ ]:
-
 
 # update parameter values
 periods = np.atleast_1d(shape_map['P'])
@@ -1061,25 +932,13 @@ for npl, p in enumerate(planets):
     p.duration = durs[npl]
     p.impact   = impacts[npl]
 
-
-# In[ ]:
-
-
 print("")
 print("cumulative runtime = ", int(timer() - global_start_time), "s")
 print("")
 
 
-# ## Fit SLIDE TTVs
-
-# In[ ]:
-
-
+# Fit TTVs via cross-correlation (aka "slide" ttvs)
 print('\nFitting TTVs..\n')
-
-
-# In[ ]:
-
 
 slide_transit_times = []
 slide_error = []
@@ -1222,11 +1081,7 @@ for npl, p in enumerate(planets):
     slide_transit_times[npl] = np.copy(tts)
     slide_error[npl] = np.copy(err)
 
-
-# In[ ]:
-
-
-# flag transits for which the slide method failed
+# flag transits for which the cross-correlation method failed
 for npl, p in enumerate(planets):
     bad = np.isnan(slide_transit_times[npl]) + np.isnan(slide_error[npl])
     bad += slide_error[npl] > 8*np.nanmedian(slide_error[npl])
@@ -1246,10 +1101,6 @@ for npl in range(NPL):
         refit[npl][np.random.randint(len(refit[npl]), size=2)] = True
 
 
-# In[ ]:
-
-
-# grab transit times and ephemeris
 # plot the OMC TTVs
 fig, axes = plt.subplots(NPL, figsize=(12,3*NPL))
 if NPL == 1: axes = [axes]
@@ -1272,20 +1123,12 @@ plt.savefig(FIGURE_DIR + TARGET + '_ttvs_slide.png', bbox_inches='tight')
 if ~iplot: plt.close()
 
 
-# In[ ]:
-
-
 print("")
 print("cumulative runtime = ", int(timer() - global_start_time), "s")
 print("")
 
 
-# ## Fit MAP INDEPENDENT TTVs
-# 
-# #### Only refit transit times for which the slide method failed
-
-# In[ ]:
-
+# Fit MAP INDEPENDENT TTVs (only refit transits for which the cross-correlation method failed)
 
 if sc is not None:
     sc_map_mask = np.zeros((NPL,len(sc.time)),dtype='bool')
@@ -1310,16 +1153,12 @@ if lc is not None:
 else:
     lc_map_mask = None
 
-
-# In[ ]:
-
-
+    
 # grab data near transits for each quarter
 map_time = [None]*18
 map_flux = [None]*18
 map_error = [None]*18
 map_dtype = ['none']*18
-
 
 for q in range(18):
     if sc is not None:
@@ -1350,9 +1189,6 @@ for q in range(18):
                 map_dtype[q] = 'long_no_transits'
                 
 map_quarters = np.arange(18)[(np.array(map_dtype) == 'short') + (np.array(map_dtype) == 'long')]
-
-
-# In[ ]:
 
 
 with pm.Model() as indep_model:
@@ -1400,9 +1236,6 @@ with pm.Model() as indep_model:
                            observed=map_flux[q])
 
 
-# In[ ]:
-
-
 with indep_model:
     indep_map = indep_model.test_point
     indep_map = pmx.optimize(start=indep_map, vars=[flux0, log_jit])
@@ -1411,10 +1244,6 @@ with indep_model:
         indep_map = pmx.optimize(start=indep_map, vars=[tt_offset[npl]])
         
     indep_map = pmx.optimize(start=indep_map)
-
-
-# In[ ]:
-
 
 indep_transit_times = []
 indep_error = []
@@ -1454,30 +1283,19 @@ axes[0].set_title(TARGET, fontsize=20)
 plt.savefig(FIGURE_DIR + TARGET + '_ttvs_indep.png', bbox_inches='tight')
 if ~iplot: plt.close()
 
-
-# In[ ]:
-
-
 print("")
 print("cumulative runtime = ", int(timer() - global_start_time), "s")
 print("")
 
 
-# # ###############################
-# # ----- OMC MODEL SELECTION -----
-# # ###############################
-
-# In[ ]:
-
+###########################
+# - OMC MODEL SELECTION - #
+###########################
 
 print("\nIdentifying best OMC model...\n")
 
 
-# ## Search for periodic signals
-
-# In[ ]:
-
-
+# search for periodic signals
 print("...searching for periodic signals")
 
 indep_freqs = []
@@ -1512,10 +1330,6 @@ for npl, p in enumerate(planets):
     
     indep_freqs.append(peakfreq)
     indep_faps.append(peakfap)
-
-
-# In[ ]:
-
 
 omc_freqs = []
 omc_faps = []
@@ -1560,10 +1374,6 @@ elif NPL > 1:
                 omc_freqs.append(None)
                 omc_faps.append(None)
 
-
-# In[ ]:
-
-
 omc_pers = []
 
 for npl in range(NPL):
@@ -1591,11 +1401,7 @@ for npl in range(NPL):
         omc_pers.append(2*(indep_ephemeris[npl].max()-indep_ephemeris[npl].min()))
 
 
-# ## Determine best OMC model
-
-# In[ ]:
-
-
+# determine best OMC model
 print("...running model selection routine")
 
 quick_transit_times = []
@@ -1728,9 +1534,7 @@ for npl, p in enumerate(planets):
     if ~iplot: plt.close()
 
 
-# In[ ]:
-
-
+# make plot
 fig, axes = plt.subplots(NPL, figsize=(12,3*NPL))
 if NPL == 1: axes = [axes]
 
@@ -1749,11 +1553,7 @@ plt.savefig(FIGURE_DIR + TARGET + '_ttvs_quick.png', bbox_inches='tight')
 if ~ iplot: plt.close()
 
 
-# ## Estimate TTV scatter w/ uncertainty buffer
-
-# In[ ]:
-
-
+# Estimate TTV scatter w/ uncertainty buffer
 ttv_scatter = np.zeros(NPL)
 ttv_buffer  = np.zeros(NPL)
 
@@ -1768,11 +1568,7 @@ for npl in range(NPL):
     ttv_buffer[npl] = eta*ttv_scatter[npl] + lcit
 
 
-# ## Update and save TTVs
-
-# In[ ]:
-
-
+# Update and save TTVs
 for npl, p in enumerate(planets):
     # update transit time info in Planet objects
     epoch, period = poly.polyfit(p.index, full_quick_transit_times[npl], 1)
@@ -1790,26 +1586,14 @@ for npl, p in enumerate(planets):
     fname_out = QUICK_TTV_DIR + TARGET + '_{:02d}'.format(npl) + '_quick.ttvs'
     np.savetxt(fname_out, data_out, fmt=('%1d', '%.8f', '%.8f', '%.8f', '%1d'), delimiter='\t')
 
-
-# In[ ]:
-
-
 print("")
 print("cumulative runtime = ", int(timer() - global_start_time), 's')
 print("")
 
 
-# ## Flag outliers based on transit model
-# #### Cadences must be flagged as outliers from BOTH the quick ttv model and the independent ttv model to be rejected
-
-# In[ ]:
-
-
+# Flag outliers based on transit model
+# cadences must be flagged as outliers from *both* the QUICK ttv model and the INDEPENDENT ttv model to be rejected
 print("\nFlagging outliers based on transit model...\n")
-
-
-# In[ ]:
-
 
 res_i = []
 res_q = []
@@ -1855,7 +1639,6 @@ for j, q in enumerate(quarters):
             tts_q.append(itt[use_q])
             inds_q.append(transit_inds[npl][use_q] - transit_inds[npl][use_q][0])
             
-
     
     # first check independent transit times
     if len(tts_i) > 0:
@@ -1883,7 +1666,6 @@ for j, q in enumerate(quarters):
     res_i.append(f_ - model_flux)
     
     
-    
     # then check matern transit times
     if len(tts_q) > 0:
         # set up model
@@ -1909,10 +1691,6 @@ for j, q in enumerate(quarters):
     # calculate residuals
     res_q.append(f_ - model_flux)
 
-
-# In[ ]:
-
-
 for j, q in enumerate(quarters):
     print("\nQUARTER", q)
     res = 0.5*(res_i[j] + res_q[j])
@@ -1925,16 +1703,6 @@ for j, q in enumerate(quarters):
     
     print(" outliers rejected:", np.sum(bad))
     print(" marginal outliers:", np.sum(bad_i*~bad_q)+np.sum(~bad_i*bad_q))
-    
-    plt.figure(figsize=(20,3))
-    plt.plot(x_, res, 'k', lw=0.5)
-    plt.plot(x_[bad], res[bad], 'rx')
-    plt.xlim(x_.min(), x_.max())
-    if ~iplot: plt.close()
-
-
-# In[ ]:
-
 
 bad_lc = []
 bad_sc = []
@@ -1979,20 +1747,11 @@ if lc is not None:
     good_cadno_lc = lc.cadno[~bad_lc]
 
 
-# # #########################
-# # ----- 2ND DETRENDING -----
-# # #########################
-
-# In[ ]:
-
+######################
+# - 2ND DETRENDING - #
+######################
 
 print("\nResetting to raw MAST data an performing 2nd DETRENDING...\n")
-
-
-# ## Reset to raw MAST data
-
-# In[ ]:
-
 
 # reset LONG CADENCE to raw MAST downloads
 if lc is not None:
@@ -2023,10 +1782,7 @@ sc_quarters = []
 for i, scd in enumerate(sc_data):
     sc_quarters.append(scd.quarter)
 
-
-# In[ ]:
-
-
+    
 # convert LightKurves to LiteCurves
 sc_lite = []
 lc_lite = []
@@ -2054,12 +1810,7 @@ for i, lcl in enumerate(lc_lite):
         lc_data.append(lcl.remove_flagged_cadences(qmask))
 
 
-# ## Detrend the lightcurves
-
-# In[ ]:
-
-
-# long cadence data
+# detrend long cadence data
 break_tolerance = np.max([int(DURS.min()/(LCIT/60/24)*5/2), 13])
 min_period = 1.0
 
@@ -2087,11 +1838,7 @@ if len(lc_data) > 0:
 else:
     lc = None
 
-
-# In[ ]:
-
-
-# short cadence data
+# detrend short cadence data
 break_tolerance = np.max([int(DURS.min()/(SCIT/3600/24)*5/2), 91])
 min_period = 1.0
 
@@ -2120,15 +1867,12 @@ else:
     sc = None
 
 
-# # ##############################################
-# # ----- MAKE PLOTS, OUTPUT DATA, & CLEAN UP -----
-# # ##############################################
+###########################################
+# - MAKE PLOTS, OUTPUT DATA, & CLEAN UP - #
+###########################################
 
-# ## Make individual mask for where each planet transits
-# #### These masks have width 1.5 transit durations, which may be wider than the masks used for detrending
-
-# In[ ]:
-
+# Make individual mask for where each planet transits
+# these masks have width 1.5 transit durations, which may be wider than the masks used for detrending
 
 if sc is not None:
     sc_mask = np.zeros((NPL,len(sc.time)),dtype='bool')
@@ -2152,11 +1896,8 @@ else:
     lc_mask = None
 
 
-# ## Flag high quality transits (quality = 1)
-# #### Good transits must have  at least 50% photometry coverage in/near transit
-
-# In[ ]:
-
+# Flag high quality transits (quality = 1)
+# good transits must have  at least 50% photometry coverage in/near transit
 
 for npl, p in enumerate(planets):
     count_expect_lc = int(np.ceil(p.duration/lcit))
@@ -2189,12 +1930,7 @@ for npl, p in enumerate(planets):
     p.quality = np.copy(quality)
 
 
-# ## Flag which transits overlap (overlap = 1)
-
-# In[ ]:
-
-
-# identify overlapping transits
+# Flag which transits overlap (overlap = 1)
 overlap = []
 
 for i in range(NPL):
@@ -2208,11 +1944,7 @@ for i in range(NPL):
     planets[i].overlap = np.copy(overlap[i])
 
 
-# ## Make phase-folded transit plots
-
-# In[ ]:
-
-
+# Make phase-folded transit plots
 print("\nMaking phase-folded transit plots...\n")
 
 for npl, p in enumerate(planets):
@@ -2274,11 +2006,7 @@ for npl, p in enumerate(planets):
         if ~iplot: plt.close()
 
 
-# ## Save detrended lightcurves
-
-# In[ ]:
-
-
+# Save detrended lightcurves
 print("\nSaving detrended lightcurves...\n")
 
 try:
@@ -2292,14 +2020,9 @@ except:
     print("No short cadence data")
 
 
-# ## Exit program
-
-# In[ ]:
-
-
+# Exit program
 print("")
 print("+"*shutil.get_terminal_size().columns)
 print("Automated lightcurve detrending complete {0}".format(datetime.now().strftime("%d-%b-%Y at %H:%M:%S")))
 print("Total runtime = %.1f min" %((timer()-global_start_time)/60))
 print("+"*shutil.get_terminal_size().columns)
-

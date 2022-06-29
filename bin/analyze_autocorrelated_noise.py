@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Analyze Autocorrelated Noise
-
-# In[1]:
-
+################################
+# Analyze Autocorrelated Noise #
+################################
 
 import os
 import sys
@@ -24,65 +23,42 @@ print("")
 # start program timer
 global_start_time = timer()
 
-
-# #### Parse inputs
-
-# In[2]:
-
-
-# Manually set inputs (while developing)
-#MISSION     = 'Kepler'
-#TARGET      = 'K02021'
-#ROOT_DIR    = '/Users/research/'
-#PROJECT_DIR = ROOT_DIR + 'projects/alderaan2/'
-#CATALOG     = PROJECT_DIR + 'Catalogs/cumulative_koi_catalog.csv'
-
-
-# In[3]:
-
-
-# Automatically set inputs (when running batch scripts)
+# parse inputs
 import argparse
 import matplotlib as mpl
 
-try:
-    parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
-    parser.add_argument("--mission", default=None, type=str, required=True,                         help="Mission name; can be 'Kepler' or 'Simulated'")
-    parser.add_argument("--target", default=None, type=str, required=True,                         help="Target name; format should be K00000 or S00000")
-    parser.add_argument("--root_dir", default=None, type=str, required=True,                         help="Root directory for system")
-    parser.add_argument("--project_dir", default=None, type=str, required=True,                         help="Project directory for accessing lightcurve data and saving outputs")
-    parser.add_argument("--catalog", default=None, type=str, required=True,                         help="CSV file containing input planetary parameters")
-    parser.add_argument("--interactive", default=False, type=bool, required=False,                         help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
+parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
 
-    args = parser.parse_args()
-    MISSION      = args.mission
-    TARGET       = args.target
-    ROOT_DIR     = args.root_dir
-    PROJECT_DIR  = ROOT_DIR + args.project_dir
-    CATALOG      = PROJECT_DIR + 'Catalogs/' + args.catalog  
-    
-    # set plotting backend
-    if args.interactive == False:
-        mpl.use('agg')
-    
-except:
-    pass
+parser.add_argument("--mission", default=None, type=str, required=True, 
+                    help="Mission name; can be 'Kepler' or 'Simulated'")
+parser.add_argument("--target", default=None, type=str, required=True, 
+                    help="Target name; format should be K00000 or S00000")
+parser.add_argument("--root_dir", default=None, type=str, required=True, 
+                    help="Root directory for system")
+parser.add_argument("--project_dir", default=None, type=str, required=True, 
+                    help="Project directory for accessing lightcurve data and saving outputs")
+parser.add_argument("--catalog", default=None, type=str, required=True, 
+                    help="CSV file containing input planetary parameters")
+parser.add_argument("--interactive", default=False, type=bool, required=False, 
+                    help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
+
+args = parser.parse_args()
+
+MISSION     = args.mission
+TARGET      = args.target
+ROOT_DIR    = args.root_dir
+PROJECT_DIR = ROOT_DIR + args.project_dir
+CATALOG     = PROJECT_DIR + 'Catalogs/' + args.catalog  
+
+# set plotting backend
+if args.interactive == False:
+    mpl.use('agg')
 
 
-# #### Set environment variables
-
-# In[4]:
-
-
+# set environment variables
 sys.path.append(PROJECT_DIR)
 
-
-# #### Build directory structure
-
-# In[5]:
-
-
-# directories in which to place pipeline outputs
+# build directory structure
 FIGURE_DIR    = PROJECT_DIR + 'Figures/' + TARGET + '/'
 TRACE_DIR     = PROJECT_DIR + 'Traces/' + TARGET + '/'
 QUICK_TTV_DIR = PROJECT_DIR + 'QuickTTVs/' + TARGET + '/'
@@ -106,11 +82,7 @@ if os.path.exists(NOISE_DIR) == False:
     os.mkdir(NOISE_DIR)
 
 
-# #### Import packages
-
-# In[6]:
-
-
+# import packages
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -133,10 +105,6 @@ import alderaan.io as io
 import alderaan.noise as noise
 import alderaan.detrend as detrend
 
-
-# In[7]:
-
-
 # flush buffer to avoid mixed outputs from progressbar
 sys.stdout.flush()
 
@@ -153,26 +121,16 @@ else:
 print("theano cache: {0}\n".format(theano.config.compiledir))
 
 
-# # ################
-# # ----- DATA I/O -----
-# # ################
-
-# In[8]:
-
+################
+# - DATA I/O - #
+################
 
 print("\nLoading data...\n")
 
+# !!!WARNING!!! Kepler reference epochs are not always consistent between catalogs. If using DR25, you will need to correct from BJD to BJKD with an offset of 2454833.0 days - the exoplanet archive has already converted epochs to BJKD
 
-# ## Read in planet and stellar properties
-# 
-# ##### WARNING!!! Reference epochs are not always consistent between catalogs. If using DR25, you will need to correct from BJD to BJKD with an offset of 2454833.0 days - the cumulative exoplanet archive catalog has already converted epochs to BJKD
-
-# In[9]:
-
-
-# Read in the data from csv file
+# read in planet and star properties from csv file
 target_dict = pd.read_csv(CATALOG)
-
 
 # set KOI_ID global variable
 if MISSION == "Kepler":
@@ -181,7 +139,6 @@ elif MISSION == "Simulated":
     KOI_ID = "K" + TARGET[1:]
 else:
     raise ValueError("MISSION must be 'Kepler' or 'Simulated'")
-    
     
 # pull relevant quantities and establish GLOBAL variables
 use = np.array(target_dict['koi_id']) == KOI_ID
@@ -192,14 +149,12 @@ PERIODS = np.array(target_dict['period'], dtype='float')[use]
 DEPTHS  = np.array(target_dict['depth'], dtype='float')[use]*1e-6          # [ppm] --> []
 DURS = np.array(target_dict['duration'], dtype='float')[use]/24         # [hrs] --> [days]
 
-
 # sort planet parameters by period
 order = np.argsort(PERIODS)
 
 PERIODS = PERIODS[order]
 DEPTHS  = DEPTHS[order]
 DURS    = DURS[order]
-
 
 # do some consistency checks
 if all(k == KIC[0] for k in KIC): KIC = KIC[0]
@@ -208,12 +163,8 @@ else: raise ValueError("There are inconsistencies with KIC in the csv input file
 if all(n == NPL[0] for n in NPL): NPL = NPL[0]
 else: raise ValueError("There are inconsistencies with NPL in the csv input file")
 
-
-# ## Read in detrended lightcurves and quick transit times
-# #### These can be generated by running the script "detrend_and_estimate_ttvs.py"
-
-# In[10]:
-
+# Read in detrended lightcurves and quick transit times
+# These can be generated by running the script "detrend_and_estimate_ttvs.py"
 
 try:
     lc = io.load_detrended_lightcurve(DLC_DIR + TARGET + '_lc_detrended.fits')
@@ -226,9 +177,6 @@ try:
     sc.season = sc.quarter % 4
 except:
     sc = None
-
-
-# In[11]:
 
 
 # transit times
@@ -275,21 +223,14 @@ else:
     plt.close()
 
 
-# # ####################
-# # --- PRELIMINARIES ---
-# # ####################
-
-# In[12]:
-
+#####################
+# - PRELIMINARIES - #
+#####################
 
 print("\nRunning preliminaries...\n")
 
 
-# ## Establish time baseline
-
-# In[13]:
-
-
+# Establish time baseline
 time_min = []
 time_max = []
 
@@ -317,11 +258,7 @@ for npl in range(NPL):
         epochs[npl] -= adj*periods[npl]
 
 
-# ## Estimate TTV scatter w/ uncertainty buffer
-
-# In[14]:
-
-
+# Estimate TTV scatter w/ uncertainty buffer
 ttv_scatter = np.zeros(NPL)
 ttv_buffer  = np.zeros(NPL)
 
@@ -336,11 +273,7 @@ for npl in range(NPL):
     ttv_buffer[npl] = eta*ttv_scatter[npl] + lcit
 
 
-# ## Make masks of various widths
-
-# In[15]:
-
-
+# Make masks of various widths
 if sc is not None:
     sc_wide_mask = np.zeros((NPL,len(sc.time)),dtype='bool')
     sc_narrow_mask = np.zeros((NPL,len(sc.time)),dtype='bool')
@@ -386,11 +319,7 @@ else:
     lc_narrow_mask = None
 
 
-# ## Determine what data type each season has
-
-# In[16]:
-
-
+# Determine what data type each season has
 season_dtype = []
 
 if sc is not None:
@@ -412,21 +341,17 @@ for z in range(4):
         season_dtype.append('none')
 
 
-# # ####################################
-# # ----- AUTOCORRELATION ANALYSIS -----
-# # ####################################
+################################
+# - AUTOCORRELATION ANALYSIS - #
+################################
 
-# ## ACF plotting function
-
-# In[18]:
-
-
+# ACF plotting function
 # generating figures inside imported modules creates issues with UChicago Midway RCC cluster
 # it's easier to just define the function here in the main script
 
 def plot_acf(xcor, acf_emp, acf_mod, xf, yf, freqs, target_name, season):
     """
-    Docstring
+    Helper funciton to plot empirical autocorrelation function
     """
     fig = plt.figure(figsize=(20,5))
 
@@ -468,10 +393,7 @@ def plot_acf(xcor, acf_emp, acf_mod, xf, yf, freqs, target_name, season):
     return fig
 
 
-# ## Generate empirical ACF and filter high-frequency ringing
-
-# In[21]:
-
+# Generate empirical ACF and filter high-frequency ringing
 
 print("\nGenerating empirical autocorrelation function...\n")
 print("Season data types:", season_dtype, "\n")
@@ -622,10 +544,7 @@ except:
     print("No short cadence data")
 
 
-# ## Generate synthetic noise
-
-# In[ ]:
-
+# Generate synthetic noise
 
 print("\nGenerating synthetic noise...\n")
 
@@ -704,16 +623,11 @@ for z in range(4):
             plt.yticks(fontsize=14)
             plt.legend(fontsize=20, loc='upper right', framealpha=1)
             plt.savefig(FIGURE_DIR + TARGET + '_synthetic_noise_season_{0}.png'.format(z), bbox_inches='tight')
-            if iplot: 
-                plt.show()
-            else:
-                plt.close()
+            if iplot: plt.show()
+            else: plt.close()
 
 
-# ## Fit a GP to the synthetic noise
-
-# In[ ]:
-
+# Fit a GP to the synthetic noise
 
 print("\nFitting a GP to synthetic noise...\n")
 
@@ -804,16 +718,11 @@ for z in range(4):
         plt.yticks(fontsize=14)
         plt.legend(loc='upper right', fontsize=20)
         plt.savefig(FIGURE_DIR + TARGET + '_GP_noise_model_{0}.png'.format(z), bbox_inches='tight')
-        if iplot:
-            plt.show()
-        else:
-            plt.close()
+        if iplot: plt.show()
+        else: plt.close()
 
 
-# ## Save GP posteriors for use as priors during simulatenous transit fit
-
-# In[ ]:
-
+# Save GP posteriors for use as priors during simulatenous transit fit
 
 print("\nSaving GP posteriors...\n")
 
@@ -828,14 +737,10 @@ for z in range(4):
             json.dump(gp_priors[z], file)
 
 
-# ## Exit program
-
-# In[ ]:
-
+# Exit program
 
 print("")
 print("+"*shutil.get_terminal_size().columns)
 print("Analysis of autocorrelated noise complete {0}".format(datetime.now().strftime("%d-%b-%Y at %H:%M:%S")))
 print("Total runtime = %.1f min" %((timer()-global_start_time)/60))
 print("+"*shutil.get_terminal_size().columns)
-
