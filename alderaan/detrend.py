@@ -1,12 +1,11 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import warnings
-from   copy import deepcopy
-
-import scipy.signal as sig
-from   scipy.interpolate import interp1d
 import astropy
 from   astropy.timeseries import LombScargle
+from   copy import deepcopy
+import matplotlib.pyplot as plt
+import numpy as np
+import scipy.signal as sig
+from   scipy.interpolate import interp1d
+import warnings
 
 import pymc3 as pm
 import pymc3_ext as pmx
@@ -17,15 +16,15 @@ from   celerite2.theano import GaussianProcess
 from   celerite2.theano import terms as GPterms
 
 from .constants import *
-from .LiteCurve import *
+from .LiteCurve import LiteCurve
 
 
-__all__ = ["make_transitmask",
-           "identify_gaps",
-           "flatten_with_gp",
-           "filter_ringing",
-           "stitch"]
-
+__all__ = ['make_transitmask',
+           'identify_gaps',
+           'flatten_with_gp',
+           'filter_ringing',
+           'stitch'
+          ]
 
 
 def make_transitmask(time, tts, masksize):
@@ -55,7 +54,6 @@ def make_transitmask(time, tts, masksize):
         transitmask += neartransit
     
     return transitmask
-
 
 
 def identify_gaps(lc, break_tolerance, jump_tolerance=5.0):
@@ -105,8 +103,7 @@ def identify_gaps(lc, break_tolerance, jump_tolerance=5.0):
     return gaps
 
 
-
-def flatten_with_gp(lc, break_tolerance, min_period, kterm="RotationTerm", correct_ramp=True, return_trend=False):
+def flatten_with_gp(lc, break_tolerance, min_period, kterm='RotationTerm', correct_ramp=True, return_trend=False):
     """
     Remove trends from a LiteCurve using celerite Gaussian processes
     
@@ -138,28 +135,24 @@ def flatten_with_gp(lc, break_tolerance, min_period, kterm="RotationTerm", corre
     peak_freq = xf[np.argmax(yf)]
     peak_per  = 1/peak_freq
     
-    
     # find gaps/jumps in the data   
     gaps = identify_gaps(lc, break_tolerance=break_tolerance)
     gaps[-1] -= 1
-    
     nseg = len(gaps) - 1
     
     # make adjustments for masked transits        
-    inds_ = np.arange(len(lc.time), dtype="int")[~lc.mask]
+    inds_ = np.arange(len(lc.time), dtype='int')[~lc.mask]
     gaps_ = [np.sum(inds_ < g) for g in gaps]
     time_ = lc.time[~lc.mask]
     flux_ = lc.flux[~lc.mask]    
     
-    
     # break up data into segments bases on gaps/jumps 
-    seg  = np.zeros(len(lc.time), dtype="int")
-    seg_ = np.zeros(len(time_), dtype="int")
+    seg  = np.zeros(len(lc.time), dtype='int')
+    seg_ = np.zeros(len(time_), dtype='int')
     
     for i in range(nseg):
         seg[gaps[i]:gaps[i+1]] = i
         seg_[gaps_[i]:gaps_[i+1]] = i
-    
     
     # define the mean function (exponential ramp)
     if correct_ramp:
@@ -181,58 +174,53 @@ def flatten_with_gp(lc, break_tolerance, min_period, kterm="RotationTerm", corre
                 
             return mean
     
-
     # here's the stellar rotation model
     with pm.Model() as trend_model:
         
         # set up the kernal
-        log_sigma = pm.Normal("log_sigma", mu=np.log(np.std(flux_)), sd=5.0)
-        logP_off  = pm.Normal("logP", mu=np.log(peak_per - min_period), sd=2.0)
-        log_Q0    = pm.Normal("log_Q0", mu=0.0, sd=5.0, testval=np.log(0.5))
+        log_sigma = pm.Normal('log_sigma', mu=np.log(np.std(flux_)), sd=5.0)
+        logP_off  = pm.Normal('logP', mu=np.log(peak_per - min_period), sd=2.0)
+        log_Q0    = pm.Normal('log_Q0', mu=0.0, sd=5.0, testval=np.log(0.5))
         
-        sigma = pm.Deterministic("sigma", T.exp(log_sigma))
-        P = pm.Deterministic("P", min_period + T.exp(logP_off))
+        sigma = pm.Deterministic('sigma', T.exp(log_sigma))
+        P = pm.Deterministic('P', min_period + T.exp(logP_off))
         
-        
-        if kterm == "RotationTerm":
-            log_dQ = pm.Normal("log_dQ", mu=0.0, sd=5.0, testval=np.log(1e-3))
-            mix    = pm.Uniform("mix", lower=0, upper=1, testval=0.1)
+        if kterm == 'RotationTerm':
+            log_dQ = pm.Normal('log_dQ', mu=0.0, sd=5.0, testval=np.log(1e-3))
+            mix    = pm.Uniform('mix', lower=0, upper=1, testval=0.1)
             kernel = GPterms.RotationTerm(sigma=sigma, period=P, Q0=T.exp(log_Q0), dQ=T.exp(log_dQ), f=mix)
             
-        elif kterm == "SHOTerm":
+        elif kterm == 'SHOTerm':
             kernel = GPterms.SHOTerm(sigma=sigma, w0=2*pi/P, Q=0.5 + T.exp(log_Q0))
             
         else:
             raise ValueError("kterm must be 'RotationTerm' or 'SHOTerm'")
         
-        
         # mean function is an exponential trend (per segment)
         approx_mean_flux = [np.mean(flux_[seg_ == i]) for i in range(nseg)]
         
         if correct_ramp:
-            flux0    = pm.Normal("flux0", mu=approx_mean_flux, sd=np.ones(nseg), shape=nseg)
-            ramp_amp = pm.Normal("ramp_amp", mu=0, sd=np.std(lc.flux), shape=nseg)
-            log_tau  = pm.Normal("log_tau", mu=0, sd=5, shape=nseg)
-            mean_    = pm.Deterministic("mean_", mean_fxn(time_, seg_, flux0, ramp_amp, log_tau))
+            flux0    = pm.Normal('flux0', mu=approx_mean_flux, sd=np.ones(nseg), shape=nseg)
+            ramp_amp = pm.Normal('ramp_amp', mu=0, sd=np.std(lc.flux), shape=nseg)
+            log_tau  = pm.Normal('log_tau', mu=0, sd=5, shape=nseg)
+            mean_    = pm.Deterministic('mean_', mean_fxn(time_, seg_, flux0, ramp_amp, log_tau))
             
         else:
-            flux0    = pm.Normal("flux0", mu=approx_mean_flux, sd=np.ones(nseg), shape=nseg)
+            flux0    = pm.Normal('flux0', mu=approx_mean_flux, sd=np.ones(nseg), shape=nseg)
             ramp_amp = None
             log_tau  = None
-            mean_    = pm.Deterministic("mean_", mean_fxn(time_, seg_, flux0))
-                
+            mean_    = pm.Deterministic('mean_', mean_fxn(time_, seg_, flux0))
             
         # jitter
         logjit = pm.Normal('logjit', mu=np.var(flux_ - sig.medfilt(flux_,13)), sd=5.0)
 
         # now set up the GP
         gp = GaussianProcess(kernel, t=time_, diag=T.exp(logjit)*T.ones(len(time_)), mean=mean_)
-        gp.marginal("gp", observed=flux_)
+        gp.marginal('gp', observed=flux_)
         
         # track mean predictions
-        full_mean_pred = pm.Deterministic("full_mean_pred", mean_fxn(lc.time, seg, flux0, ramp_amp, log_tau))
+        full_mean_pred = pm.Deterministic('full_mean_pred', mean_fxn(lc.time, seg, flux0, ramp_amp, log_tau))
         
-    
     # optimize the GP hyperparameters
     with trend_model:
         trend_map = trend_model.test_point
@@ -240,34 +228,34 @@ def flatten_with_gp(lc, break_tolerance, min_period, kterm="RotationTerm", corre
         trend_map = pmx.optimize(start=trend_map, vars=[flux0, logjit])
         
         for i in range(1 + correct_ramp):
-            if kterm == "RotationTerm":
+            if kterm == 'RotationTerm':
                 trend_map = pmx.optimize(start=trend_map, vars=[logjit, flux0, sigma, P, log_Q0, log_dQ, mix])
-            if kterm == "SHOTerm":
+            if kterm == 'SHOTerm':
                 trend_map = pmx.optimize(start=trend_map, vars=[logjit, flux0, sigma, P, log_Q0])
             if correct_ramp:
                 trend_map = pmx.optimize(start=trend_map, vars=[logjit, flux0, ramp_amp, log_tau])
                 
         trend_map = pmx.optimize(start=trend_map)     
         
-    
     # reconstruct the GP to interpolate over masked transits
-    if kterm == "RotationTerm":
-        kernel = GPterms.RotationTerm(sigma  = trend_map["sigma"], 
-                                      period = trend_map["P"], 
-                                      Q0 = T.exp(trend_map["log_Q0"]),
-                                      dQ = T.exp(trend_map["log_dQ"]),
-                                      f  = trend_map["mix"])
+    if kterm == 'RotationTerm':
+        kernel = GPterms.RotationTerm(sigma  = trend_map['sigma'], 
+                                      period = trend_map['P'], 
+                                      Q0 = T.exp(trend_map['log_Q0']),
+                                      dQ = T.exp(trend_map['log_dQ']),
+                                      f  = trend_map['mix']
+                                     )
                                       
-    elif kterm == "SHOTerm":
-        kernel = GPterms.SHOTerm(sigma = trend_map["sigma"], 
-                                 w0 = 2*pi/trend_map["P"], 
-                                 Q  = 0.5 + T.exp(trend_map["log_Q0"]))
+    elif kterm == 'SHOTerm':
+        kernel = GPterms.SHOTerm(sigma = trend_map['sigma'], 
+                                 w0 = 2*pi/trend_map['P'], 
+                                 Q  = 0.5 + T.exp(trend_map['log_Q0'])
+                                )
     
-
     gp = GaussianProcess(kernel, mean=0.0)
-    gp.compute(time_, diag=T.exp(trend_map["logjit"])*T.ones(len(time_)))
+    gp.compute(time_, diag=T.exp(trend_map['logjit'])*T.ones(len(time_)))
         
-    full_trend =  gp.predict(flux_-trend_map["mean_"], lc.time).eval() + trend_map["full_mean_pred"]
+    full_trend =  gp.predict(flux_-trend_map['mean_'], lc.time).eval() + trend_map['full_mean_pred']
     
     lc.flux /= full_trend
     lc.error /= full_trend
@@ -277,7 +265,6 @@ def flatten_with_gp(lc, break_tolerance, min_period, kterm="RotationTerm", corre
     else:
         return lc
 
-    
 
 def filter_ringing(lc, break_tolerance, fring, bw):
     """
@@ -308,7 +295,6 @@ def filter_ringing(lc, break_tolerance, fring, bw):
     # identify gaps
     gap_locs = identify_gaps(lc, break_tolerance, jump_tolerance=5.0)
     
-
     # break the data into contiguous segments and detrend
     for i, gloc in enumerate(gap_locs[:-1]):
         
@@ -330,7 +316,6 @@ def filter_ringing(lc, break_tolerance, fring, bw):
         f_interp[data_exists] = f
         f_interp[~data_exists] = np.random.normal(loc=np.median(f), scale=np.std(f), size=np.sum(~data_exists))
         
-        
         # now apply the filter
         f_fwd_back = np.copy(f_interp)
         f_back_fwd = np.copy(f_interp)
@@ -346,7 +331,6 @@ def filter_ringing(lc, break_tolerance, fring, bw):
         flux_filtered.append(f_filt[data_exists])
           
     return np.hstack(flux_filtered)
-
 
 
 def stitch(litecurves):

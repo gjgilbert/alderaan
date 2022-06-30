@@ -1,16 +1,16 @@
 import numpy as np
-import warnings
 from   scipy.interpolate import interp1d
 from   sklearn.neighbors import KernelDensity
 from   sklearn.model_selection import GridSearchCV
 from   sklearn.covariance import EmpiricalCovariance
+import warnings
 
 from .constants import *
 
 
-__all__ = ["draw_random_samples",
-           "get_bw",
-           "generate_synthetic_samples"
+__all__ = ['draw_random_samples',
+           'get_bw',
+           'generate_synthetic_samples'
           ]
 
 
@@ -41,7 +41,6 @@ def draw_random_samples(pdf, domain, N, *args, **kwargs):
     return inverse_cdf(np.random.uniform(cdf_y.min(), cdf_y.max(), N))
 
 
-
 def get_bw(samples, weights=None, max_draws=1000):
     """
     Use cross-validation to determine KDE bandwidth for a set of 1D data samples
@@ -65,15 +64,14 @@ def get_bw(samples, weights=None, max_draws=1000):
     x = np.random.choice(samples, p=weights, size=np.min([max_draws,N]), replace=True)
     
     coarse_mesh = np.linspace((x.max()-x.min())/N, np.std(x), int(np.sqrt(N)))
-    grid = GridSearchCV(KernelDensity(), {"bandwidth": coarse_mesh}, cv=5)
+    grid = GridSearchCV(KernelDensity(), {'bandwidth': coarse_mesh}, cv=5)
     grid.fit(x[:, None])
     
-    fine_mesh = grid.best_params_["bandwidth"] + np.linspace(-1,1,int(np.sqrt(N)))*(coarse_mesh[1]-coarse_mesh[0])
-    grid = GridSearchCV(KernelDensity(), {"bandwidth": fine_mesh}, cv=5)
+    fine_mesh = grid.best_params_['bandwidth'] + np.linspace(-1,1,int(np.sqrt(N)))*(coarse_mesh[1]-coarse_mesh[0])
+    grid = GridSearchCV(KernelDensity(), {'bandwidth': fine_mesh}, cv=5)
     grid.fit(x[:, None])
 
-    return grid.best_params_["bandwidth"]
-
+    return grid.best_params_['bandwidth']
 
 
 def generate_synthetic_samples(samples, bandwidths, n_up, weights=None):

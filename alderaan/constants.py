@@ -15,7 +15,6 @@ MSMJ = MSME/MJME                           # M_sun/M_jup
 RSAU = (apc.R_sun/apc.au).value                                 # solar radius [AU]
 RHOSUN_GCM3 = (3*apc.M_sun/(4*pi*apc.R_sun**3)).value/1000      # solar density [g/cm^3]
 
-
 LCIT = 29.42239340627566    # Kepler long cadence integration time [min]
 SCIT = 58.84478681255132    # Kepler short cadence integration time [sec]
 

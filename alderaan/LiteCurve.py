@@ -1,8 +1,8 @@
+import astropy
+from   astropy.io import fits as pyfits
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.signal as sig
-import astropy
-from   astropy.io import fits as pyfits
 
 from .constants import *
 
@@ -22,7 +22,6 @@ class LiteCurve:
         self.quality = quality
         self.mask    = mask
         
-
         
     def clip_outliers(self, kernel_size, sigma_upper, sigma_lower, mask=None):
         """
@@ -41,7 +40,7 @@ class LiteCurve:
                 do not reject cadences within masked regions; useful for protecting transits
         """
         if mask is None:
-            mask = np.zeros(len(self.time), dtype="bool")
+            mask = np.zeros(len(self.time), dtype='bool')
 
         loop = True
         count = 0
@@ -70,13 +69,12 @@ class LiteCurve:
         return self
     
     
-    
     def plot(self):
         """
         Plot the photometry
         """
         plt.figure(figsize=(20,4))
-        plt.plot(self.time, self.flux, "k", lw=0.5)
+        plt.plot(self.time, self.flux, 'k', lw=0.5)
         plt.xticks(fontsize=12)
         plt.yticks(fontsize=12)
         plt.xlabel("Time [BKJD]", fontsize=24)
@@ -86,7 +84,6 @@ class LiteCurve:
         
         return None
 
-    
     
     def remove_flagged_cadences(self, qmask):
         """
@@ -103,7 +100,6 @@ class LiteCurve:
 
         return self
 
-        
     
     def to_fits(self, target, filename):
         """

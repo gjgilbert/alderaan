@@ -1,42 +1,48 @@
+import aesara_theano_fallback.tensor as T
+from   aesara_theano_fallback import aesara as theano
+import astropy.stats
+from   astropy.timeseries import LombScargle
 import numpy as np
 import scipy.optimize as op
 import scipy.signal as sig
 import scipy.stats as stats
 import scipy.fftpack as fftpack
-import astropy.stats
-from   astropy.timeseries import LombScargle
 import warnings
-import aesara_theano_fallback.tensor as T
-from   aesara_theano_fallback import aesara as theano
 
 from .constants import *
 
 
-__all__ = ["get_transit_depth",
-           "get_sma",
-           "get_dur_14",
-           "get_dur_23",
-           "get_dur_cc",
-           "boxcar_smooth",
-           "FFT_estimator",
-           "LS_estimator",
-           "bin_data",
-           "autocorr_length",
-           "weighted_percentile",
-           "lorentzian",
-           "heavyside"
+__all__ = ['get_transit_depth',
+           'get_sma',
+           'get_dur_14',
+           'get_dur_23',
+           'get_dur_cc',
+           'boxcar_smooth',
+           'FFT_estimator',
+           'LS_estimator',
+           'bin_data',
+           'autocorr_length',
+           'weighted_percentile',
+           'lorentzian',
+           'heavyside'
           ]
-
 
 
 def get_transit_depth(p, b):
     """
+    Calculate approximate transit depth
+    See Mandel & Agol 2002 Eq. 1
+    
+    Parameters
+    ----------
     p : array-like
         rp/Rstar, normalized planet-to-star radius ratio
     b : array-like
         impact parameter
     
-    Eq. (1) of Mandel & Agol (2002)
+    Returns
+    -------
+    d : transit depth
     """
     # broadcasting
     p = p*np.ones(np.atleast_1d(b).shape)
@@ -66,6 +72,8 @@ def get_transit_depth(p, b):
 
 def get_sma(P, Ms):
     """
+    Calculate semi-major axis in units of [Solar radii] from Kepler's law
+    
     Parameters
     ----------
     P : period [days]
@@ -78,10 +86,9 @@ def get_sma(P, Ms):
     return Ms**(1/3)*(P/365.24)**(2/3)/RSAU
 
 
-
 def get_dur_14(P, aRs, b, ror, ecc=None, w=None):
     """
-    Total transit duration (I-IV contacts)
+    Calculate total transit duration (I-IV contacts)
     See Winn 2010 Eq. 14 & 16
     
     P : period
@@ -106,10 +113,9 @@ def get_dur_14(P, aRs, b, ror, ecc=None, w=None):
     return Ttot
 
 
-
 def get_dur_23(P, aRs, b, ror, ecc=None, w=None):
     """
-    Total transit duration (II-III contacts)
+    Calculate full duration (II-III contacts)
     See Winn 2010 Eq. 15 & 16
     
     P : period
@@ -140,7 +146,7 @@ def get_dur_23(P, aRs, b, ror, ecc=None, w=None):
 
 def get_dur_cc(P, aRs, b, ecc=None, w=None):
     """
-    Ingress/egrees midpoint transit duration (1.5-3.5 contacts)
+    Calculate ingress/egrees midpoint transit duration (1.5-3.5 contacts)
     See Winn 2010
     
     P : period
@@ -168,24 +174,23 @@ def get_dur_cc(P, aRs, b, ecc=None, w=None):
     return Tmid
 
 
-
 def boxcar_smooth(x, winsize, passes=1):
     """
     Smooth a data array with a sliding boxcar filter
     
     Parameters
     ----------
-        x : ndarray
-            data to be smoothed
-        winsize : int
-            size of boxcar window
-        passes : int
-            number of passes (default=1)
+    x : ndarray
+        data to be smoothed
+    winsize : int
+        size of boxcar window
+    passes : int
+        number of passes (default=1)
             
     Returns
     -------
-        xsmooth : ndarray
-            smoothed data array,same size as input 'x'
+    xsmooth : ndarray
+        smoothed data array,same size as input 'x'
     """
     win = sig.boxcar(winsize)/winsize
     xsmooth = np.pad(x, (winsize, winsize), mode='reflect')
@@ -196,7 +201,6 @@ def boxcar_smooth(x, winsize, passes=1):
     xsmooth = xsmooth[winsize:-winsize]
     
     return xsmooth
-
 
 
 def FFT_estimator(x, y, fmin=None, fmax=None, crit_fap=0.003, nboot=1000, return_levels=False, max_peaks=2):
@@ -219,7 +223,6 @@ def FFT_estimator(x, y, fmin=None, fmax=None, crit_fap=0.003, nboot=1000, return
         number of bootstrap samples for calculating false alarm probabilities (default=1000)
     return_levels : bool
         if True, return the FAP for each frequency in the grid
-        
         
     Returns
     -------
@@ -254,7 +257,6 @@ def FFT_estimator(x, y, fmin=None, fmax=None, crit_fap=0.003, nboot=1000, return
     xf = xf[keep]
     yf = yf[keep]
     
-    
     # calculate false alarm probabilities w/ bootstrap test
     yf_max = np.zeros(nboot)
     
@@ -271,7 +273,7 @@ def FFT_estimator(x, y, fmin=None, fmax=None, crit_fap=0.003, nboot=1000, return
     levels = np.array([np.percentile(yf_max, 90), np.percentile(yf_max,99), np.percentile(yf_max,99.9)])
     
     # now search for significant frequencies
-    m = np.zeros(len(xf), dtype="bool")
+    m = np.zeros(len(xf), dtype='bool')
     freqs = []
     faps = []
     
@@ -303,11 +305,9 @@ def FFT_estimator(x, y, fmin=None, fmax=None, crit_fap=0.003, nboot=1000, return
             
         if np.sum(m)/len(m) > 0.5:
             loop = False
-
     
     freqs = np.asarray(freqs)
     faps = np.asarray(faps)
-    
     
     if return_levels:
         return xf, yf, freqs, faps, levels
@@ -315,12 +315,12 @@ def FFT_estimator(x, y, fmin=None, fmax=None, crit_fap=0.003, nboot=1000, return
         return xf, yf, freqs, faps
 
 
-
 def LS_estimator(x, y, fsamp=None, fap=0.1, return_levels=False, max_peaks=2):
     """
     Generate a Lomb-Scargle periodogram and identify significant frequencies
-    Assumes that data are nearly evenly sampled
-    Optimized for finding marginal periodic TTV signals in OMC data; may not perform well for other applications
+      * assumes that data are nearly evenly sampled
+      * optimized for finding marginal periodic TTV signals in OMC data
+      * may not perform well for other applications
     
     Parameters
     ----------
@@ -396,7 +396,6 @@ def LS_estimator(x, y, fsamp=None, fap=0.1, return_levels=False, max_peaks=2):
         return xf_out, yf_out, freqs, faps
     
     
-    
 def bin_data(time, data, binsize):
     """
     Parameters
@@ -427,7 +426,6 @@ def bin_data(time, data, binsize):
     return bin_centers, np.array(binned_data)
 
 
-
 def autocorr_length(x):
     """
     Determine the autocorrelation length of a 1D data vector
@@ -446,7 +444,7 @@ def autocorr_length(x):
     y = x - np.mean(x)
     
     # generate empirical ACF
-    acf = np.correlate(y, y, mode="full")
+    acf = np.correlate(y, y, mode='full')
     acf = acf[len(acf)//2:]
     acf /= acf[0]
         
@@ -460,7 +458,6 @@ def autocorr_length(x):
         win = len(taus) - 1
 
     return np.max([taus[win], 1.0])
-
 
 
 def weighted_percentile(a, q, w=None):
@@ -490,7 +487,6 @@ def weighted_percentile(a, q, w=None):
         return np.interp(q/100., weighted_quantiles, a)
     
     
-    
 def lorentzian(theta, x):
     """
     Model a Lorentzian (Cauchy) function
@@ -512,7 +508,6 @@ def lorentzian(theta, x):
     return height*stats.cauchy(loc=loc, scale=scale).pdf(x) + baseline
 
 
-
 def heavyside(x, x0=0., k=1000.):
     """
     Approximates the Heavyside step function with a smooth distribution
@@ -530,6 +525,3 @@ def heavyside(x, x0=0., k=1000.):
         exponent factor in approximation (default=1000.)
     """
     return 1/(1+T.exp(-2*k*(x-x0)))
-
-
-

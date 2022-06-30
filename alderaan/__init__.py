@@ -7,6 +7,7 @@ from .constants import *
 from .detrend import *
 from .io import *
 from .LiteCurve import *
+from .noise import *
 from .omc import *
 from .Planet import *
 from .sampling import *

@@ -1,16 +1,15 @@
-import numpy as np
-import lightkurve as lk
-from   copy import deepcopy
 from   astropy.io import fits
+from   copy import deepcopy
+import lightkurve as lk
+import numpy as np
 
-from .LiteCurve import *
+from .LiteCurve import LiteCurve
 
 
-__all__ = ["cleanup_lkfc",
-           "LightKurve_to_LiteCurve",
-           "load_detrended_lightcurve"
+__all__ = ['cleanup_lkfc',
+           'LightKurve_to_LiteCurve',
+           'load_detrended_lightcurve'
           ]
-
 
 
 def cleanup_lkfc(lk_collection, kic):
@@ -57,18 +56,16 @@ def cleanup_lkfc(lk_collection, kic):
     return lk.LightCurveCollection(data_out)
 
 
-
 def LightKurve_to_LiteCurve(lklc):
-    return LiteCurve(time  = np.array(lklc.time.value, dtype="float"),
-                     flux  = np.array(lklc.flux.value, dtype="float"),
-                     error = np.array(lklc.flux_err.value, dtype="float"),
-                     cadno = np.array(lklc.cadenceno.value, dtype="int"),
-                     quarter = lklc.quarter*np.ones(len(lklc.time), dtype="int"),
-                     season  = (lklc.quarter%4)*np.ones(len(lklc.time), dtype="int"),
-                     channel = lklc.channel*np.ones(len(lklc.time), dtype="int"),
+    return LiteCurve(time    = np.array(lklc.time.value, dtype='float'),
+                     flux    = np.array(lklc.flux.value, dtype='float'),
+                     error   = np.array(lklc.flux_err.value, dtype='float'),
+                     cadno   = np.array(lklc.cadenceno.value, dtype='int'),
+                     quarter = lklc.quarter*np.ones(len(lklc.time), dtype='int'),
+                     season  = (lklc.quarter%4)*np.ones(len(lklc.time), dtype='int'),
+                     channel = lklc.channel*np.ones(len(lklc.time), dtype='int'),
                      quality = lklc.quality.value
                     )
-
 
 
 def load_detrended_lightcurve(filename):
@@ -87,13 +84,12 @@ def load_detrended_lightcurve(filename):
     litecurve = LiteCurve() 
     
     with fits.open(filename) as hdulist:
-
-        litecurve.time = np.array(hdulist['TIME'].data, dtype='float64')
-        litecurve.flux = np.array(hdulist['FLUX'].data, dtype='float64')
-        litecurve.error = np.array(hdulist['ERROR'].data, dtype='float64')
-        litecurve.cadno = np.array(hdulist['CADNO'].data, dtype='int')
+        litecurve.time    = np.array(hdulist['TIME'].data, dtype='float64')
+        litecurve.flux    = np.array(hdulist['FLUX'].data, dtype='float64')
+        litecurve.error   = np.array(hdulist['ERROR'].data, dtype='float64')
+        litecurve.cadno   = np.array(hdulist['CADNO'].data, dtype='int')
         litecurve.quarter = np.array(hdulist['QUARTER'].data, dtype='int')
         litecurve.channel = np.array(hdulist['CHANNEL'].data, dtype='int')
-        litecurve.mask = np.asarray(hdulist['MASK'].data, dtype='bool')
+        litecurve.mask    = np.asarray(hdulist['MASK'].data, dtype='bool')
         
     return litecurve    

@@ -1,10 +1,10 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import warnings
-import scipy.signal as sig
 import astropy
-
 import lightkurve as lk
+import matplotlib.pyplot as plt
+import numpy as np
+import scipy.signal as sig
+import warnings
+
 import pymc3 as pm
 import pymc3_ext as pmx
 import exoplanet as exo
@@ -17,14 +17,14 @@ from .constants import *
 from .utils import *
 
 
-__all__ = ["make_chunklist",
-           "build_sho_model",
-           "generate_acf",
-           "model_acf",
-           "make_covariance_matrix",
-           "generate_synthetic_noise",
-           "make_gp_prior_dict"]
-
+__all__ = ['make_chunklist',
+           'build_sho_model',
+           'generate_acf',
+           'model_acf',
+           'make_covariance_matrix',
+           'generate_synthetic_noise',
+           'make_gp_prior_dict'
+          ]
 
 
 def make_chunklist(time, flux, cadno, Npts, sigma_reject=5.0, gap_tolerance=13, interpolate=True, cover=0.95):
@@ -48,7 +48,7 @@ def make_chunklist(time, flux, cadno, Npts, sigma_reject=5.0, gap_tolerance=13, 
     interpolate : bool
         True to perform linear interpolation with additive white noise over small gaps (default=True)
     cover : float between (0,1)
-        fractional coverage required to consider a chunk "good"
+        fractional coverage required to consider a chunk 'good'
         
     Returns
     -------
@@ -100,11 +100,9 @@ def make_chunklist(time, flux, cadno, Npts, sigma_reject=5.0, gap_tolerance=13, 
         if i > (len(time)-Npts-1):
             loop = False
     
-    
     # convert list to array
     chunklist = np.array(chunklist)
         
-    
     # reject any chunks with unusually high medians or variability
     loop = True
     while(loop):
@@ -122,34 +120,33 @@ def make_chunklist(time, flux, cadno, Npts, sigma_reject=5.0, gap_tolerance=13, 
     return chunklist
 
 
-
 def build_sho_model(t, y, var_method, fmin=None, fmax=None, f0=None, Q0=None):
     """
     Build PyMC3/celerite model for correlated noise using a single SHOTerm
     
     Parameters
     ----------
-        t : array-like
-            independent variable data (e.g. time)
-        y : array-like
-            corresponding dependent variable data (e.g. empirical ACF or flux)
-        var_method : string
-            automatic method for selecting y data jitter (variance)
-            'global' --> jit = np.var(y)
-            'local' --> jit = np.var(y - local_trend)
-            'fit' --> logjit is a free hyperparameter in the GP model
-        fmin : float (optional)
-            lower bound on (ordinary, not angular) frequency
-        fmax : float (optional)
-            upper bound on (ordinary, not angular) frequency
-        f0 : float (optional)
-            if provided, tight priors will be placed on this frequency
-        Q0 : float (optional)
-            if provided, Q will be fixed to this value
+    t : array-like
+        independent variable data (e.g. time)
+    y : array-like
+        corresponding dependent variable data (e.g. empirical ACF or flux)
+    var_method : string
+        automatic method for selecting y data jitter (variance)
+        'global' --> jit = np.var(y)
+        'local' --> jit = np.var(y - local_trend)
+        'fit' --> logjit is a free hyperparameter in the GP model
+    fmin : float (optional)
+        lower bound on (ordinary, not angular) frequency
+    fmax : float (optional)
+        upper bound on (ordinary, not angular) frequency
+    f0 : float (optional)
+        if provided, tight priors will be placed on this frequency
+    Q0 : float (optional)
+        if provided, Q will be fixed to this value
         
     Returns
     -------
-        model : a PyMC3 model with a celerite SHOTERM
+    model : a PyMC3 model with a celerite SHOTERM
     """
     with pm.Model() as model:
         
@@ -162,61 +159,48 @@ def build_sho_model(t, y, var_method, fmin=None, fmax=None, f0=None, Q0=None):
         df = 1/(t.max()-t.min())
         
         if f0 is None:
-            logw0 = pm.Uniform("logw0", lower=np.log(2*pi*fmin), upper=np.log(2*pi*fmax))
+            logw0 = pm.Uniform('logw0', lower=np.log(2*pi*fmin), upper=np.log(2*pi*fmax))
         else:
             logw0 = pm.Bound(pm.Normal, lower=np.log(2*pi*fmin), upper=np.log(2*pi*fmax)) \
-                            ("logw0", mu=np.log(2*pi*f0), sd=np.log((f0+df)/f0))
+                            ('logw0', mu=np.log(2*pi*f0), sd=np.log((f0+df)/f0))
             
-        w0 = pm.Deterministic("w0", T.exp(logw0))
-        
+        w0 = pm.Deterministic('w0', T.exp(logw0))
         
         # quality factor (downstream transit models accept logQ - easier to keep using it here)
         if Q0 is None:
-            logQ_off = pm.Normal("logQ_off", mu=0, sd=5, testval=np.log(1e-3))
-            logQ = pm.Deterministic("logQ", T.log(1/np.sqrt(2) + T.exp(logQ_off)))
-
+            logQ_off = pm.Normal('logQ_off', mu=0, sd=5, testval=np.log(1e-3))
+            logQ = pm.Deterministic('logQ', T.log(1/np.sqrt(2) + T.exp(logQ_off)))
         else:
-            logQ = pm.Deterministic("logQ", T.log(Q0))
+            logQ = pm.Deterministic('logQ', T.log(Q0))
             
-        
         # amplitude parameter
-        logSw4 = pm.Normal("logSw4", mu=np.log(np.var(y)*fmax**3), sd=10.0)
-        S0 = pm.Deterministic("S0", T.exp(logSw4)/w0**4)
-        
+        logSw4 = pm.Normal('logSw4', mu=np.log(np.var(y)*fmax**3), sd=10.0)
+        S0 = pm.Deterministic('S0', T.exp(logSw4)/w0**4)
         
         # mean
-        mean = pm.Normal("mean", mu=np.mean(y), sd=np.std(y))
-        
+        mean = pm.Normal('mean', mu=np.mean(y), sd=np.std(y))
         
         # diagonal variance (jitter)
         if var_method == 'global':
             jit = np.var(y)
-
         elif var_method == 'local':
             jit = np.var(y - boxcar_smooth(y,7))
-            
         elif var_method == 'fit':
-            logjit = pm.Normal("logjit", mu=np.log(np.var(y)), sd=10.0)
+            logjit = pm.Normal('logjit', mu=np.log(np.var(y)), sd=10.0)
             jit = T.exp(logjit)
-            
         else:
             raise ValueError("Must specify var_method as 'global', 'local', or 'fit'")
 
-
         # set up the GP
         kernel = GPterms.SHOTerm(S0=S0, w0=w0, Q=T.exp(logQ))
-        
         gp = GaussianProcess(kernel, t=t, diag=jit*T.ones(len(t)), mean=mean)
-
-        gp.marginal("gp", observed=y)
+        gp.marginal('gp', observed=y)
 
         # track GP prediction
-        pm.Deterministic("pred", gp.predict(y))
-        
+        pm.Deterministic('pred', gp.predict(y))
         
     return model
     
-
 
 def generate_acf(time, flux, cadno, Npts, sigma_reject=5.0, keep_zero_lag=False):
     """
@@ -224,25 +208,25 @@ def generate_acf(time, flux, cadno, Npts, sigma_reject=5.0, keep_zero_lag=False)
     
     Parameters
     ----------
-        time : array-like
-            out-of-transit time values (i.e. transits masked BEFORE passing array into make_chucklist)
-        flux : array-like
-            out-of-transit flux values
-        cadno : array-like
-            out-of-transit cadence numbers
-        Npts : int
-            number of points to use in each chunk; should be ~3x max transit duration
-        sigma_reject : float
-            sigma threshold for rejection of noisy chunks (default=5.0)
-        keep_zero_lag : bool
-            default behavior (False) is to remove lag-zero term from ACF before returning
+    time : array-like
+        out-of-transit time values (i.e. transits masked BEFORE passing array into make_chucklist)
+    flux : array-like
+        out-of-transit flux values
+    cadno : array-like
+        out-of-transit cadence numbers
+    Npts : int
+        number of points to use in each chunk; should be ~3x max transit duration
+    sigma_reject : float
+        sigma threshold for rejection of noisy chunks (default=5.0)
+    keep_zero_lag : bool
+        default behavior (False) is to remove lag-zero term from ACF before returning
         
     Returns
     -------
-        xcor : ndarray
-            time-lag used to generate autocorrelation function with lag-zero value removed
-        acor : ndarray
-            autocorrelation function with lag-zero value removed     
+    xcor : ndarray
+        time-lag used to generate autocorrelation function with lag-zero value removed
+    acor : ndarray
+        autocorrelation function with lag-zero value removed     
     """
     chunklist = make_chunklist(time, flux, cadno, Npts, sigma_reject=sigma_reject)
     
@@ -265,11 +249,9 @@ def generate_acf(time, flux, cadno, Npts, sigma_reject=5.0, keep_zero_lag=False)
         return xcor[1:], acor[1:]
 
 
-
 def model_acf(xcor, acor, fcut, fmin=None, fmax=None, crit_fap=0.003, method='smooth', window_length=None):
     """
     Model an empirical autocorrelation function (ACF) using one of several methods
-    
     
     Parameters
     ----------
@@ -290,7 +272,6 @@ def model_acf(xcor, acor, fcut, fmin=None, fmax=None, crit_fap=0.003, method='sm
     window_length : int
         size of smoothing window  (required if method is 'smooth')
         
-        
     Returns
     -------
     acor_emp, acor_mod, xf, yf, freqs
@@ -304,21 +285,18 @@ def model_acf(xcor, acor, fcut, fmin=None, fmax=None, crit_fap=0.003, method='sm
     
     low_freqs = freqs_L[freqs_L < fcut]
     
-
     # model the ACF with chosen method
-    if method == "smooth":
+    if method == 'smooth':
         if window_length is None:
             raise ValueError("Must specify window_length if method == 'smooth'")
             
         acor_mirror = np.hstack([acor_emp[::-1], acor_emp])
         acor_mod = boxcar_smooth(acor_mirror, window_length)[len(acor_emp):]
             
-    
-    elif method == "savgol":
+    elif method == 'savgol':
         if window_length is None:
             if len(low_freqs) == 0:
                 window_length = 45
-            
             else:
                 window_length = int((24*60)/low_freqs[0])//2
                 window_length = window_length + (window_length % 2) + 1
@@ -330,18 +308,15 @@ def model_acf(xcor, acor, fcut, fmin=None, fmax=None, crit_fap=0.003, method='sm
     else:
         raise ValueError("method must be either 'smooth', or 'savgol'")
 
-      
     # check for any high-frequency components
     xf_H, yf_H, freqs_H, faps_H = FFT_estimator(xcor, acor_emp-acor_mod, fmin=fmin, fmax=fmax, crit_fap=crit_fap, max_peaks=5)
     
     high_freqs  = freqs_H[freqs_H > fcut]
     
-    
     # combine freqs, return ACF and power spectrum
     freqs = np.hstack([low_freqs, high_freqs])
     
     return acor_emp, acor_mod, xf_L, yf_L, freqs
-
 
 
 def make_covariance_matrix(acf, size=None):
@@ -381,7 +356,6 @@ def make_covariance_matrix(acf, size=None):
     return covmatrix
 
 
-
 def generate_synthetic_noise(xcor, acor, n, sigma):
     """
     Generate synthetic correlated noise given a specified autorrelation function
@@ -389,23 +363,23 @@ def generate_synthetic_noise(xcor, acor, n, sigma):
     
     Parameters
     ----------
-        xcor : array-like
-            lag time values
-        acor : array-like
-            autocorrelation function power at each time lag
-        n : int
-            size of n x n covariance matrix
-        sigma : float
-            scale of white noise
+    xcor : array-like
+        lag time values
+    acor : array-like
+        autocorrelation function power at each time lag
+    n : int
+        size of n x n covariance matrix
+    sigma : float
+        scale of white noise
     
     Returns
     -------
-        x : ndarray
-            1D array of time values (or some general independent coordinate)
-        red_noise : ndarray
-            synthetic correlated noise
-        white_noise: ndarray
-            gaussian noise vector used to generate red noise
+    x : ndarray
+        1D array of time values (or some general independent coordinate)
+    red_noise : ndarray
+        synthetic correlated noise
+    white_noise: ndarray
+        gaussian noise vector used to generate red noise
     """
     # first make the covariance matrix
     covmatrix = make_covariance_matrix(acor, n)
@@ -459,7 +433,6 @@ def generate_synthetic_noise(xcor, acor, n, sigma):
     return x, y-z, z
 
 
-
 def make_gp_prior_dict(sho_trace, percs=[0.135, 2.275, 15.865, 50.0, 84.135, 97.725, 99.865]):
     """
     Generates a list of percentiles from posteriors for each hyperparameter of a GP noise model
@@ -470,17 +443,17 @@ def make_gp_prior_dict(sho_trace, percs=[0.135, 2.275, 15.865, 50.0, 84.135, 97.
       
     Parameters
     ----------
-        sho_trace : PyMC3 multitrace
-            trace output of a PyMC3/Exoplanet model built with noise.build_sho_model()
-            will also work if sho_trace a dictionary with the necessary keys
-        percs : list
-            list of percentiles to return, by default 1- 2- 3- sigma and median
+    sho_trace : PyMC3 multitrace
+        trace output of a PyMC3/Exoplanet model built with noise.build_sho_model()
+        will also work if sho_trace a dictionary with the necessary keys
+    percs : list
+        list of percentiles to return, by default 1- 2- 3- sigma and median
         
     Returns
     -------
-        priors : dict
-            Dictionary keys can be any combination of ['logw0', 'logSw4', 'logQ']
-            Each key gives a list of values corresponding to specified percentiles from sho_trace
+    priors : dict
+        Dictionary keys can be any combination of ['logw0', 'logSw4', 'logQ']
+        Each key gives a list of values corresponding to specified percentiles from sho_trace
     """
     priors = {}
     priors['percentiles'] = percs
@@ -500,5 +473,4 @@ def make_gp_prior_dict(sho_trace, percs=[0.135, 2.275, 15.865, 50.0, 84.135, 97.
     if np.isin('logQ', varnames):
         priors['logQ'] = np.percentile(sho_trace['logQ'], percs)
         
-    
     return priors
