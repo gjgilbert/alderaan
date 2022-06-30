@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
 #################################
 # - Detrend and Estimate TTVs - #
 #################################
@@ -137,7 +134,7 @@ from   alderaan.Planet import Planet
 sys.stdout.flush()
 
 # turn off FutureWarnings
-warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings('ignore', category=FutureWarning)
 
 # check for interactive matplotlib backends
 if np.any(np.array(['agg', 'png', 'svg', 'pdf', 'ps']) == mpl.get_backend()):
@@ -161,10 +158,10 @@ print("\nLoading data...\n")
 target_dict = pd.read_csv(PROJECT_DIR + 'Catalogs/' + CATALOG)
 
 # set KOI_ID global variable
-if MISSION == "Kepler":
+if MISSION == 'Kepler':
     KOI_ID = TARGET
-elif MISSION == "Simulated":
-    KOI_ID = "K" + TARGET[1:]
+elif MISSION == 'Simulated':
+    KOI_ID = 'K' + TARGET[1:]
 else:
     raise ValueError("MISSION must be 'Kepler' or 'Simulated'")
 
@@ -203,7 +200,7 @@ else: raise ValueError("There are inconsistencies with U2 in the csv input file"
 
 # short cadence (load all available)
 try:
-    if MISSION == "Kepler":
+    if MISSION == 'Kepler':
         sc_path  = glob.glob(DOWNLOAD_DIR + 'mastDownload/Kepler/kplr' + '{0:09d}'.format(KIC) + '*_sc*/')[0]
         sc_files = glob.glob(sc_path + '*')
 
@@ -215,7 +212,7 @@ try:
         sc_data = io.cleanup_lkfc(sc_raw_collection, KIC)
 
 
-    elif MISSION == "Simulated":
+    elif MISSION == 'Simulated':
         sc_path = DOWNLOAD_DIR + 'Lightcurves/Kepler/simkplr' + '{0:09d}'.format(KIC) + '_sc/'
         sc_files = glob.glob(sc_path + '*')
 
@@ -245,7 +242,7 @@ for i, scd in enumerate(sc_data):
 
 # long cadence (only load quarters for which short cadence data do not exist)
 try:
-    if MISSION == "Kepler":
+    if MISSION == 'Kepler':
         lc_path  = glob.glob(DOWNLOAD_DIR + 'mastDownload/Kepler/kplr' + '{0:09d}'.format(KIC) + '*_lc*/')[0]
         lc_files = glob.glob(lc_path + '*')
 
@@ -260,7 +257,7 @@ try:
         lc_data = io.cleanup_lkfc(lc_raw_collection, KIC)
 
 
-    elif MISSION == "Simulated":
+    elif MISSION == 'Simulated':
         lc_path = DOWNLOAD_DIR + 'Lightcurves/Kepler/simkplr' + '{0:09d}'.format(KIC) + '_lc/'
         lc_files = glob.glob(lc_path + '*')
 
@@ -394,7 +391,7 @@ print("\nBuilding initial TTV model...\n")
 HOLCZER_FILE = PROJECT_DIR + 'Catalogs/holczer_2016_kepler_ttvs.txt'
 
 
-if MISSION == "Kepler":
+if MISSION == 'Kepler':
     holczer_data = np.loadtxt(HOLCZER_FILE, usecols=[0,1,2,3])
 
     holczer_inds = []
@@ -420,7 +417,7 @@ if MISSION == "Kepler":
     
     
 # synthetic "Holczer" TTVs are approximated as ground truth + Student-t2 noise
-if MISSION == "Simulated":
+if MISSION == 'Simulated':
     holczer_inds = []
     holczer_tts  = []
     holczer_pers = []
@@ -594,7 +591,7 @@ for i, lcd in enumerate(lc_data):
             lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, correct_ramp=False)
         except:
             warnings.warn("Detrending with RotationTerm failed...attempting to detrend with SHOTerm")
-            lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, kterm="SHOTerm", correct_ramp=False)
+            lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, kterm='SHOTerm', correct_ramp=False)
             
             
 if len(lc_data) > 0:
@@ -628,7 +625,7 @@ for i, scd in enumerate(sc_data):
             scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, correct_ramp=False)
         except:
             warnings.warn("Detrending with RotationTerm failed...attempting to detrend with SHOTerm")
-            scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, kterm="SHOTerm", correct_ramp=False)
+            scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, kterm='SHOTerm', correct_ramp=False)
             
             
 if len(sc_data) > 0:
@@ -848,20 +845,20 @@ print('\nFitting transit SHAPE model...\n')
 
 with pm.Model() as shape_model:
     # planetary parameters
-    log_r = pm.Uniform("log_r", lower=np.log(1e-5), upper=np.log(0.99), shape=NPL, testval=np.log(np.sqrt(depths)))
-    r = pm.Deterministic("r", T.exp(log_r))    
-    b = pm.Uniform("b", lower=0., upper=1., shape=NPL)
+    log_r = pm.Uniform('log_r', lower=np.log(1e-5), upper=np.log(0.99), shape=NPL, testval=np.log(np.sqrt(depths)))
+    r = pm.Deterministic('r', T.exp(log_r))    
+    b = pm.Uniform('b', lower=0., upper=1., shape=NPL)
     
-    log_dur = pm.Normal("log_dur", mu=np.log(durs), sd=5.0, shape=NPL)
-    dur = pm.Deterministic("dur", T.exp(log_dur))
+    log_dur = pm.Normal('log_dur', mu=np.log(durs), sd=5.0, shape=NPL)
+    dur = pm.Deterministic('dur', T.exp(log_dur))
     
     # polynomial TTV parameters    
-    C0 = pm.Normal("C0", mu=0.0, sd=durs/2, shape=NPL)
-    C1 = pm.Normal("C1", mu=0.0, sd=durs/2, shape=NPL)
+    C0 = pm.Normal('C0', mu=0.0, sd=durs/2, shape=NPL)
+    C1 = pm.Normal('C1', mu=0.0, sd=durs/2, shape=NPL)
     
     transit_times = []
     for npl in range(NPL):
-        transit_times.append(pm.Deterministic("tts_{0}".format(npl), 
+        transit_times.append(pm.Deterministic('tts_{0}'.format(npl), 
                                               fixed_tts[npl] + C0[npl]*Leg0[npl] + C1[npl]*Leg1[npl]))
     
     
@@ -871,13 +868,13 @@ with pm.Model() as shape_model:
                                 b=b, ror=r, duration=dur)
     
     # track period and epoch
-    T0 = pm.Deterministic("T0", orbit.t0)
-    P  = pm.Deterministic("P", orbit.period)
+    T0 = pm.Deterministic('T0', orbit.t0)
+    P  = pm.Deterministic('P', orbit.period)
     
     
     # nuissance parameters
-    flux0 = pm.Normal("flux0", mu=np.mean(good_flux), sd=np.std(good_flux), shape=len(quarters))
-    log_jit = pm.Normal("log_jit", mu=np.log(np.var(good_flux)/10), sd=10, shape=len(quarters))
+    flux0 = pm.Normal('flux0', mu=np.mean(good_flux), sd=np.std(good_flux), shape=len(quarters))
+    log_jit = pm.Normal('log_jit', mu=np.log(np.var(good_flux)/10), sd=10, shape=len(quarters))
     
 
     # now evaluate the model for each quarter
@@ -894,7 +891,7 @@ with pm.Model() as shape_model:
         model_flux[j] = pm.math.sum(light_curves[j], axis=-1) + flux0[j]*T.ones(len(all_time[q]))
         flux_err[j] = T.sqrt(np.mean(all_error[q])**2 + T.exp(log_jit[j]))/np.sqrt(2)
         
-        obs[j] = pm.Normal("obs_{0}".format(j), 
+        obs[j] = pm.Normal('obs_{0}'.format(j), 
                            mu=model_flux[j], 
                            sd=flux_err[j], 
                            observed=all_flux[q])
@@ -1063,12 +1060,12 @@ for npl, p in enumerate(planets):
                     fig, ax = plt.subplots(1,2, figsize=(10,3))
 
                     ax[0].plot(t_-tts[i], f_, 'ko')
-                    ax[0].plot((t_-tts[i])[m_], f_[m_], "o", c='C{0}'.format(npl))
+                    ax[0].plot((t_-tts[i])[m_], f_[m_], 'o', c='C{0}'.format(npl))
                     ax[0].plot(template_time, template_flux, c='C{0}'.format(npl), lw=2)
 
                     ax[1].plot(tcfit, x2fit, 'ko')
                     ax[1].plot(tcfit, quadfit, c='C{0}'.format(npl), lw=3)
-                    ax[1].axvline(tts[i], color='k', ls="--", lw=2)
+                    ax[1].axvline(tts[i], color='k', ls='--', lw=2)
                     
                     if ~iplot: plt.close()
                     
@@ -1200,9 +1197,9 @@ with pm.Model() as indep_model:
     for npl in range(NPL):
         use = np.copy(refit[npl])
         
-        tt_offset.append(pm.Normal("tt_offset_{0}".format(npl), mu=0, sd=1, shape=np.sum(use)))
+        tt_offset.append(pm.Normal('tt_offset_{0}'.format(npl), mu=0, sd=1, shape=np.sum(use)))
 
-        map_tts.append(pm.Deterministic("tts_{0}".format(npl),
+        map_tts.append(pm.Deterministic('tts_{0}'.format(npl),
                                         shape_transit_times[npl][use] + tt_offset[npl]*durs[npl]/3))
         
         map_inds.append(transit_inds[npl][use])
@@ -1213,8 +1210,8 @@ with pm.Model() as indep_model:
                                  period=periods, b=impacts, ror=rors, duration=durs)
     
     # nuissance parameters
-    flux0 = pm.Normal("flux0", mu=np.mean(good_flux), sd=np.std(good_flux), shape=len(map_quarters))
-    log_jit = pm.Normal("log_jit", mu=np.log(np.var(good_flux)/10), sd=10, shape=len(map_quarters))
+    flux0 = pm.Normal('flux0', mu=np.mean(good_flux), sd=np.std(good_flux), shape=len(map_quarters))
+    log_jit = pm.Normal('log_jit', mu=np.log(np.var(good_flux)/10), sd=10, shape=len(map_quarters))
         
     # now evaluate the model for each quarter
     light_curves = [None]*len(map_quarters)
@@ -1230,7 +1227,7 @@ with pm.Model() as indep_model:
         model_flux[j] = pm.math.sum(light_curves[j], axis=-1) + flux0[j]*T.ones(len(map_time[q]))
         flux_err[j] = T.sqrt(np.mean(map_error[q])**2 + T.exp(log_jit[j]))/np.sqrt(2)
         
-        obs[j] = pm.Normal("obs_{0}".format(j), 
+        obs[j] = pm.Normal('obs_{0}'.format(j), 
                            mu=model_flux[j], 
                            sd=flux_err[j], 
                            observed=map_flux[q])
@@ -1257,7 +1254,7 @@ for npl, p in enumerate(planets):
     replace = np.isnan(slide_error[npl])
     
     if np.any(replace):
-        indep_transit_times[npl][replace] = indep_map["tts_{0}".format(npl)]
+        indep_transit_times[npl][replace] = indep_map['tts_{0}'.format(npl)]
 
     pfit = poly.polyfit(transit_inds[npl], indep_transit_times[npl], 1)
 
@@ -1306,7 +1303,7 @@ for npl, p in enumerate(planets):
     xtime = indep_ephemeris[npl]
     yomc  = indep_transit_times[npl] - indep_ephemeris[npl]
 
-    ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode="mirror"), winsize=5)
+    ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode='mirror'), winsize=5)
     out  = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 5.0
     
     # search for a periodic component
@@ -1392,8 +1389,8 @@ for npl in range(NPL):
         LS = LombScargle(xtime, yomc)
         
         plt.figure(figsize=(12,3))
-        plt.plot(xtime, yomc*24*60, "o", c="lightgrey")
-        plt.plot(xtime, LS.model(xtime, omc_freqs[npl])*24*60, c="C{0}".format(npl), lw=3)
+        plt.plot(xtime, yomc*24*60, 'o', c='lightgrey')
+        plt.plot(xtime, LS.model(xtime, omc_freqs[npl])*24*60, c='C{0}'.format(npl), lw=3)
         if ~iplot: plt.close()
     
     else:
@@ -1602,12 +1599,12 @@ for j, q in enumerate(quarters):
     print("QUARTER", q)
     
     # grab time and flux data
-    if all_dtype[q] == "long":
+    if all_dtype[q] == 'long':
         use = lc.quarter == q
         t_ = lc.time[use]
         f_ = lc.flux[use]
         
-    elif all_dtype[q] == "short":
+    elif all_dtype[q] == 'short':
         use = sc.quarter == q
         t_ = sc.time[use]
         f_ = sc.flux[use]
@@ -1774,7 +1771,7 @@ if sc is not None:
 
 # make sure there is at least one transit in the short cadence data
 # this shouldn't be an issue for real KOIs, but can happen for simulated data
-if np.sum(np.array(all_dtype) == "short") == 0:
+if np.sum(np.array(all_dtype) == 'short') == 0:
     sc_data = []
     
     
@@ -1818,7 +1815,7 @@ for i, lcd in enumerate(lc_data):
     print("QUARTER {}".format(lcd.quarter[0]))
     
     # make transit mask
-    lcd.mask = np.zeros(len(lcd.time), dtype="bool")
+    lcd.mask = np.zeros(len(lcd.time), dtype='bool')
     for npl, p in enumerate(planets):
         masksize = np.max([1/24, 0.5*p.duration + ttv_buffer[npl]])
         lcd.mask += detrend.make_transitmask(lcd.time, p.tts, masksize)
@@ -1846,7 +1843,7 @@ for i, scd in enumerate(sc_data):
     print("QUARTER {}".format(scd.quarter[0]))
     
     # make transit mask
-    scd.mask = np.zeros(len(scd.time), dtype="bool")
+    scd.mask = np.zeros(len(scd.time), dtype='bool')
     for npl, p in enumerate(planets):
         masksize = np.max([1/24, 0.5*p.duration + ttv_buffer[npl]])
         scd.mask += detrend.make_transitmask(scd.time, p.tts, masksize)
@@ -1985,7 +1982,7 @@ for npl, p in enumerate(planets):
         t_binned, f_binned = bin_data(t_folded, f_folded, p.duration/11)
         
         # set undersampling factor and plotting limits
-        inds = np.arange(len(t_folded), dtype="int")
+        inds = np.arange(len(t_folded), dtype='int')
         inds = np.random.choice(inds, size=np.min([3000,len(inds)]), replace=False)
         
         ymin = 1 - 3*np.std(f_folded) - p.depth

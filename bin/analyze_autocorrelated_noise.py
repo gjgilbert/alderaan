@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
 ################################
 # Analyze Autocorrelated Noise #
 ################################
@@ -109,7 +106,7 @@ import alderaan.detrend as detrend
 sys.stdout.flush()
 
 # turn off FutureWarnings
-warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings('ignore', category=FutureWarning)
 
 # check for interactive matplotlib backends
 if np.any(np.array(['agg', 'png', 'svg', 'pdf', 'ps']) == mpl.get_backend()):
@@ -133,10 +130,10 @@ print("\nLoading data...\n")
 target_dict = pd.read_csv(CATALOG)
 
 # set KOI_ID global variable
-if MISSION == "Kepler":
+if MISSION == 'Kepler':
     KOI_ID = TARGET
-elif MISSION == "Simulated":
-    KOI_ID = "K" + TARGET[1:]
+elif MISSION == 'Simulated':
+    KOI_ID = 'K' + TARGET[1:]
 else:
     raise ValueError("MISSION must be 'Kepler' or 'Simulated'")
     

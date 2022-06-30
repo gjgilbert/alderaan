@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
 ##########################
 # - Download from MAST - #
 ##########################
@@ -10,11 +7,10 @@
 # Lightkurve creates a file structure based on each object's KIC identifier. 
 # These files can then be read back in for detrending and modeling in other scripts.
 
-import numpy as np
-import lightkurve as lk
 import argparse
+import lightkurve as lk
+import numpy as np
 import warnings
-
 
 # parse inputs
 parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
@@ -47,7 +43,7 @@ print(MAST_TARGET)
 print('downloading short cadence data from MAST')
 
 # this creates a LightCurveCollection of KeplerLightCurves
-sc_searchresult = lk.search_lightcurve(MAST_TARGET, cadence="short", mission="Kepler")
+sc_searchresult = lk.search_lightcurve(MAST_TARGET, cadence='short', mission='Kepler')
 
 if len(sc_searchresult) > 0:
     sc_rawdata = sc_searchresult.download_all(download_dir=DOWNLOAD_DIR)
@@ -59,25 +55,21 @@ kic_ids = []
 sc_quarters = []
 
 for i, scrd in enumerate(sc_rawdata):
-    kic_ids.append(scrd.meta["KEPLERID"])
-    sc_quarters.append(scrd.meta["QUARTER"])
-    
+    kic_ids.append(scrd.meta['KEPLERID'])
+    sc_quarters.append(scrd.meta['QUARTER'])
     
 # check that all lightcurves are from the same object
 if len(kic_ids) > 0:
     if np.sum(np.array(kic_ids) != kic_ids[0]):
         raise ValueError("Search results returned data from multiple objects")
-        
 
 # here's the list of quarters w/ short cadence data
 sc_quarters = np.sort(np.unique(sc_quarters))
 
-
 # make a list of quarters where short cadence flux is unavailable
-qlist = np.arange(18, dtype="int")
+qlist = np.arange(18, dtype='int')
 keep  = ~np.isin(qlist, np.unique(sc_quarters))
 lc_quarters = list(qlist[keep])
-
 
 #########################
 # - LONG CADENCE DATA - #
@@ -86,7 +78,7 @@ lc_quarters = list(qlist[keep])
 print('downloading long cadence data from MAST')
 
 # this creates a LightCurveCollection of KeplerLightCurves
-lc_searchresult = lk.search_lightcurve(MAST_TARGET, cadence="long", mission="Kepler", quarter=lc_quarters)
+lc_searchresult = lk.search_lightcurve(MAST_TARGET, cadence='long', mission='Kepler', quarter=lc_quarters)
 
 if len(lc_searchresult) > 0:
     lc_rawdata = lc_searchresult.download_all(download_dir=DOWNLOAD_DIR)
@@ -97,8 +89,7 @@ else:
 kic_ids = []
 
 for i, lcrd in enumerate(lc_rawdata):
-    kic_ids.append(lcrd.meta["KEPLERID"])
-    
+    kic_ids.append(lcrd.meta['KEPLERID'])
     
 # check that all lightcurves are from the same object
 if len(kic_ids) > 0:
