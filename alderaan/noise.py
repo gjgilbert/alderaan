@@ -14,7 +14,7 @@ from   celerite2.theano import GaussianProcess
 from   celerite2.theano import terms as GPterms
 
 from .constants import *
-from .utils import *
+from .utils import boxcar_smooth, FFT_estimator
 
 
 __all__ = ['make_chunklist',

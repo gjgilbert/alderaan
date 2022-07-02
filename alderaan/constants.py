@@ -1,7 +1,6 @@
 import numpy as np
 import astropy.constants as apc
 
-# define constants
 pi = np.pi
 
 RJRE = (apc.R_jup/apc.R_earth).value       # R_jup/R_earth

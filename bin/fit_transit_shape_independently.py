@@ -94,14 +94,13 @@ if os.path.exists(NOISE_DIR) == False:
     
 
 # import packages
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
-
 import astropy.stats
 from   astropy.io import fits
 import json
+import matplotlib.pyplot as plt
+import numpy as np
 import numpy.polynomial.polynomial as poly
+import pandas as pd
 from   scipy import stats
 
 import pymc3 as pm
@@ -113,7 +112,6 @@ from   celerite2.theano import GaussianProcess
 from   celerite2.theano import terms as GPterms
 
 from   alderaan.constants import *
-from   alderaan.utils import *
 import alderaan.io as io
 from   alderaan.detrend import make_transitmask
 from   alderaan.LiteCurve import LiteCurve

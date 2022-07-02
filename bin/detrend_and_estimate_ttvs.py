@@ -101,16 +101,15 @@ if os.path.exists(NOISE_DIR) == False:
 
 
 # import packages
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
-import glob
-
 import astropy
 from   astropy.io import fits
 from   astropy.timeseries import LombScargle
+import glob
 import lightkurve as lk
+import matplotlib.pyplot as plt
+import numpy as np
 import numpy.polynomial.polynomial as poly
+import pandas as pd
 from   scipy import ndimage
 from   scipy import stats
 
@@ -123,7 +122,7 @@ from   celerite2.theano import GaussianProcess
 from   celerite2.theano import terms as GPterms
 
 from   alderaan.constants import *
-from   alderaan.utils import *
+from   alderaan.utils import bin_data, boxcar_smooth, get_transit_depth, LS_estimator
 import alderaan.detrend as detrend
 import alderaan.io as io
 import alderaan.omc as omc

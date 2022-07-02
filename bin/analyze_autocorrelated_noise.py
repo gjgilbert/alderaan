@@ -80,13 +80,12 @@ if os.path.exists(NOISE_DIR) == False:
 
 
 # import packages
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
-import json
-
 import astropy.stats
+import json
+import matplotlib.pyplot as plt
+import numpy as np
 import numpy.polynomial.polynomial as poly
+import pandas as pd
 from   scipy import stats
 
 import pymc3 as pm
