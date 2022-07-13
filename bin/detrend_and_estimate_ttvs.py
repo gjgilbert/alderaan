@@ -192,6 +192,12 @@ else: raise ValueError("There are inconsistencies with U1 in the csv input file"
 if all(u == U2[0] for u in U2): U2 = U2[0]
 else: raise ValueError("There are inconsistencies with U2 in the csv input file")
 
+if np.any(np.isnan(PERIODS)): raise ValueError("NaN values found in input catalog")
+if np.any(np.isnan(EPOCHS)):  raise ValueError("NaN values found in input catalog")
+if np.any(np.isnan(DEPTHS)):  raise ValueError("NaN values found in input catalog")
+if np.any(np.isnan(DURS)):    raise ValueError("NaN values found in input catalog")
+if np.any(np.isnan(IMPACTS)): raise ValueError("NaN values found in input catalog")
+
 
 # Read in pre-downloaded lightcurve data
 # Kepler data can be retrieved by running the script "download_from_MAST.py"

@@ -131,10 +131,10 @@ def build_sho_model(t, y, var_method, fmin=None, fmax=None, f0=None, Q0=None):
     y : array-like
         corresponding dependent variable data (e.g. empirical ACF or flux)
     var_method : string
-        automatic method for selecting y data jitter (variance)
-        'global' --> jit = np.var(y)
-        'local' --> jit = np.var(y - local_trend)
-        'fit' --> logjit is a free hyperparameter in the GP model
+        automatic method for selecting y data variance
+        'global' --> yvar = np.var(y)
+        'local' --> yvar = np.var(y - local_trend)
+        'fit' --> log_yvar is a free hyperparameter in the GP model
     fmin : float (optional)
         lower bound on (ordinary, not angular) frequency
     fmax : float (optional)
@@ -180,20 +180,20 @@ def build_sho_model(t, y, var_method, fmin=None, fmax=None, f0=None, Q0=None):
         # mean
         mean = pm.Normal('mean', mu=np.mean(y), sd=np.std(y))
         
-        # diagonal variance (jitter)
+        # diagonal variance
         if var_method == 'global':
-            jit = np.var(y)
+            yvar = np.var(y)
         elif var_method == 'local':
-            jit = np.var(y - boxcar_smooth(y,7))
+            yvar = np.var(y - boxcar_smooth(y,7))
         elif var_method == 'fit':
-            logjit = pm.Normal('logjit', mu=np.log(np.var(y)), sd=10.0)
-            jit = T.exp(logjit)
+            log_yvar = pm.Normal('log_yvar', mu=np.log(np.var(y)), sd=10.0)
+            yvar = T.exp(log_yvar)
         else:
             raise ValueError("Must specify var_method as 'global', 'local', or 'fit'")
 
         # set up the GP
         kernel = GPterms.SHOTerm(S0=S0, w0=w0, Q=T.exp(logQ))
-        gp = GaussianProcess(kernel, t=t, diag=jit*T.ones(len(t)), mean=mean)
+        gp = GaussianProcess(kernel, t=t, diag=yvar*T.ones(len(t)), mean=mean)
         gp.marginal('gp', observed=y)
 
         # track GP prediction

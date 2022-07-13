@@ -211,11 +211,11 @@ def flatten_with_gp(lc, break_tolerance, min_period, kterm='RotationTerm', corre
             log_tau  = None
             mean_    = pm.Deterministic('mean_', mean_fxn(time_, seg_, flux0))
             
-        # jitter
-        logjit = pm.Normal('logjit', mu=np.var(flux_ - sig.medfilt(flux_,13)), sd=5.0)
+        # variance
+        log_yvar = pm.Normal('log_yvar', mu=np.var(flux_ - sig.medfilt(flux_,13)), sd=5.0)
 
         # now set up the GP
-        gp = GaussianProcess(kernel, t=time_, diag=T.exp(logjit)*T.ones(len(time_)), mean=mean_)
+        gp = GaussianProcess(kernel, t=time_, diag=T.exp(log_yvar)*T.ones(len(time_)), mean=mean_)
         gp.marginal('gp', observed=flux_)
         
         # track mean predictions
@@ -225,15 +225,15 @@ def flatten_with_gp(lc, break_tolerance, min_period, kterm='RotationTerm', corre
     with trend_model:
         trend_map = trend_model.test_point
         trend_map = pmx.optimize(start=trend_map, vars=[flux0])
-        trend_map = pmx.optimize(start=trend_map, vars=[flux0, logjit])
+        trend_map = pmx.optimize(start=trend_map, vars=[flux0, log_yvar])
         
         for i in range(1 + correct_ramp):
             if kterm == 'RotationTerm':
-                trend_map = pmx.optimize(start=trend_map, vars=[logjit, flux0, sigma, P, log_Q0, log_dQ, mix])
+                trend_map = pmx.optimize(start=trend_map, vars=[log_yvar, flux0, sigma, P, log_Q0, log_dQ, mix])
             if kterm == 'SHOTerm':
-                trend_map = pmx.optimize(start=trend_map, vars=[logjit, flux0, sigma, P, log_Q0])
+                trend_map = pmx.optimize(start=trend_map, vars=[log_yvar, flux0, sigma, P, log_Q0])
             if correct_ramp:
-                trend_map = pmx.optimize(start=trend_map, vars=[logjit, flux0, ramp_amp, log_tau])
+                trend_map = pmx.optimize(start=trend_map, vars=[log_yvar, flux0, ramp_amp, log_tau])
                 
         trend_map = pmx.optimize(start=trend_map)     
         
@@ -253,7 +253,7 @@ def flatten_with_gp(lc, break_tolerance, min_period, kterm='RotationTerm', corre
                                 )
     
     gp = GaussianProcess(kernel, mean=0.0)
-    gp.compute(time_, diag=T.exp(trend_map['logjit'])*T.ones(len(time_)))
+    gp.compute(time_, diag=T.exp(trend_map['log_yvar'])*T.ones(len(time_)))
         
     full_trend =  gp.predict(flux_-trend_map['mean_'], lc.time).eval() + trend_map['full_mean_pred']
     

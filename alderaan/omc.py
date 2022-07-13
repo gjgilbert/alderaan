@@ -56,12 +56,12 @@ def matern32_model(xtime, yomc, xt_predict=None):
         # regularization penalty
         pm.Potential('penalty', 2*np.log(rho))
         
-        # mean and log(jitter) -- "diag" in GaussianProcess is diagonal variance
+        # mean and log(yvar) -- "diag" in GaussianProcess is diagonal variance
         mean = pm.Normal('mean', mu=np.mean(yomc), sd=np.std(yomc))
-        log_jit = pm.Normal('log_jit', mu=np.log(np.var(yomc)), sd=10)
+        log_yvar = pm.Normal('log_yvar', mu=np.log(np.var(yomc)), sd=10)
 
         # here's the gp and it's likelihood
-        gp = GaussianProcess(kernel, t=xtime, diag=T.exp(log_jit)*T.ones(len(xtime)), mean=mean)
+        gp = GaussianProcess(kernel, t=xtime, diag=T.exp(log_yvar)*T.ones(len(xtime)), mean=mean)
 
         gp.marginal('gp', observed=yomc)
 
@@ -110,12 +110,12 @@ def poly_model(xtime, yomc, polyorder, xt_predict=None):
         def poly_fxn(c0, c1, c2, c3, xt):
             return c0 + c1*xt + c2*xt**2 + c3*xt**3
         
-        # mean and jitter
+        # mean and variance
         trend = pm.Deterministic('trend', poly_fxn(C0, C1, C2, C3, xtime))
-        log_jit = pm.Normal('log_jit', mu=np.log(np.var(yomc)), sd=10)
+        log_yvar = pm.Normal('log_yvar', mu=np.log(np.var(yomc)), sd=10)
         
         # here's the likelihood
-        pm.Normal('obs', mu=trend, sd=T.sqrt(T.exp(log_jit)*T.ones(len(xtime))), observed=yomc)
+        pm.Normal('obs', mu=trend, sd=T.sqrt(T.exp(log_yvar)*T.ones(len(xtime))), observed=yomc)
         
         # track predicted trend
         pred = pm.Deterministic('pred', poly_fxn(C0,C1,C2,C3,xt_predict))
@@ -157,12 +157,12 @@ def sin_model(xtime, yomc, period, xt_predict=None):
         def sin_fxn(A, B, f, xt):
             return A*T.sin(2*pi*f*xt) + B*T.cos(2*pi*f*xt)
         
-        # mean and jitter
+        # mean and variance
         trend = pm.Deterministic('trend', sin_fxn(Ah, Bk, f, xtime))
-        log_jit = pm.Normal('log_jit', mu=np.log(np.var(yomc)), sd=10)
+        log_yvar = pm.Normal('log_yvar', mu=np.log(np.var(yomc)), sd=10)
         
         # here's the likelihood
-        pm.Normal('obs', mu=trend, sd=T.sqrt(T.exp(log_jit)*T.ones(len(xtime))), observed=yomc)
+        pm.Normal('obs', mu=trend, sd=T.sqrt(T.exp(log_yvar)*T.ones(len(xtime))), observed=yomc)
         
         # track predicted trend
         pred = pm.Deterministic('pred', sin_fxn(Ah,Bk,f,xt_predict))

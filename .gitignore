@@ -121,3 +121,6 @@ temp*
 
 *load_table_cache*
 *csv
+
+# macOS
+.DS_Store
