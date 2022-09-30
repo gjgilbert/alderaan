@@ -214,8 +214,8 @@ for npl in range(NPL):
     # do a quick fit to get a linear ephemeris
     pfit = poly.polyfit(transit_inds[npl], quick_transit_times[npl], 1)
     
-    epochs[npl] = pfit[1]
-    periods[npl] = pfit[0]
+    epochs[npl] = pfit[0]
+    periods[npl] = pfit[1]
     ephemeris[npl] = poly.polyval(transit_inds[npl], pfit)
     
 # make sure transit_inds are zero-indexed
@@ -471,11 +471,9 @@ for z in range(4):
     logS = gpz['logSw4'][0] - 4*gpz['logw0'][0]
     
     if len(gpz['logSw4']) == 1:
-        print(1)
         gp_priors[z]['logS'] = [logS]
         
     if len(gpz['logSw4']) == 2:
-        print(2)
         logS_var = gpz['logSw4'][1]**2 + 16*gpz['logw0'][1]**2
         gp_priors[z]['logS'] = np.array([logS, np.sqrt(logS_var)])
 

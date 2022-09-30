@@ -103,7 +103,8 @@ def identify_gaps(lc, break_tolerance, jump_tolerance=5.0):
     return gaps
 
 
-def flatten_with_gp(lc, break_tolerance, min_period, kterm='RotationTerm', correct_ramp=True, return_trend=False):
+def flatten_with_gp(lc, break_tolerance, min_period, nominal_period=None, 
+                    kterm='RotationTerm', correct_ramp=True, return_trend=False):
     """
     Remove trends from a LiteCurve using celerite Gaussian processes
     
@@ -115,6 +116,8 @@ def flatten_with_gp(lc, break_tolerance, min_period, kterm='RotationTerm', corre
             number of cadences to be considered a gap in data
         min_period : float
             minimum allowed period of GP kernel
+        nominal_period : float
+            mean estimate of period to pass to GP kernel
         kterm : string
             must be either 'RotationTerm' (default) or 'SHOTerm'
         correct_ramp : bool
@@ -128,12 +131,16 @@ def flatten_with_gp(lc, break_tolerance, min_period, kterm='RotationTerm', corre
             alderaan.LiteCurve() with lc.flux and lc.error flattened and normalized
     """
     # identify primary oscillation period
-    ls_estimate = LombScargle(lc.time, lc.flux)
-    xf, yf = ls_estimate.autopower(minimum_frequency=1/(lc.time.max()-lc.time.min()), 
-                                   maximum_frequency=1/min_period)
-    
-    peak_freq = xf[np.argmax(yf)]
-    peak_per  = 1/peak_freq
+    if nominal_period is None:
+        ls_estimate = LombScargle(lc.time, lc.flux)
+        xf, yf = ls_estimate.autopower(minimum_frequency=1/(lc.time.max()-lc.time.min()), 
+                                       maximum_frequency=1/min_period)
+
+        peak_freq = xf[np.argmax(yf)]
+        peak_per  = np.max([1./peak_freq, 1.001*min_period])
+        
+    else:
+        peak_per = np.copy(nominal_period)
     
     # find gaps/jumps in the data   
     gaps = identify_gaps(lc, break_tolerance=break_tolerance)

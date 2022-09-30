@@ -20,7 +20,7 @@ parser.add_argument("--mission", default=None, type=str, required=True,
 parser.add_argument("--target", default=None, type=str, required=True,
                     help="Target name; see ALDERAAN documentation for acceptable formats")
 parser.add_argument("--primary_dir", default=None, type=str, required=True,
-                    help="Primary directory path for accessing lightcurve data and saving outputs")
+                    help="Primary directory for project; should end in '/'")
 
 args = parser.parse_args()
 MISSION     = args.mission

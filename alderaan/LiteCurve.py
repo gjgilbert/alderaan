@@ -9,16 +9,13 @@ from .constants import *
 __all__ = ['LiteCurve']
 
 class LiteCurve:
-    def __init__(self, time=None, flux=None, error=None, cadno=None, quarter=None, season=None, 
-                 channel=None, quality=None, mask=None):
-        
+    def __init__(self, time=None, flux=None, error=None, cadno=None, quarter=None, season=None, quality=None, mask=None):
         self.time    = time
         self.flux    = flux
         self.error   = error
         self.cadno   = cadno
         self.quarter = quarter
         self.season  = season
-        self.channel = channel
         self.quality = quality
         self.mask    = mask
         
@@ -69,22 +66,6 @@ class LiteCurve:
         return self
     
     
-    def plot(self):
-        """
-        Plot the photometry
-        """
-        plt.figure(figsize=(20,4))
-        plt.plot(self.time, self.flux, 'k', lw=0.5)
-        plt.xticks(fontsize=12)
-        plt.yticks(fontsize=12)
-        plt.xlabel("Time [BKJD]", fontsize=24)
-        plt.ylabel("Flux", fontsize=24)
-        plt.xlim(self.time.min(), self.time.max())
-        plt.show()
-        
-        return None
-
-    
     def remove_flagged_cadences(self, qmask):
         """
         Remove user-specified cadences using a pre-generated mask
@@ -101,7 +82,23 @@ class LiteCurve:
         return self
 
     
-    def to_fits(self, target, filename):
+    def plot(self):
+        """
+        Plot the photometry
+        """
+        plt.figure(figsize=(20,4))
+        plt.plot(self.time, self.flux, 'k', lw=0.5)
+        plt.xticks(fontsize=12)
+        plt.yticks(fontsize=12)
+        plt.xlabel("Time [BKJD]", fontsize=24)
+        plt.ylabel("Flux", fontsize=24)
+        plt.xlim(self.time.min(), self.time.max())
+        plt.show()
+        
+        return None
+
+    
+    def to_fits(self, target, filename, cadence):
         """
         Save LiteCurve object as a fits file
 
@@ -118,6 +115,7 @@ class LiteCurve:
         header = primary_hdu.header
 
         header['TARGET']  = target
+        header['CADENCE'] = cadence
 
         primary_hdu.header = header
 
@@ -130,8 +128,6 @@ class LiteCurve:
         hdulist.append(pyfits.ImageHDU(self.error, name='ERROR'))
         hdulist.append(pyfits.ImageHDU(self.cadno, name='CADNO'))
         hdulist.append(pyfits.ImageHDU(self.quarter, name='QUARTER'))
-        hdulist.append(pyfits.ImageHDU(self.channel, name='CHANNEL'))
-        hdulist.append(pyfits.ImageHDU(np.array(self.mask, dtype='int'), name='MASK'))
 
         hdulist = pyfits.HDUList(hdulist)   
         hdulist.writeto(filename, overwrite=True)

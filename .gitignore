@@ -1,10 +1,6 @@
 Catalogs/
-Detrended_lightcurves/
 Figures/
-MAST_downloads/
-Noise_models/
-QuickTTVs/
-Traces/
+Results/
 
 build/
 
