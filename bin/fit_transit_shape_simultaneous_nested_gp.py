@@ -3,6 +3,9 @@
 
 # # Fit transit shape with nested sampling
 
+# In[ ]:
+
+
 import os
 import sys
 import glob
@@ -24,64 +27,70 @@ global_start_time = timer()
 
 # #### Parse inputs
 
+# In[ ]:
+
+
+
 # Automatically set inputs (when running batch scripts)
 import argparse
 import matplotlib as mpl
 
-parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
-parser.add_argument("--mission", default=None, type=str, required=True, \
-                    help="Mission name; can be 'Kepler' or 'Simulated'")
-parser.add_argument("--target", default=None, type=str, required=True, \
-                    help="Target name; format should be K00000 or S00000")
-parser.add_argument("--project_dir", default=None, type=str, required=True, \
-                    help="Project directory for accessing lightcurve data and saving outputs")
-parser.add_argument("--catalog", default=None, type=str, required=True, \
-                    help="CSV file containing input planetary parameters")
-parser.add_argument("--interactive", default=False, type=bool, required=False, \
-                    help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
+try:
+    parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
+    parser.add_argument("--mission", default=None, type=str, required=True,                         help="Mission name; can be 'Kepler' or 'Simulated'")
+    parser.add_argument("--target", default=None, type=str, required=True,                         help="Target name; format should be K00000 or S00000")
+    parser.add_argument("--project_dir", default=None, type=str, required=True,                         help="Project directory for accessing lightcurve data and saving outputs")
+    parser.add_argument("--catalog", default=None, type=str, required=True,                         help="CSV file containing input planetary parameters")
+    parser.add_argument("--interactive", default=False, type=bool, required=False,                         help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
 
-args = parser.parse_args()
-MISSION      = args.mission
-TARGET       = args.target
-PROJECT_DIR  = args.project_dir
-CATALOG      = args.catalog  
+    args = parser.parse_args()
+    MISSION      = args.mission
+    TARGET       = args.target
+    PROJECT_DIR  = args.project_dir
+    CATALOG      = args.catalog  
+    
+    # set plotting backend
+    if args.interactive == False:
+        mpl.use('agg')
+    
+except:
+    pass
 
-# set plotting backend
-if args.interactive == False:
-    mpl.use('agg')
 
 # #### Set environment variables
+
+# In[ ]:
+
+
 sys.path.append(PROJECT_DIR)
 
 
 # #### Build directory structure
 
+# In[ ]:
+
 
 # directories in which to place pipeline outputs
-FIGURE_DIR    = PROJECT_DIR + 'Figures/' + TARGET + '/'
-TRACE_DIR     = PROJECT_DIR + 'Traces/' + TARGET + '/'
-QUICK_TTV_DIR = PROJECT_DIR + 'QuickTTVs/' + TARGET + '/'
-DLC_DIR       = PROJECT_DIR + 'Detrended_lightcurves/' + TARGET + '/'
-NOISE_DIR     = PROJECT_DIR + 'Noise_models/' + TARGET + '/'
+RESULTS_DIR = PROJECT_DIR + 'Results/' + TARGET + '/'
+FIGURE_DIR  = PROJECT_DIR + 'Figures/' + TARGET + '/'
 
-# check if all the output directories exist and if not, create them
+# check if output directories exist and if not, create them
+if os.path.exists(RESULTS_DIR) == False:
+    if os.path.exists(PROJECT_DIR + 'Results/') == False:
+        os.mkdir(PROJECT_DIR + 'Results/')
+    os.mkdir(RESULTS_DIR)
+
 if os.path.exists(FIGURE_DIR) == False:
+    if os.path.exists(PROJECT_DIR + 'Figures/') == False:
+        os.mkdir(PROJECT_DIR + 'Figures/')
     os.mkdir(FIGURE_DIR)
-
-if os.path.exists(TRACE_DIR) == False:
-    os.mkdir(TRACE_DIR)
-    
-if os.path.exists(QUICK_TTV_DIR) == False:
-    os.mkdir(QUICK_TTV_DIR)
-    
-if os.path.exists(DLC_DIR) == False:
-    os.mkdir(DLC_DIR)
-    
-if os.path.exists(NOISE_DIR) == False:
-    os.mkdir(NOISE_DIR)
 
 
 # #### Import packages
+
+# In[ ]:
+
+
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -109,6 +118,8 @@ from   alderaan.LiteCurve import LiteCurve
 from   alderaan.Planet import Planet
 
 
+# In[ ]:
+
 
 # flush buffer to avoid mixed outputs from progressbar
 sys.stdout.flush()
@@ -131,6 +142,7 @@ print("theano cache: {0}\n".format(theano.config.compiledir))
 # # ----- DATA I/O -----
 # # ################
 
+# In[ ]:
 
 
 print("\nLoading data...\n")
@@ -138,6 +150,7 @@ print("\nLoading data...\n")
 
 # ## Read in planet and stellar properties
 
+# In[ ]:
 
 
 # Read in the data from csv file
@@ -163,6 +176,8 @@ PERIODS = np.array(target_dict['period'], dtype='float')[use]
 DEPTHS  = np.array(target_dict['depth'], dtype='float')[use]*1e-6          # [ppm] --> []
 DURS    = np.array(target_dict['duration'], dtype='float')[use]/24         # [hrs] --> [days]
 
+U1 = np.array(target_dict['limbdark_1'], dtype='float')[use]
+U2 = np.array(target_dict['limbdark_2'], dtype='float')[use]
 
 # do some consistency checks
 if all(k == KIC[0] for k in KIC): KIC = KIC[0]
@@ -171,6 +186,15 @@ else: raise ValueError("There are inconsistencies with KIC in the csv input file
 if all(n == NPL[0] for n in NPL): NPL = NPL[0]
 else: raise ValueError("There are inconsistencies with NPL in the csv input file")
     
+if all(u == U1[0] for u in U1): U1 = U1[0]
+else: raise ValueError("There are inconsistencies with U1 in the csv input file")
+
+if all(u == U2[0] for u in U2): U2 = U2[0]
+else: raise ValueError("There are inconsistencies with U2 in the csv input file")
+
+if np.any(np.isnan(PERIODS)): raise ValueError("NaN values found in input catalog")
+if np.any(np.isnan(DEPTHS)):  raise ValueError("NaN values found in input catalog")
+if np.any(np.isnan(DURS)):    raise ValueError("NaN values found in input catalog")
     
 # sort planet parameters by period
 order = np.argsort(PERIODS)
@@ -183,25 +207,26 @@ DURS    = DURS[order]
 # ## Read in filtered lightcurves
 # #### These can be generated by running the script "analyze_autocorrelated_noise.py"
 
+# In[ ]:
 
 
-# detrended lightcurves
-try:
-    lc = io.load_detrended_lightcurve(DLC_DIR + TARGET + '_lc_filtered.fits')
+if os.path.exists(RESULTS_DIR + TARGET + '_lc_filtered.fits'):
+    lc = io.load_detrended_lightcurve(RESULTS_DIR + TARGET + '_lc_filtered.fits')
     lc.season = lc.quarter % 4
-except:
+else:
     lc = None
     
-try:
-    sc = io.load_detrended_lightcurve(DLC_DIR + TARGET + '_sc_filtered.fits')
+if os.path.exists(RESULTS_DIR + TARGET + '_sc_filtered.fits'):
+    sc = io.load_detrended_lightcurve(RESULTS_DIR + TARGET + '_sc_filtered.fits')
     sc.season = sc.quarter % 4
-except:
+else:
     sc = None
 
 
 # ## Read in quick transit times
 # #### These can be generated by running the script "detrend_and_estimate_ttvs.py"
 
+# In[ ]:
 
 
 # transit times
@@ -213,9 +238,8 @@ transit_inds = []
 indep_transit_times = []
 quick_transit_times = []
 
-
 for npl in range(NPL):
-    fname_in = QUICK_TTV_DIR + TARGET + '_{:02d}'.format(npl) + '_quick.ttvs'
+    fname_in = RESULTS_DIR + TARGET + '_{:02d}'.format(npl) + '_quick.ttvs'
     data_in  = np.genfromtxt(fname_in)
     
     transit_inds.append(np.array(data_in[:,0], dtype='int'))
@@ -229,11 +253,9 @@ for npl in range(NPL):
     periods[npl] = pfit[1]
     ephemeris[npl] = poly.polyval(transit_inds[npl], pfit)
     
-
 # make sure transit_inds are zero-indexed
 for npl in range(NPL):
     transit_inds[npl] = np.array(transit_inds[npl] - transit_inds[npl][0], dtype='int')
-    
 
 fig, axes = plt.subplots(NPL, figsize=(12,3*NPL))
 if NPL == 1: axes = [axes]
@@ -256,6 +278,7 @@ else: plt.close()
 # # --- PRELIMINARIES ---
 # # ####################
 
+# In[ ]:
 
 
 print("\nRunning preliminaries...\n")
@@ -263,6 +286,7 @@ print("\nRunning preliminaries...\n")
 
 # ## Establish time baseline
 
+# In[ ]:
 
 
 time_min = []
@@ -276,10 +300,8 @@ if lc is not None:
     time_min.append(lc.time.min())
     time_max.append(lc.time.max())     
 
-    
 TIME_START = np.min(time_min)
 TIME_END   = np.max(time_max)
-
 
 # put epochs in range (TIME_START, TIME_START + PERIOD)
 for npl in range(NPL):
@@ -292,8 +314,9 @@ for npl in range(NPL):
         epochs[npl] -= adj*periods[npl]
 
 
-# ## Identify and remove overlapping transits
+# ## Identify overlapping transits
 
+# In[ ]:
 
 
 overlap = []
@@ -306,13 +329,14 @@ for i in range(NPL):
             for tt in ephemeris[j]:
                 overlap[i] += np.abs(ephemeris[i] - tt) < (DURS[i] + DURS[j] + lcit)
                 
-ephemeris = [ephemeris[npl][~overlap[npl]] for npl in range(NPL)]
-transit_inds = [transit_inds[npl][~overlap[npl]] for npl in range(NPL)]
-quick_transit_times = [quick_transit_times[npl][~overlap[npl]] for npl in range(NPL)]
+#ephemeris = [ephemeris[npl][~overlap[npl]] for npl in range(NPL)]
+#transit_inds = [transit_inds[npl][~overlap[npl]] for npl in range(NPL)]
+#quick_transit_times = [quick_transit_times[npl][~overlap[npl]] for npl in range(NPL)]
 
 
 # ## Track which quarter each transit falls in
 
+# In[ ]:
 
 
 # get list of quarters with observations
@@ -326,10 +350,8 @@ if sc is not None:
 else:
     sc_quarters = np.array([])
     
-    
 quarters = np.sort(np.hstack([lc_quarters, sc_quarters]))
 seasons = np.sort(np.unique(quarters % 4))
-
 
 # get list of threshold times between quarters
 thresh = np.zeros(len(quarters)+1)
@@ -344,7 +366,6 @@ for j, q in enumerate(quarters):
 thresh[0] -= 1.0
 thresh[-1] += 1.0
 
-
 # track individual transits
 transit_quarter = [None]*NPL
 
@@ -358,14 +379,13 @@ for npl in range(NPL):
 
 # ## Make transit masks
 
-# In[16]:
+# In[ ]:
 
 
 if sc is not None:
     sc_mask = np.zeros((NPL,len(sc.time)), dtype='bool')
     for npl in range(NPL):
         sc_mask[npl] = make_transitmask(sc.time, quick_transit_times[npl], masksize=1.5)
-        
         
 if lc is not None:
     lc_mask = np.zeros((NPL,len(lc.time)), dtype='bool')
@@ -375,6 +395,7 @@ if lc is not None:
 
 # ## Grab data near transits
 
+# In[ ]:
 
 
 # grab data near transits for each quarter
@@ -399,7 +420,7 @@ for q in range(18):
             else:
                 all_dtype[q] = 'short_no_transits'
 
-    
+
     if lc is not None:
         if np.isin(q, lc.quarter):
             use = (lc_mask.sum(0) != 0)*(lc.quarter == q)
@@ -414,7 +435,6 @@ for q in range(18):
             else:
                 all_dtype[q] = 'long_no_transits'
                 
-                
 # set oversampling factors and expoure times
 oversample = np.zeros(18, dtype='int')
 texp = np.zeros(18)
@@ -424,8 +444,6 @@ oversample[np.array(all_dtype)=='long'] = 15
 
 texp[np.array(all_dtype)=='short'] = scit
 texp[np.array(all_dtype)=='long'] = lcit
-
-
 
 # track mean and variance of each quarter
 mean_by_quarter = np.ones(18)*np.nan
@@ -446,6 +464,7 @@ for q in range(18):
 
 # ## Define Legendre polynomials
 
+# In[ ]:
 
 
 # Legendre polynomials for better orthogonality when fitting period and epoch; "x" is in the range (-1,1)
@@ -469,6 +488,7 @@ for npl in range(NPL):
 
 # ## Set up GP noise priors
 
+# In[ ]:
 
 
 # Read in noise model GP priors from analyze_autocorrelated_noise.py
@@ -476,7 +496,7 @@ gp_percs = []
 
 for z in range(4):
     try:
-        fname_in = NOISE_DIR + TARGET + '_shoterm_gp_priors_{0}.txt'.format(z)
+        fname_in = RESULTS_DIR + TARGET + '_shoterm_gp_priors_{0}.txt'.format(z)
 
         with open(fname_in) as infile:
             gp_percs.append(json.load(infile))
@@ -484,7 +504,6 @@ for z in range(4):
     except:
         gp_percs.append(None)
         
-
 # convert the percentile priors into Gaussians
 gp_priors = []
 
@@ -515,7 +534,6 @@ for z in range(4):
         
         gp_priors.append(gpz)
         
-
 # calculate a few convenience quantities
 for z in range(4):
     gpz = gp_priors[z]
@@ -535,8 +553,13 @@ for z in range(4):
 # # ----- LIGHTCURVE FITTING -----
 # # ############################
 
+# In[ ]:
+
 
 print("\nModeling Lightcurve...\n")
+
+
+# In[ ]:
 
 
 class Ephemeris:
@@ -574,6 +597,8 @@ class Ephemeris:
         return t - self._get_model_dt(t)
 
 
+# In[ ]:
+
 
 # identify which quarters and seasons have data
 which_quarters = np.sort(np.unique(np.hstack(transit_quarter)))
@@ -583,7 +608,6 @@ which_seasons = np.sort(np.unique(which_quarters % 4))
 nq = len(which_quarters)
 mbq = mean_by_quarter[which_quarters]
 vbq = var_by_quarter[which_quarters]
-
 
 # initialize alderaan.Ephemeris object
 ephem = [None]*NPL
@@ -614,14 +638,17 @@ for j, q in enumerate(which_quarters):
     f_[j] = all_flux[q][m_[j]]
     e_[j] = all_error[q][m_[j]]
     
-    
 # initialize TransitModel objects
 transit_model = []
 for npl in range(NPL):
     transit_model.append([])
     for j, q in enumerate(which_quarters):
-        transit_model[npl].append(batman.TransitModel(theta[npl], ephem[npl]._warp_times(t_[j])))
-    
+        transit_model[npl].append(batman.TransitModel(theta[npl], 
+                                                      ephem[npl]._warp_times(t_[j]),
+                                                      supersample_factor=oversample[q],
+                                                      exp_time=texp[q]
+                                                     )
+                                 )
     
 # build the GP kernel using a different noise model for each season
 kernel = [None]*4
@@ -636,7 +663,7 @@ for z in which_seasons:
 def prior_transform(uniform_hypercube):
     x_ = np.array(uniform_hypercube)
 
-    # 5*NPL parameters: {C0, C1, r, b, T14}
+    # 5*NPL (+2) parameters: {C0, C1, r, b, T14}...{q1,q2}
     dists = []
     for npl in range(NPL):
         C0  = stats.norm(loc=0., scale=0.1).ppf(x_[0+npl*5])
@@ -646,23 +673,35 @@ def prior_transform(uniform_hypercube):
         T14 = stats.loguniform(scit, 3*DURS[npl]).ppf(x_[4+npl*5])
         
         dists = np.hstack([dists, [C0, C1, r, b, T14]])
+         
+    # limb darkening coefficients (see Kipping 2013)
+    q1 = stats.uniform(0., 1.).ppf(x_[5*NPL+0])
+    q2 = stats.uniform(0., 1.).ppf(x_[5*NPL+1])
     
-    return np.array(dists)
+    return np.hstack([dists, [q1,q2]])
 
 
 def lnlike(x):
+    # limb darkening (see Kipping 2013)
+    q1, q2 = np.array(x[-2:])
+
+    u1 = 2*np.sqrt(q1)*q2
+    u2 = np.sqrt(q1)*(1-2*q2)
+    
+    # planet paramters
     for npl in range(NPL):
         C0, C1, rp, b, T14 = np.array(x[5*npl:5*(npl+1)])
 
         # update ephemeris
         ephem[npl] = Ephemeris(transit_inds[npl], quick_transit_times[npl] + C0*Leg0[npl] + C1*Leg1[npl])
-
+    
         # update transit parameters
         theta[npl].per = ephem[npl].period
         theta[npl].t0  = 0.                     # t0 must be set to zero b/c we are warping TTVs
         theta[npl].rp  = rp
         theta[npl].b   = b
         theta[npl].T14 = T14
+        theta[npl].u   = [u1,u2]
 
     # calculate likelihood
     loglike = 0.
@@ -671,13 +710,18 @@ def lnlike(x):
         light_curve = np.ones(len(t_[j]), dtype='float')
         
         for npl in range(NPL):
-            transit_model[npl][j] = batman.TransitModel(theta[npl], ephem[npl]._warp_times(t_[j]))
+            transit_model[npl][j].t = ephem[npl]._warp_times(t_[j])
             light_curve += transit_model[npl][j].light_curve(theta[npl]) - 1.0
 
         gp = GaussianProcess(kernel[q%4], mean=light_curve)
         gp.compute(t_[j], yerr=e_[j])
 
         loglike += gp.log_likelihood(f_[j])
+        
+        # enforce prior on limb darkening
+        sig_ld_sq = 0.1**2
+        loglike += -0.5*np.log(2*pi*sig_ld_sq) - 1./(2*sig_ld_sq) * (u1 - U1)**2
+        loglike += -0.5*np.log(2*pi*sig_ld_sq) - 1./(2*sig_ld_sq) * (u2 - U2)**2
 
     if not np.isfinite(loglike):
         return -1e300
@@ -685,26 +729,57 @@ def lnlike(x):
     return loglike
 
 
+# In[ ]:
+
 
 # now run the sampler
-sampler = dynesty.DynamicNestedSampler(lnlike, prior_transform, 5*NPL)
+sampler = dynesty.DynamicNestedSampler(lnlike, prior_transform, 5*NPL+2)
 sampler.run_nested()
 results = sampler.results
+
+
+# In[ ]:
+
 
 labels = []
 for npl in range(NPL):
     labels = labels + 'C0_{0} C1_{0} r_{0} b_{0} T14_{0}'.format(npl).split()
 
-#rfig, raxes = dyplot.runplot(results, logplot=True)
-#tfig, taxes = dyplot.traceplot(results, labels=labels)
-#cfig, caxes = dyplot.cornerplot(results, labels=labels)
+labels = labels + 'q1 q2'.split()
+
+
+# In[ ]:
+
+
+rfig, raxes = dyplot.runplot(results, logplot=True)
+
+
+# In[ ]:
+
+
+tfig, taxes = dyplot.traceplot(results, labels=labels)
+
+
+# In[ ]:
+
+
+cfig, caxes = dyplot.cornerplot(results, labels=labels)
 
 
 # # Save results as dictionary
-f_name = PROJECT_DIR + 'Traces/{0}/{0}-nested.pkl'.format(TARGET)
+
+# In[ ]:
+
+
+f_name = RESULTS_DIR + '{0}-nested.pkl'.format(TARGET)
 
 with open(f_name, 'wb') as f:
     pickle.dump(results.asdict(), f)
+
+
+# ## Exit program
+
+# In[ ]:
 
 
 print("")
@@ -712,4 +787,10 @@ print("+"*shutil.get_terminal_size().columns)
 print("Exoplanet recovery complete {0}".format(datetime.now().strftime("%d-%b-%Y at %H:%M:%S")))
 print("Total runtime = %.1f min" %((timer()-global_start_time)/60))
 print("+"*shutil.get_terminal_size().columns)
+
+
+# In[ ]:
+
+
+
 
