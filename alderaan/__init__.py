@@ -10,6 +10,7 @@ from .LiteCurve import *
 from .noise import *
 from .omc import *
 from .Planet import *
+from .Results import *
 from .sampling import *
 from .umbrella import *
 from .utils import *

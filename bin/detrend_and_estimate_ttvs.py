@@ -27,13 +27,6 @@ global_start_time = timer()
 
 # #### Parse inputs
 
-# In[ ]:
-
-
-
-# In[ ]:
-
-
 # Automatically set inputs (when running batch scripts)
 import argparse
 import matplotlib as mpl
@@ -45,6 +38,7 @@ try:
     parser.add_argument("--project_dir", default=None, type=str, required=True,                         help="Project directory for saving outputs")
     parser.add_argument("--data_dir", default=None, type=str, required=True,                         help="Data directory for accessing MAST lightcurves")
     parser.add_argument("--catalog", default=None, type=str, required=True,                         help="CSV file containing input planetary parameters")
+    parser.add_argument("--run_id", default=None, type=str, required=True,                         help="run identifier")
     parser.add_argument("--interactive", default=False, type=bool, required=False,                         help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
 
     args = parser.parse_args()
@@ -52,7 +46,8 @@ try:
     TARGET       = args.target
     PROJECT_DIR  = args.project_dir
     DATA_DIR     = args.data_dir
-    CATALOG      = args.catalog  
+    CATALOG      = args.catalog
+    RUN_ID       = args.run_id
     
     # set plotting backend
     if args.interactive == False:
@@ -66,8 +61,12 @@ except:
 
 
 print("")
-print("   MISSION : {0}".format(MISSION))
+if MISSION == 'Kepler':
+    print("   MISSION : Kepler")
+elif MISSION == 'Simulated':
+    print("   MISSION : Simulated")
 print("   TARGET  : {0}".format(TARGET))
+print("   RUN ID  : {0}".format(RUN_ID))
 print("")
 print("   Project directory : {0}".format(PROJECT_DIR))
 print("   Data directory    : {0}".format(DATA_DIR))
@@ -80,9 +79,25 @@ print("")
 # In[ ]:
 
 
-# directories in which to place pipeline outputs
-RESULTS_DIR = PROJECT_DIR + 'Results/' + TARGET + '/'
-FIGURE_DIR  = PROJECT_DIR + 'Figures/' + TARGET + '/'
+# directories in which to place pipeline outputs for this run
+RESULTS_DIR = PROJECT_DIR + 'Results/' + RUN_ID + '/'
+FIGURE_DIR  = PROJECT_DIR + 'Figures/' + RUN_ID + '/'
+
+# check if output directories exist and if not, create them
+if os.path.exists(RESULTS_DIR) == False:
+    if os.path.exists(PROJECT_DIR + 'Results/') == False:
+        os.mkdir(PROJECT_DIR + 'Results/')
+    os.mkdir(RESULTS_DIR)
+
+if os.path.exists(FIGURE_DIR) == False:
+    if os.path.exists(PROJECT_DIR + 'Figures/') == False:
+        os.mkdir(PROJECT_DIR + 'Figures/')
+    os.mkdir(FIGURE_DIR)
+    
+    
+# directories in which to place pipeline outputs for this target
+RESULTS_DIR += TARGET + '/'
+FIGURE_DIR  += TARGET + '/'
 
 # check if output directories exist and if not, create them
 if os.path.exists(RESULTS_DIR) == False:
@@ -114,6 +129,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import pandas as pd
 import glob
+from   copy import deepcopy
 
 import astropy
 from   astropy.io import fits
@@ -122,6 +138,7 @@ import lightkurve as lk
 import numpy.polynomial.polynomial as poly
 from   scipy import ndimage
 from   scipy import stats
+from   scipy.interpolate import interp1d
 
 import pymc3 as pm
 import pymc3_ext as pmx
@@ -364,75 +381,34 @@ planets = np.copy(sorted_planets)
 print("\nBuilding initial TTV model...\n")
 
 
-# ## Build starting TTV model
-# ##### "ephemeris" always refers to a *linear* ephemeris
-# ##### "transit_times" include non-linear TTVs (when they exist)
-
 # In[ ]:
 
 
 # use Holczer+ 2016 TTVs where they exist
 HOLCZER_FILE = PROJECT_DIR + 'Catalogs/holczer_2016_kepler_ttvs.txt'
 
-if MISSION == "Kepler":
-    holczer_data = np.loadtxt(HOLCZER_FILE, usecols=[0,1,2,3])
+holczer_data = np.loadtxt(HOLCZER_FILE, usecols=[0,1,2,3])
 
-    holczer_inds = []
-    holczer_tts  = []
-    holczer_pers = []
+holczer_inds = []
+holczer_tts  = []
+holczer_pers = []
 
-    for npl in range(NPL):
-        koi = int(TARGET[1:]) + 0.01*(1+npl)
-        use = np.isclose(holczer_data[:,0], koi, rtol=1e-10, atol=1e-10)
-        
-        # Holczer uses BJD -24548900; BJKD = BJD - 2454833
-        if np.sum(use) > 0:
-            holczer_inds.append(np.array(holczer_data[use,1], dtype='int'))
-            holczer_tts.append(holczer_data[use,2] + holczer_data[use,3]/24/60 + 67)
-            holczer_pers.append(np.median(holczer_tts[npl][1:] - holczer_tts[npl][:-1]))
-            
-        else:
-            holczer_inds.append(None)
-            holczer_tts.append(None)
-            holczer_pers.append(np.nan)
-            
-    holczer_pers = np.asarray(holczer_pers)
-    
-# synthetic "Holczer" TTVs are approximated as ground truth + Student-t2 noise
-if MISSION == "Simulated":
-    holczer_inds = []
-    holczer_tts  = []
-    holczer_pers = []
-    
-    for npl, p in enumerate(planets):
-        # read in the "ground truth" TTVs
-        fname_in = DOWNLOAD_DIR + 'TTVs/' + TARGET + '_0{0}_sim_ttvs.txt'.format(npl)
-        data_in  = np.loadtxt(fname_in).swapaxes(0,1)
-    
-        inds = np.array(data_in[0], dtype='int')
-        tts_true  = np.array(data_in[1], dtype='float')
-        
-        # add some noise and reject transits without photometry cover
-        if len(tts_true) > 20:
-            tts_noisy = tts_true + stats.t.rvs(df=2, size=len(tts_true))*p.duration/3
-        else:
-            tts_noisy = tts_true + np.random.normal(size=len(tts_true))*p.duration/3
-        
-        keep = np.zeros(len(tts_noisy), dtype='bool')
-        
-        for i, t0 in enumerate(tts_noisy):
-            for j, scd in enumerate(sc_data):
-                if np.min(np.abs(scd.time - t0)) < p.duration:
-                    keep[i] = True
-            for j, lcd in enumerate(lc_data):
-                if np.min(np.abs(lcd.time - t0)) < p.duration:
-                    keep[i] = True
-        
-        holczer_inds.append(inds[keep])
-        holczer_tts.append(tts_noisy[keep])
-        holczer_pers.append(p.period)
-        
-    holczer_pers = np.array(holczer_pers)
+for npl in range(NPL):
+    koi = int(KOI_ID[1:]) + 0.01*(1+npl)
+    use = np.isclose(holczer_data[:,0], koi, rtol=1e-10, atol=1e-10)
+
+    # Holczer uses BJD -24548900; BJKD = BJD - 2454833
+    if np.sum(use) > 0:
+        holczer_inds.append(np.array(holczer_data[use,1], dtype='int'))
+        holczer_tts.append(holczer_data[use,2] + holczer_data[use,3]/24/60 + 67)
+        holczer_pers.append(np.median(holczer_tts[npl][1:] - holczer_tts[npl][:-1]))
+
+    else:
+        holczer_inds.append(None)
+        holczer_tts.append(None)
+        holczer_pers.append(np.nan)
+
+holczer_pers = np.asarray(holczer_pers)
 
 
 # In[ ]:
@@ -519,6 +495,175 @@ for npl, p in enumerate(planets):
 
     else:
         pass
+
+
+# # ########################
+# # ----- SIMULATED DATA -----
+# # ########################
+
+# #### Remove known real transits
+
+# In[ ]:
+
+
+if MISSION == 'Simulated':
+    tts  = []
+    inds = []
+    b    = np.zeros(NPL)
+    ror  = np.zeros(NPL)
+    dur  = np.zeros(NPL)
+
+    for npl, p in enumerate(planets):
+        tts.append(p.tts)
+        inds.append(p.index)
+        b[npl] = p.impact
+        ror[npl] = np.sqrt(p.depth)
+        dur[npl] = p.duration
+
+        starrystar = exo.LimbDarkLightCurve([U1,U2])
+        orbit = exo.orbits.TTVOrbit(transit_times=tts, transit_inds=inds, b=b, ror=ror, duration=dur)
+
+    for i, lcd in enumerate(lc_data):
+        light_curve = starrystar.get_light_curve(orbit=orbit, r=ror, t=lcd.time, oversample=15, texp=lcit)
+        model_flux = pm.math.sum(light_curve, axis=-1) + T.ones(len(lcd.time))
+
+        lcd.flux /= model_flux.eval()
+
+    for i, scd in enumerate(sc_data):
+        light_curve = starrystar.get_light_curve(orbit=orbit, r=ror, t=scd.time)
+        model_flux = pm.math.sum(light_curve, axis=-1) + T.ones(len(scd.time))
+
+        scd.flux /= model_flux.eval()
+
+
+# #### Load simulated data
+
+# In[ ]:
+
+
+if MISSION == 'Simulated':
+    target_dict = pd.read_csv(PROJECT_DIR + 'Simulations/{0}/{0}.csv'.format(RUN_ID))
+
+    # pull relevant quantities and establish GLOBAL variables
+    use = np.array(target_dict['koi_id']) == KOI_ID
+
+    KIC = np.array(target_dict['kic_id'], dtype='int')[use]
+    NPL = np.array(target_dict['npl'], dtype='int')[use]
+
+    U1 = np.array(target_dict['limbdark_1'], dtype='float')[use]
+    U2 = np.array(target_dict['limbdark_2'], dtype='float')[use]
+
+    PERIODS = np.array(target_dict['period'], dtype='float')[use]
+    EPOCHS  = np.array(target_dict['epoch'],  dtype='float')[use]
+    DEPTHS  = np.array(target_dict['ror'], dtype='float')[use]**2
+    DURS    = np.array(target_dict['duration'], dtype='float')[use]
+    IMPACTS = np.array(target_dict['impact'], dtype='float')[use]
+    
+    # do some consistency checks
+    if all(k == KIC[0] for k in KIC): KIC = KIC[0]
+    else: raise ValueError("There are inconsistencies with KIC in the csv input file")
+
+    if all(n == NPL[0] for n in NPL): NPL = NPL[0]
+    else: raise ValueError("There are inconsistencies with NPL in the csv input file")
+
+    if all(u == U1[0] for u in U1): U1 = U1[0]
+    else: raise ValueError("There are inconsistencies with U1 in the csv input file")
+
+    if all(u == U2[0] for u in U2): U2 = U2[0]
+    else: raise ValueError("There are inconsistencies with U2 in the csv input file")
+
+    if np.any(np.isnan(PERIODS)): raise ValueError("NaN values found in input catalog")
+    if np.any(np.isnan(EPOCHS)):  raise ValueError("NaN values found in input catalog")
+    if np.any(np.isnan(DEPTHS)):  raise ValueError("NaN values found in input catalog")
+    if np.any(np.isnan(DURS)):    raise ValueError("NaN values found in input catalog")
+    if np.any(np.isnan(IMPACTS)): raise ValueError("NaN values found in input catalog")
+        
+    # put epochs in range (TIME_START, TIME_START + PERIOD)
+    for npl in range(NPL):
+        if EPOCHS[npl] < TIME_START:
+            adj = 1 + (TIME_START - EPOCHS[npl])//PERIODS[npl]
+            EPOCHS[npl] += adj*PERIODS[npl]        
+
+        if EPOCHS[npl] > (TIME_START + PERIODS[npl]):
+            adj = (EPOCHS[npl] - TIME_START)//PERIODS[npl]
+            EPOCHS[npl] -= adj*PERIODS[npl]
+
+
+# #### Initialize new Planet objects
+
+# In[ ]:
+
+
+if MISSION == 'Simulated':
+    planets = []
+    for npl in range(NPL):
+        p = Planet()
+
+        # put in some basic transit parameters
+        p.epoch    = EPOCHS[npl]
+        p.period   = PERIODS[npl]
+        p.depth    = DEPTHS[npl]
+        p.duration = DURS[npl]
+        p.impact   = IMPACTS[npl]
+
+        if p.impact > 1 - np.sqrt(p.depth):
+            p.impact = (1 - np.sqrt(p.depth))**2
+
+        # load true transit times
+        true_tts = np.loadtxt(PROJECT_DIR + 'Simulations/{0}/{1}_{2}.tts'.format(RUN_ID, TARGET, npl)).swapaxes(0,1)    
+
+        p.tts = true_tts[1]
+        p.index = np.array(true_tts[0], dtype='int')
+
+        # add to list
+        planets.append(p)
+
+    # put planets in order by period
+    order = np.argsort(PERIODS)
+
+    sorted_planets = []
+    for npl in range(NPL):
+        sorted_planets.append(planets[order[npl]])
+
+    planets = np.copy(sorted_planets)
+
+
+# #### Inject synthetic transits
+
+# In[ ]:
+
+
+if MISSION == 'Simulated':
+    tts  = []
+    inds = []
+    b    = np.zeros(NPL)
+    ror  = np.zeros(NPL)
+    dur  = np.zeros(NPL)
+
+    for npl, p in enumerate(planets):
+        tts.append(p.tts)
+        inds.append(p.index)
+        b[npl] = p.impact
+        ror[npl] = np.sqrt(p.depth)
+        dur[npl] = p.duration
+
+        starrystar = exo.LimbDarkLightCurve([U1,U2])
+        orbit = exo.orbits.TTVOrbit(transit_times=tts, transit_inds=inds, b=b, ror=ror, duration=dur)
+
+    for i, lcd in enumerate(lc_data):
+        light_curve = starrystar.get_light_curve(orbit=orbit, r=ror, t=lcd.time, oversample=15, texp=lcit)
+        model_flux = pm.math.sum(light_curve, axis=-1) + T.ones(len(lcd.time))
+
+        lcd.flux *= model_flux.eval()
+
+    for i, scd in enumerate(sc_data):
+        light_curve = starrystar.get_light_curve(orbit=orbit, r=ror, t=scd.time)
+        model_flux = pm.math.sum(light_curve, axis=-1) + T.ones(len(scd.time))
+
+        scd.flux *= model_flux.eval()
+        
+    lc_raw_sim_data = deepcopy(lc_data)
+    sc_raw_sim_data = deepcopy(sc_data)
 
 
 # # #########################
@@ -969,11 +1114,11 @@ with shape_model:
 
 # grab transit times and ephemeris
 shape_transit_times = []
-shape_ephemeris = []
+shape_linear_ephemeris = []
 
 for npl, p in enumerate(planets):
     shape_transit_times.append(shape_map['tts_{0}'.format(npl)])
-    shape_ephemeris.append(shape_map['P'][npl]*transit_inds[npl] + shape_map['T0'][npl])
+    shape_linear_ephemeris.append(shape_map['P'][npl]*transit_inds[npl] + shape_map['T0'][npl])
 
 
 # In[ ]:
@@ -1320,8 +1465,8 @@ with indep_model:
 
 indep_transit_times = []
 indep_error = []
-indep_ephemeris = []
-full_indep_ephemeris = []
+indep_linear_ephemeris = []
+full_indep_linear_ephemeris = []
 
 for npl, p in enumerate(planets):
     indep_transit_times.append(np.copy(slide_transit_times[npl]))
@@ -1334,11 +1479,12 @@ for npl, p in enumerate(planets):
 
     pfit = poly.polyfit(transit_inds[npl], indep_transit_times[npl], 1)
 
-    indep_ephemeris.append(poly.polyval(transit_inds[npl], pfit))
-    full_indep_ephemeris.append(poly.polyval(p.index, pfit))
+    indep_linear_ephemeris.append(poly.polyval(transit_inds[npl], pfit))
+    full_indep_linear_ephemeris.append(poly.polyval(p.index, pfit))
 
     if np.any(replace):
-        indep_error[npl][replace] = np.std(indep_transit_times[npl] - indep_ephemeris[npl])
+        indep_error[npl][replace] = astropy.stats.mad_std(indep_transit_times[npl][~replace] 
+                                                          - indep_linear_ephemeris[npl][~replace])
 
 
 # In[ ]:
@@ -1371,8 +1517,8 @@ indep_faps = []
 
 for npl, p in enumerate(planets):
     # grab data
-    xtime = indep_ephemeris[npl]
-    yomc  = indep_transit_times[npl] - indep_ephemeris[npl]
+    xtime = indep_linear_ephemeris[npl]
+    yomc  = indep_transit_times[npl] - indep_linear_ephemeris[npl]
 
     ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode="mirror"), winsize=5)
     out  = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 5.0
@@ -1429,7 +1575,7 @@ elif NPL > 1:
         else:
             close = False
             
-            df_min = 1/(indep_ephemeris[i].max() - indep_ephemeris[i].min())
+            df_min = 1/(indep_linear_ephemeris[i].max() - indep_linear_ephemeris[i].min())
             
             for j in range(i+1, NPL):
                 # delta-freq (LS) between two planets
@@ -1463,8 +1609,8 @@ for npl in range(NPL):
         omc_pers.append(1/omc_freqs[npl])
         
         # grab data and plot
-        xtime = indep_ephemeris[npl]
-        yomc  = indep_transit_times[npl] - indep_ephemeris[npl]
+        xtime = indep_linear_ephemeris[npl]
+        yomc  = indep_transit_times[npl] - indep_linear_ephemeris[npl]
         LS = LombScargle(xtime, yomc)
         
         plt.figure(figsize=(12,3))
@@ -1474,7 +1620,7 @@ for npl in range(NPL):
     
     else:
         print("no sigificant periodic component found")
-        omc_pers.append(2*(indep_ephemeris[npl].max()-indep_ephemeris[npl].min()))
+        omc_pers.append(2*(indep_linear_ephemeris[npl].max()-indep_linear_ephemeris[npl].min()))
 
 
 # ## Determine best OMC model
@@ -1494,8 +1640,8 @@ for npl, p in enumerate(planets):
     print("\nPLANET", npl)
     
     # grab data
-    xtime = indep_ephemeris[npl]
-    yomc  = indep_transit_times[npl] - indep_ephemeris[npl]
+    xtime = indep_linear_ephemeris[npl]
+    yomc  = indep_transit_times[npl] - indep_linear_ephemeris[npl]
 
     ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode='mirror'), winsize=5)
     out  = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 5.0
@@ -1573,7 +1719,7 @@ for npl, p in enumerate(planets):
     out = outlist[np.argmin(aiclist)]
     fg_prob = fgplist[np.argmin(aiclist)]
     polyorder = np.argmin(aiclist) - 1
-    xt_predict = full_indep_ephemeris[npl]
+    xt_predict = full_indep_linear_ephemeris[npl]
 
     if polyorder == -1:
         omc_model = omc.matern32_model(xtime[~out], yomc[~out], xt_predict)
@@ -1590,7 +1736,7 @@ for npl, p in enumerate(planets):
     full_omc_trend = np.nanmedian(omc_trace['pred'], 0)
 
     # save the final results
-    full_quick_transit_times.append(full_indep_ephemeris[npl] + full_omc_trend)
+    full_quick_transit_times.append(full_indep_linear_ephemeris[npl] + full_omc_trend)
     quick_transit_times.append(full_quick_transit_times[npl][transit_inds[npl]])
     
     outlier_prob.append(1-fg_prob)
@@ -1600,7 +1746,7 @@ for npl, p in enumerate(planets):
     plt.figure(figsize=(12,4))
     plt.scatter(xtime, yomc*24*60, c=1-fg_prob, cmap='viridis', label="MAP TTVs")
     plt.plot(xtime[bad], yomc[bad]*24*60, 'rx')
-    plt.plot(full_indep_ephemeris[npl], full_omc_trend*24*60, 'k', label="Quick model")
+    plt.plot(full_indep_linear_ephemeris[npl], full_omc_trend*24*60, 'k', label="Quick model")
     plt.xlabel("Time [BJKD]", fontsize=20)
     plt.ylabel("O-C [min]", fontsize=20)
     plt.xticks(fontsize=14)
@@ -1840,53 +1986,59 @@ if lc is not None:
 print("\nResetting to raw MAST data and performing 2nd DETRENDING...\n")
 
 
-# ## Reset to raw MAST data
+# ## Reset to raw input data
 
 # In[ ]:
 
 
-# reset LONG CADENCE to raw MAST downloads
-if lc is not None:
-    lc_data = io.cleanup_lkfc(lc_raw_collection, KIC)
-    
-# make sure there is at least one transit in the long cadence data
-# this shouldn't be an issue for real KOIs, but can happen for simulated data
-if np.sum(np.array(all_dtype) == 'long') == 0:
-    lc_data = []
-    
-lc_quarters = []
-for i, lcd in enumerate(lc_data):
-    lc_quarters.append(lcd.quarter)
-    
-# reset SHORT CADENCE to raw MAST downloads
-if sc is not None:
-    sc_data = io.cleanup_lkfc(sc_raw_collection, KIC)
+if MISSION == 'Kepler':
+    # reset LONG CADENCE data
+    if lc is not None:
+        lc_data = io.cleanup_lkfc(lc_raw_collection, KIC)
 
-# make sure there is at least one transit in the short cadence data
-# this shouldn't be an issue for real KOIs, but can happen for simulated data
-if np.sum(np.array(all_dtype) == 'short') == 0:
-    sc_data = []
-    
-sc_quarters = []
-for i, scd in enumerate(sc_data):
-    sc_quarters.append(scd.quarter)
+    # make sure there is at least one transit in the long cadence data
+    # this shouldn't be an issue for real KOIs, but can happen for simulated data
+    if np.sum(np.array(all_dtype) == 'long') == 0:
+        lc_data = []
 
+    lc_quarters = []
+    for i, lcd in enumerate(lc_data):
+        lc_quarters.append(lcd.quarter)
+
+    # reset SHORT CADENCE data
+    if sc is not None:
+        sc_data = io.cleanup_lkfc(sc_raw_collection, KIC)
+
+    # make sure there is at least one transit in the short cadence data
+    # this shouldn't be an issue for real KOIs, but can happen for simulated data
+    if np.sum(np.array(all_dtype) == 'short') == 0:
+        sc_data = []
+
+    sc_quarters = []
+    for i, scd in enumerate(sc_data):
+        sc_quarters.append(scd.quarter)
+
+    # convert LightKurves to LiteCurves
+    sc_lite = []
+    lc_lite = []
+
+    for i, scd in enumerate(sc_data):
+        sc_lite.append(io.LightKurve_to_LiteCurve(scd))
+
+    for i, lcd in enumerate(lc_data):
+        lc_lite.append(io.LightKurve_to_LiteCurve(lcd))
+        
+    
+elif MISSION == 'Simulated':
+    sc_lite = deepcopy(sc_raw_sim_data)
+    lc_lite = deepcopy(lc_raw_sim_data)
+
+
+# ## Remove flagged cadences
 
 # In[ ]:
 
 
-# convert LightKurves to LiteCurves
-sc_lite = []
-lc_lite = []
-
-for i, scd in enumerate(sc_data):
-    sc_lite.append(io.LightKurve_to_LiteCurve(scd))
-    
-for i, lcd in enumerate(lc_data):
-    lc_lite.append(io.LightKurve_to_LiteCurve(lcd))
-    
-    
-# removed flagged cadences
 sc_data = []
 for i, scl in enumerate(sc_lite):
     qmask = np.isin(scl.cadno, good_cadno_sc)
@@ -1920,7 +2072,7 @@ for i, lcd in enumerate(lc_data):
     # make transit mask
     lcd.mask = np.zeros(len(lcd.time), dtype='bool')
     for npl, p in enumerate(planets):
-        lcd.mask += detrend.make_transitmask(lcd.time, p.tts, np.max([1/24,1.5*p.duration]))
+        lcd.mask += detrend.make_transitmask(lcd.time, p.tts, np.max([1/24,0.5*p.duration+ttv_buffer[npl]]))
     
     lcd.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=5, mask=lcd.mask)
     lcd.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=1000, mask=None)
@@ -1946,7 +2098,7 @@ for i, scd in enumerate(sc_data):
     # make transit mask
     scd.mask = np.zeros(len(scd.time), dtype='bool')
     for npl, p in enumerate(planets):
-        scd.mask += detrend.make_transitmask(scd.time, p.tts, np.max([1/24,1.5*p.duration]))
+        scd.mask += detrend.make_transitmask(scd.time, p.tts, np.max([1/24,0.5*p.duration+ttv_buffer[npl]]))
     
     scd.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=5, mask=scd.mask)
     scd.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=1000, mask=None)
@@ -2028,6 +2180,61 @@ if len(sc_data) > 0:
     sc = detrend.stitch(sc_data)
 else:
     sc = None
+
+
+# In[ ]:
+
+
+# normalize individual transits (short cadence)
+if sc is not None:
+    t_ = sc.time
+    f_ = sc.flux
+    m_ = np.zeros(len(t_), dtype='bool')
+
+    for npl, p in enumerate(planets):
+        m_ += detrend.make_transitmask(t_, p.tts, masksize=np.max([1/24,0.5*p.duration+ttv_buffer[npl]]))
+
+    baseline = np.zeros((NPL,len(f_)))
+
+    for npl, p in enumerate(planets):
+        for i, tc in enumerate(p.tts):
+            use = ~m_ * (np.abs(t_-tc) < np.max([2./24, 2*np.max(DURS)]))
+
+            if np.sum(use) > 0:
+                baseline[npl][use] += np.median(f_[use])
+
+    count = np.sum(baseline!=0, axis=0)
+    count = np.maximum(np.ones(len(count)), count)
+    baseline = np.sum(baseline, axis=0) / count
+    baseline = interp1d(t_[baseline !=0], baseline[baseline !=0], fill_value='extrapolate')(t_)
+
+    sc.flux /= baseline
+
+                     
+# normalize individual transits (long cadence)
+if lc is not None:
+    t_ = lc.time
+    f_ = lc.flux
+    m_ = np.zeros(len(t_), dtype='bool')
+
+    for npl, p in enumerate(planets):
+        m_ += detrend.make_transitmask(t_, p.tts, masksize=np.max([1/24,0.5*p.duration+ttv_buffer[npl]]))
+
+    baseline = np.zeros((NPL,len(f_)))
+
+    for npl, p in enumerate(planets):
+        for i, tc in enumerate(p.tts):
+            use = ~m_ * (np.abs(t_-tc) < np.max([2./24, 2*np.max(DURS)]))
+
+            if np.sum(use) > 0:
+                baseline[npl][use] += np.median(f_[use])
+
+    count = np.sum(baseline!=0, axis=0)
+    count = np.maximum(np.ones(len(count)), count)
+    baseline = np.sum(baseline, axis=0) / count
+    baseline = interp1d(t_[baseline !=0], baseline[baseline !=0], fill_value='extrapolate')(t_)
+
+    lc.flux /= baseline
 
 
 # # ##############################################

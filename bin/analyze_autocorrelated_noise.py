@@ -30,9 +30,6 @@ global_start_time = timer()
 # In[ ]:
 
 
-# In[ ]:
-
-
 # Automatically set inputs (when running batch scripts)
 import argparse
 import matplotlib as mpl
@@ -42,14 +39,18 @@ try:
     parser.add_argument("--mission", default=None, type=str, required=True,                         help="Mission name; can be 'Kepler' or 'Simulated'")
     parser.add_argument("--target", default=None, type=str, required=True,                         help="Target name; format should be K00000 or S00000")
     parser.add_argument("--project_dir", default=None, type=str, required=True,                         help="Project directory for accessing lightcurve data and saving outputs")
+    parser.add_argument("--data_dir", default=None, type=str, required=True,                         help="Data directory for accessing MAST lightcurves")
     parser.add_argument("--catalog", default=None, type=str, required=True,                         help="CSV file containing input planetary parameters")
+    parser.add_argument("--run_id", default=None, type=str, required=True,                         help="run identifier")
     parser.add_argument("--interactive", default=False, type=bool, required=False,                         help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
 
     args = parser.parse_args()
     MISSION      = args.mission
     TARGET       = args.target
     PROJECT_DIR  = args.project_dir
+    DATA_DIR     = args.data_dir
     CATALOG      = args.catalog
+    RUN_ID       = args.run_id
     
     # set plotting backend
     if args.interactive == False:
@@ -57,6 +58,23 @@ try:
     
 except:
     pass
+
+
+# In[ ]:
+
+
+print("")
+if MISSION == 'Kepler':
+    print("   MISSION : Kepler")
+elif MISSION == 'Simulated':
+    print("   MISSION : Simulated")
+print("   TARGET  : {0}".format(TARGET))
+print("   RUN ID  : {0}".format(RUN_ID))
+print("")
+print("   Project directory : {0}".format(PROJECT_DIR))
+print("   Data directory    : {0}".format(DATA_DIR))
+print("   Input catalog     : {0}".format(CATALOG))
+print("")
 
 
 # #### Set environment variables
@@ -72,9 +90,25 @@ sys.path.append(PROJECT_DIR)
 # In[ ]:
 
 
-# directories in which to place pipeline outputs
-RESULTS_DIR = PROJECT_DIR + 'Results/' + TARGET + '/'
-FIGURE_DIR  = PROJECT_DIR + 'Figures/' + TARGET + '/'
+# directories in which to place pipeline outputs for this run
+RESULTS_DIR = PROJECT_DIR + 'Results/' + RUN_ID + '/'
+FIGURE_DIR  = PROJECT_DIR + 'Figures/' + RUN_ID + '/'
+
+# check if output directories exist and if not, create them
+if os.path.exists(RESULTS_DIR) == False:
+    if os.path.exists(PROJECT_DIR + 'Results/') == False:
+        os.mkdir(PROJECT_DIR + 'Results/')
+    os.mkdir(RESULTS_DIR)
+
+if os.path.exists(FIGURE_DIR) == False:
+    if os.path.exists(PROJECT_DIR + 'Figures/') == False:
+        os.mkdir(PROJECT_DIR + 'Figures/')
+    os.mkdir(FIGURE_DIR)
+    
+    
+# directories in which to place pipeline outputs for this target
+RESULTS_DIR += TARGET + '/'
+FIGURE_DIR  += TARGET + '/'
 
 # check if output directories exist and if not, create them
 if os.path.exists(RESULTS_DIR) == False:
@@ -153,12 +187,15 @@ print("\nLoading data...\n")
 
 
 # Read in the data from csv file
-target_dict = pd.read_csv(PROJECT_DIR + 'Catalogs/' + CATALOG)
+if MISSION == 'Kepler':
+    target_dict = pd.read_csv(PROJECT_DIR + 'Catalogs/' + CATALOG)
+elif MISSION == 'Simulated':
+    target_dict = pd.read_csv(PROJECT_DIR + 'Simulations/{0}/{0}.csv'.format(RUN_ID))
 
 # set KOI_ID global variable
-if MISSION == "Kepler":
+if MISSION == 'Kepler':
     KOI_ID = TARGET
-elif MISSION == "Simulated":
+elif MISSION == 'Simulated':
     KOI_ID = "K" + TARGET[1:]
 else:
     raise ValueError("MISSION must be 'Kepler' or 'Simulated'")
@@ -169,8 +206,11 @@ use = np.array(target_dict['koi_id']) == KOI_ID
 KIC = np.array(target_dict['kic_id'], dtype='int')[use]
 NPL = np.array(target_dict['npl'], dtype='int')[use]
 PERIODS = np.array(target_dict['period'], dtype='float')[use]
-DEPTHS  = np.array(target_dict['depth'], dtype='float')[use]*1e-6          # [ppm] --> []
-DURS = np.array(target_dict['duration'], dtype='float')[use]/24         # [hrs] --> [days]
+DEPTHS  = np.array(target_dict['ror'], dtype='float')[use]**2
+DURS = np.array(target_dict['duration'], dtype='float')[use]
+
+if MISSION == 'Kepler':
+    DURS /= 24.  # [hrs] --> [days]
 
 # sort planet parameters by period
 order = np.argsort(PERIODS)
@@ -784,4 +824,10 @@ print("+"*shutil.get_terminal_size().columns)
 print("Analysis of autocorrelated noise complete {0}".format(datetime.now().strftime("%d-%b-%Y at %H:%M:%S")))
 print("Total runtime = %.1f min" %((timer()-global_start_time)/60))
 print("+"*shutil.get_terminal_size().columns)
+
+
+# In[ ]:
+
+
+
 

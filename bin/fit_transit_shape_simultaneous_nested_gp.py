@@ -30,7 +30,6 @@ global_start_time = timer()
 # In[ ]:
 
 
-
 # Automatically set inputs (when running batch scripts)
 import argparse
 import matplotlib as mpl
@@ -40,14 +39,18 @@ try:
     parser.add_argument("--mission", default=None, type=str, required=True,                         help="Mission name; can be 'Kepler' or 'Simulated'")
     parser.add_argument("--target", default=None, type=str, required=True,                         help="Target name; format should be K00000 or S00000")
     parser.add_argument("--project_dir", default=None, type=str, required=True,                         help="Project directory for accessing lightcurve data and saving outputs")
+    parser.add_argument("--data_dir", default=None, type=str, required=True,                         help="Data directory for accessing MAST lightcurves")
     parser.add_argument("--catalog", default=None, type=str, required=True,                         help="CSV file containing input planetary parameters")
+    parser.add_argument("--run_id", default=None, type=str, required=True,                         help="run identifier")
     parser.add_argument("--interactive", default=False, type=bool, required=False,                         help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
 
     args = parser.parse_args()
     MISSION      = args.mission
     TARGET       = args.target
     PROJECT_DIR  = args.project_dir
-    CATALOG      = args.catalog  
+    DATA_DIR     = args.data_dir
+    CATALOG      = args.catalog
+    RUN_ID       = args.run_id
     
     # set plotting backend
     if args.interactive == False:
@@ -55,6 +58,23 @@ try:
     
 except:
     pass
+
+
+# In[ ]:
+
+
+print("")
+if MISSION == 'Kepler':
+    print("   MISSION : Kepler")
+elif MISSION == 'Simulated':
+    print("   MISSION : Simulated")
+print("   TARGET  : {0}".format(TARGET))
+print("   RUN ID  : {0}".format(RUN_ID))
+print("")
+print("   Project directory : {0}".format(PROJECT_DIR))
+print("   Data directory    : {0}".format(DATA_DIR))
+print("   Input catalog     : {0}".format(CATALOG))
+print("")
 
 
 # #### Set environment variables
@@ -70,9 +90,25 @@ sys.path.append(PROJECT_DIR)
 # In[ ]:
 
 
-# directories in which to place pipeline outputs
-RESULTS_DIR = PROJECT_DIR + 'Results/' + TARGET + '/'
-FIGURE_DIR  = PROJECT_DIR + 'Figures/' + TARGET + '/'
+# directories in which to place pipeline outputs for this run
+RESULTS_DIR = PROJECT_DIR + 'Results/' + RUN_ID + '/'
+FIGURE_DIR  = PROJECT_DIR + 'Figures/' + RUN_ID + '/'
+
+# check if output directories exist and if not, create them
+if os.path.exists(RESULTS_DIR) == False:
+    if os.path.exists(PROJECT_DIR + 'Results/') == False:
+        os.mkdir(PROJECT_DIR + 'Results/')
+    os.mkdir(RESULTS_DIR)
+
+if os.path.exists(FIGURE_DIR) == False:
+    if os.path.exists(PROJECT_DIR + 'Figures/') == False:
+        os.mkdir(PROJECT_DIR + 'Figures/')
+    os.mkdir(FIGURE_DIR)
+    
+    
+# directories in which to place pipeline outputs for this target
+RESULTS_DIR += TARGET + '/'
+FIGURE_DIR  += TARGET + '/'
 
 # check if output directories exist and if not, create them
 if os.path.exists(RESULTS_DIR) == False:
@@ -154,7 +190,10 @@ print("\nLoading data...\n")
 
 
 # Read in the data from csv file
-target_dict = pd.read_csv(PROJECT_DIR + 'Catalogs/' + CATALOG)
+if MISSION == 'Kepler':
+    target_dict = pd.read_csv(PROJECT_DIR + 'Catalogs/' + CATALOG)
+elif MISSION == 'Simulated':
+    target_dict = pd.read_csv(PROJECT_DIR + 'Simulations/{0}/{0}.csv'.format(RUN_ID))
 
 
 # set KOI_ID global variable
@@ -173,8 +212,12 @@ KIC = np.array(target_dict['kic_id'], dtype='int')[use]
 NPL = np.array(target_dict['npl'], dtype='int')[use]
 
 PERIODS = np.array(target_dict['period'], dtype='float')[use]
-DEPTHS  = np.array(target_dict['depth'], dtype='float')[use]*1e-6          # [ppm] --> []
-DURS    = np.array(target_dict['duration'], dtype='float')[use]/24         # [hrs] --> [days]
+DEPTHS  = np.array(target_dict['ror'], dtype='float')[use]**2
+DURS    = np.array(target_dict['duration'], dtype='float')[use]
+
+if MISSION == 'Kepler':
+    DURS /= 24.  # [hrs] --> [days]
+
 
 U1 = np.array(target_dict['limbdark_1'], dtype='float')[use]
 U2 = np.array(target_dict['limbdark_2'], dtype='float')[use]
@@ -328,10 +371,6 @@ for i in range(NPL):
         if i != j:
             for tt in ephemeris[j]:
                 overlap[i] += np.abs(ephemeris[i] - tt) < (DURS[i] + DURS[j] + lcit)
-                
-#ephemeris = [ephemeris[npl][~overlap[npl]] for npl in range(NPL)]
-#transit_inds = [transit_inds[npl][~overlap[npl]] for npl in range(NPL)]
-#quick_transit_times = [quick_transit_times[npl][~overlap[npl]] for npl in range(NPL)]
 
 
 # ## Track which quarter each transit falls in
@@ -343,12 +382,12 @@ for i in range(NPL):
 if lc is not None:
     lc_quarters = np.unique(lc.quarter)
 else:
-    lc_quarters = np.array([])
+    lc_quarters = np.array([], dtype='int')
     
 if sc is not None:
     sc_quarters = np.unique(sc.quarter)
 else:
-    sc_quarters = np.array([])
+    sc_quarters = np.array([], dtype='int')
     
 quarters = np.sort(np.hstack([lc_quarters, sc_quarters]))
 seasons = np.sort(np.unique(quarters % 4))
@@ -385,12 +424,12 @@ for npl in range(NPL):
 if sc is not None:
     sc_mask = np.zeros((NPL,len(sc.time)), dtype='bool')
     for npl in range(NPL):
-        sc_mask[npl] = make_transitmask(sc.time, quick_transit_times[npl], masksize=1.5)
+        sc_mask[npl] = make_transitmask(sc.time, quick_transit_times[npl], masksize=np.max([1/24,1.5*DURS[npl]]))
         
 if lc is not None:
     lc_mask = np.zeros((NPL,len(lc.time)), dtype='bool')
     for npl in range(NPL):
-        lc_mask[npl] = make_transitmask(lc.time, quick_transit_times[npl], masksize=1.5)
+        lc_mask[npl] = make_transitmask(lc.time, quick_transit_times[npl], masksize=np.max([1/24,1.5*DURS[npl]]))
 
 
 # ## Grab data near transits
@@ -425,7 +464,7 @@ for q in range(18):
         if np.isin(q, lc.quarter):
             use = (lc_mask.sum(0) != 0)*(lc.quarter == q)
 
-            if np.sum(use) > 5:
+            if np.sum(use) > 3:
                 all_time[q] = lc.time[use]
                 all_flux[q] = lc.flux[use]
                 all_error[q] = lc.error[use]
@@ -434,16 +473,12 @@ for q in range(18):
                 
             else:
                 all_dtype[q] = 'long_no_transits'
-                
-# set oversampling factors and expoure times
-oversample = np.zeros(18, dtype='int')
-texp = np.zeros(18)
 
-oversample[np.array(all_dtype)=='short'] = 1
-oversample[np.array(all_dtype)=='long'] = 15
 
-texp[np.array(all_dtype)=='short'] = scit
-texp[np.array(all_dtype)=='long'] = lcit
+# ## Track mean, variance, oversampling factors, and exposure times
+
+# In[ ]:
+
 
 # track mean and variance of each quarter
 mean_by_quarter = np.ones(18)*np.nan
@@ -460,6 +495,17 @@ for q in range(18):
 
             mean_by_quarter[q] = np.mean(lc.flux[lc.quarter == q])
             var_by_quarter[q] = np.var(lc.flux[lc.quarter == q])
+            
+            
+# set oversampling factors and expoure times
+oversample = np.zeros(18, dtype='int')
+texp = np.zeros(18)
+
+oversample[np.array(all_dtype)=='short'] = 1
+oversample[np.array(all_dtype)=='long'] = 15
+
+texp[np.array(all_dtype)=='short'] = scit
+texp[np.array(all_dtype)=='long'] = lcit
 
 
 # ## Define Legendre polynomials
@@ -734,7 +780,7 @@ def lnlike(x):
 
 # now run the sampler
 sampler = dynesty.DynamicNestedSampler(lnlike, prior_transform, 5*NPL+2)
-sampler.run_nested()
+sampler.run_nested(checkpoint_file=RESULTS_DIR + '{0}-dynesty.checkpoint'.format(TARGET), checkpoint_every=600)
 results = sampler.results
 
 
