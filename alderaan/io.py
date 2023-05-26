@@ -2,13 +2,16 @@ from   astropy.io import fits
 from   copy import deepcopy
 import lightkurve as lk
 import numpy as np
+import os
+import pandas as pd
 
 from .LiteCurve import LiteCurve
 
 
 __all__ = ['cleanup_lkfc',
            'LightKurve_to_LiteCurve',
-           'load_detrended_lightcurve'
+           'load_detrended_lightcurve',
+           'to_fits'
           ]
 
 
@@ -89,4 +92,55 @@ def load_detrended_lightcurve(filename):
         litecurve.cadno   = np.array(hdulist['CADNO'].data, dtype='int')
         litecurve.quarter = np.array(hdulist['QUARTER'].data, dtype='int')
         
-    return litecurve    
+    return litecurve
+
+
+
+def to_fits(results, project_dir, run_id, target, npl):
+    '''
+    results : dynesty.DynamicNestedSampling.Results
+    target : (str) name of target, e.g. 'K00137'
+    npl : (int) number of planets
+    '''
+    # package nested samples
+    samples_keys = []
+
+    for n in range(npl):
+        samples_keys += 'C0_{0} C1_{0} ROR_{0} IMPACT_{0} DUR14_{0}'.format(n).split()
+
+    samples_keys += ['LD_Q1', 'LD_Q2']
+    samples_keys += ['LN_WT', 'LN_LIKE', 'LN_Z']
+
+
+    samples_data = np.vstack([results.samples.T, results.logwt, results.logl, results.logz]).T
+    samples_df = pd.DataFrame(samples_data, columns=samples_keys)
+    
+    
+    # build HDU List
+    primary_hdu = fits.PrimaryHDU()
+    header = primary_hdu.header
+
+    header['TARGET'] = target
+    header['NPL'] = npl
+
+    samples_hdu = fits.BinTableHDU(data=samples_df.to_records(index=False), name='SAMPLES')
+
+    hduL = fits.HDUList([primary_hdu, samples_hdu])
+    
+    # add transit times to HDU List
+    for n in range(npl):
+        ttimes_file = os.path.join(project_dir, 'Results/{0}/{1}/{1}_{2}_quick.ttvs'.format(run_id, 
+                                                                                            target, 
+                                                                                            str(n).zfill(2)))
+        ttimes_keys = 'INDEX TTIME MODEL OUT_PROB OUT_FLAG'.split()
+        ttimes_data = np.loadtxt(ttimes_file)
+
+        ttimes_df = pd.DataFrame(ttimes_data, columns=ttimes_keys)
+        ttimes_df.INDEX = ttimes_df.INDEX.astype('int')
+        ttimes_df.OUT_FLAG = ttimes_df.OUT_FLAG.astype('int')
+
+        ttimes_hdu = fits.BinTableHDU(data=ttimes_df.to_records(index=False), name='TTIMES_{0}'.format(str(n).zfill(2)))
+
+        hduL.append(ttimes_hdu)
+        
+    return hduL

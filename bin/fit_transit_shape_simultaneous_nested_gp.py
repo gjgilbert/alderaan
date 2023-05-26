@@ -30,6 +30,10 @@ global_start_time = timer()
 # In[ ]:
 
 
+
+# In[ ]:
+
+
 # Automatically set inputs (when running batch scripts)
 import argparse
 import matplotlib as mpl
@@ -91,35 +95,11 @@ sys.path.append(PROJECT_DIR)
 
 
 # directories in which to place pipeline outputs for this run
-RESULTS_DIR = PROJECT_DIR + 'Results/' + RUN_ID + '/'
-FIGURE_DIR  = PROJECT_DIR + 'Figures/' + RUN_ID + '/'
+RESULTS_DIR = os.path.join(PROJECT_DIR, 'Results', RUN_ID, TARGET)
+FIGURE_DIR  = os.path.join(PROJECT_DIR, 'Figures', RUN_ID, TARGET)
 
-# check if output directories exist and if not, create them
-if os.path.exists(RESULTS_DIR) == False:
-    if os.path.exists(PROJECT_DIR + 'Results/') == False:
-        os.mkdir(PROJECT_DIR + 'Results/')
-    os.mkdir(RESULTS_DIR)
-
-if os.path.exists(FIGURE_DIR) == False:
-    if os.path.exists(PROJECT_DIR + 'Figures/') == False:
-        os.mkdir(PROJECT_DIR + 'Figures/')
-    os.mkdir(FIGURE_DIR)
-    
-    
-# directories in which to place pipeline outputs for this target
-RESULTS_DIR += TARGET + '/'
-FIGURE_DIR  += TARGET + '/'
-
-# check if output directories exist and if not, create them
-if os.path.exists(RESULTS_DIR) == False:
-    if os.path.exists(PROJECT_DIR + 'Results/') == False:
-        os.mkdir(PROJECT_DIR + 'Results/')
-    os.mkdir(RESULTS_DIR)
-
-if os.path.exists(FIGURE_DIR) == False:
-    if os.path.exists(PROJECT_DIR + 'Figures/') == False:
-        os.mkdir(PROJECT_DIR + 'Figures/')
-    os.mkdir(FIGURE_DIR)
+os.makedirs(RESULTS_DIR, exist_ok=True)
+os.makedirs(FIGURE_DIR, exist_ok=True)
 
 
 # #### Import packages
@@ -212,7 +192,7 @@ KIC = np.array(target_dict['kic_id'], dtype='int')[use]
 NPL = np.array(target_dict['npl'], dtype='int')[use]
 
 PERIODS = np.array(target_dict['period'], dtype='float')[use]
-DEPTHS  = np.array(target_dict['ror'], dtype='float')[use]**2
+DEPTHS  = np.array(target_dict['depth'], dtype='float')[use]
 DURS    = np.array(target_dict['duration'], dtype='float')[use]
 
 if MISSION == 'Kepler':
@@ -253,14 +233,14 @@ DURS    = DURS[order]
 # In[ ]:
 
 
-if os.path.exists(RESULTS_DIR + TARGET + '_lc_filtered.fits'):
-    lc = io.load_detrended_lightcurve(RESULTS_DIR + TARGET + '_lc_filtered.fits')
+if os.path.exists(os.path.join(RESULTS_DIR , '{0}_lc_filtered.fits'.format(TARGET))):
+    lc = io.load_detrended_lightcurve(os.path.join(RESULTS_DIR, '{0}_lc_filtered.fits'.format(TARGET)))
     lc.season = lc.quarter % 4
 else:
     lc = None
     
-if os.path.exists(RESULTS_DIR + TARGET + '_sc_filtered.fits'):
-    sc = io.load_detrended_lightcurve(RESULTS_DIR + TARGET + '_sc_filtered.fits')
+if os.path.exists(os.path.join(RESULTS_DIR , '{0}_sc_filtered.fits'.format(TARGET))):
+    sc = io.load_detrended_lightcurve(os.path.join(RESULTS_DIR, '{0}_sc_filtered.fits'.format(TARGET)))
     sc.season = sc.quarter % 4
 else:
     sc = None
@@ -282,7 +262,7 @@ indep_transit_times = []
 quick_transit_times = []
 
 for npl in range(NPL):
-    fname_in = RESULTS_DIR + TARGET + '_{:02d}'.format(npl) + '_quick.ttvs'
+    fname_in = os.path.join(RESULTS_DIR, '{0}_{1:02d}_quick.ttvs'.format(TARGET, npl))
     data_in  = np.genfromtxt(fname_in)
     
     transit_inds.append(np.array(data_in[:,0], dtype='int'))
@@ -542,7 +522,7 @@ gp_percs = []
 
 for z in range(4):
     try:
-        fname_in = RESULTS_DIR + TARGET + '_shoterm_gp_priors_{0}.txt'.format(z)
+        fname_in = os.path.join(RESULTS_DIR, '{0}_shoterm_gp_priors_{1}.txt'.format(TARGET,z))
 
         with open(fname_in) as infile:
             gp_percs.append(json.load(infile))
@@ -778,9 +758,17 @@ def lnlike(x):
 # In[ ]:
 
 
+
+
+
+# In[ ]:
+
+
 # now run the sampler
 sampler = dynesty.DynamicNestedSampler(lnlike, prior_transform, 5*NPL+2)
-sampler.run_nested(checkpoint_file=RESULTS_DIR + '{0}-dynesty.checkpoint'.format(TARGET), checkpoint_every=600)
+sampler.run_nested(n_effective=1000,
+                   checkpoint_file=os.path.join(RESULTS_DIR, '{0}-dynesty.checkpoint'.format(TARGET)),
+                   checkpoint_every=600)
 results = sampler.results
 
 
@@ -812,15 +800,16 @@ tfig, taxes = dyplot.traceplot(results, labels=labels)
 cfig, caxes = dyplot.cornerplot(results, labels=labels)
 
 
-# # Save results as dictionary
+# # Save results as fits file
 
 # In[ ]:
 
 
-f_name = RESULTS_DIR + '{0}-nested.pkl'.format(TARGET)
+hduL = io.to_fits(results, PROJECT_DIR, RUN_ID, TARGET, NPL)
 
-with open(f_name, 'wb') as f:
-    pickle.dump(results.asdict(), f)
+path = os.path.join(PROJECT_DIR, 'Results', RUN_ID, TARGET)
+os.makedirs(path, exist_ok=True)
+hduL.writeto(os.path.join(path, '{0}-results.fits'.format(TARGET)), overwrite=True)
 
 
 # ## Exit program

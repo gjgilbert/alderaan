@@ -27,6 +27,9 @@ global_start_time = timer()
 
 # #### Parse inputs
 
+# In[ ]:
+
+
 # Automatically set inputs (when running batch scripts)
 import argparse
 import matplotlib as mpl
@@ -80,35 +83,11 @@ print("")
 
 
 # directories in which to place pipeline outputs for this run
-RESULTS_DIR = PROJECT_DIR + 'Results/' + RUN_ID + '/'
-FIGURE_DIR  = PROJECT_DIR + 'Figures/' + RUN_ID + '/'
+RESULTS_DIR = os.path.join(PROJECT_DIR, 'Results', RUN_ID, TARGET)
+FIGURE_DIR  = os.path.join(PROJECT_DIR, 'Figures', RUN_ID, TARGET)
 
-# check if output directories exist and if not, create them
-if os.path.exists(RESULTS_DIR) == False:
-    if os.path.exists(PROJECT_DIR + 'Results/') == False:
-        os.mkdir(PROJECT_DIR + 'Results/')
-    os.mkdir(RESULTS_DIR)
-
-if os.path.exists(FIGURE_DIR) == False:
-    if os.path.exists(PROJECT_DIR + 'Figures/') == False:
-        os.mkdir(PROJECT_DIR + 'Figures/')
-    os.mkdir(FIGURE_DIR)
-    
-    
-# directories in which to place pipeline outputs for this target
-RESULTS_DIR += TARGET + '/'
-FIGURE_DIR  += TARGET + '/'
-
-# check if output directories exist and if not, create them
-if os.path.exists(RESULTS_DIR) == False:
-    if os.path.exists(PROJECT_DIR + 'Results/') == False:
-        os.mkdir(PROJECT_DIR + 'Results/')
-    os.mkdir(RESULTS_DIR)
-
-if os.path.exists(FIGURE_DIR) == False:
-    if os.path.exists(PROJECT_DIR + 'Figures/') == False:
-        os.mkdir(PROJECT_DIR + 'Figures/')
-    os.mkdir(FIGURE_DIR)
+os.makedirs(RESULTS_DIR, exist_ok=True)
+os.makedirs(FIGURE_DIR, exist_ok=True)
 
 
 # #### Set environment variables
@@ -520,8 +499,8 @@ if MISSION == 'Simulated':
         ror[npl] = np.sqrt(p.depth)
         dur[npl] = p.duration
 
-        starrystar = exo.LimbDarkLightCurve([U1,U2])
-        orbit = exo.orbits.TTVOrbit(transit_times=tts, transit_inds=inds, b=b, ror=ror, duration=dur)
+    starrystar = exo.LimbDarkLightCurve([U1,U2])
+    orbit = exo.orbits.TTVOrbit(transit_times=tts, transit_inds=inds, b=b, ror=ror, duration=dur)
 
     for i, lcd in enumerate(lc_data):
         light_curve = starrystar.get_light_curve(orbit=orbit, r=ror, t=lcd.time, oversample=15, texp=lcit)
@@ -647,8 +626,8 @@ if MISSION == 'Simulated':
         ror[npl] = np.sqrt(p.depth)
         dur[npl] = p.duration
 
-        starrystar = exo.LimbDarkLightCurve([U1,U2])
-        orbit = exo.orbits.TTVOrbit(transit_times=tts, transit_inds=inds, b=b, ror=ror, duration=dur)
+    starrystar = exo.LimbDarkLightCurve([U1,U2])
+    orbit = exo.orbits.TTVOrbit(transit_times=tts, transit_inds=inds, b=b, ror=ror, duration=dur)
 
     for i, lcd in enumerate(lc_data):
         light_curve = starrystar.get_light_curve(orbit=orbit, r=ror, t=lcd.time, oversample=15, texp=lcit)
@@ -1795,7 +1774,7 @@ for npl, p in enumerate(planets):
                            quick_transit_times[npl],
                            outlier_prob[npl], 
                            outlier_class[npl]]).swapaxes(0,1)
-    fname_out = RESULTS_DIR + TARGET + '_{:02d}'.format(npl) + '_quick.ttvs'
+    fname_out = os.path.join(RESULTS_DIR, '{0}_{1:02d}_quick.ttvs'.format(TARGET, npl))
     np.savetxt(fname_out, data_out, fmt=('%1d', '%.8f', '%.8f', '%.8f', '%1d'), delimiter='\t')
 
 
@@ -2145,7 +2124,7 @@ for i, lcd in enumerate(lc_data):
             warnings.warn("Detrending with RotationTerm failed...attempting to detrend with SHOTerm")
             lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, 
                                           nominal_period=nom_per, kterm="SHOTerm", correct_ramp=False)
-                     
+
 if len(lc_data) > 0:
     lc = detrend.stitch(lc_data)
 else:
@@ -2180,61 +2159,6 @@ if len(sc_data) > 0:
     sc = detrend.stitch(sc_data)
 else:
     sc = None
-
-
-# In[ ]:
-
-
-# normalize individual transits (short cadence)
-if sc is not None:
-    t_ = sc.time
-    f_ = sc.flux
-    m_ = np.zeros(len(t_), dtype='bool')
-
-    for npl, p in enumerate(planets):
-        m_ += detrend.make_transitmask(t_, p.tts, masksize=np.max([1/24,0.5*p.duration+ttv_buffer[npl]]))
-
-    baseline = np.zeros((NPL,len(f_)))
-
-    for npl, p in enumerate(planets):
-        for i, tc in enumerate(p.tts):
-            use = ~m_ * (np.abs(t_-tc) < np.max([2./24, 2*np.max(DURS)]))
-
-            if np.sum(use) > 0:
-                baseline[npl][use] += np.median(f_[use])
-
-    count = np.sum(baseline!=0, axis=0)
-    count = np.maximum(np.ones(len(count)), count)
-    baseline = np.sum(baseline, axis=0) / count
-    baseline = interp1d(t_[baseline !=0], baseline[baseline !=0], fill_value='extrapolate')(t_)
-
-    sc.flux /= baseline
-
-                     
-# normalize individual transits (long cadence)
-if lc is not None:
-    t_ = lc.time
-    f_ = lc.flux
-    m_ = np.zeros(len(t_), dtype='bool')
-
-    for npl, p in enumerate(planets):
-        m_ += detrend.make_transitmask(t_, p.tts, masksize=np.max([1/24,0.5*p.duration+ttv_buffer[npl]]))
-
-    baseline = np.zeros((NPL,len(f_)))
-
-    for npl, p in enumerate(planets):
-        for i, tc in enumerate(p.tts):
-            use = ~m_ * (np.abs(t_-tc) < np.max([2./24, 2*np.max(DURS)]))
-
-            if np.sum(use) > 0:
-                baseline[npl][use] += np.median(f_[use])
-
-    count = np.sum(baseline!=0, axis=0)
-    count = np.maximum(np.ones(len(count)), count)
-    baseline = np.sum(baseline, axis=0) / count
-    baseline = interp1d(t_[baseline !=0], baseline[baseline !=0], fill_value='extrapolate')(t_)
-
-    lc.flux /= baseline
 
 
 # # ##############################################
@@ -2396,12 +2320,14 @@ for npl, p in enumerate(planets):
 print("\nSaving detrended lightcurves...\n")
 
 if lc is not None:
-    lc.to_fits(TARGET, RESULTS_DIR + TARGET + '_lc_detrended.fits', cadence='LONG')
+    filename = os.path.join(RESULTS_DIR, '{0}_lc_detrended.fits'.format(TARGET))
+    lc.to_fits(TARGET, filename, cadence='LONG')
 else:
     print("No long cadence data")
 
 if sc is not None:
-    sc.to_fits(TARGET, RESULTS_DIR + TARGET + '_sc_detrended.fits', cadence='SHORT')
+    filename = os.path.join(RESULTS_DIR, '{0}_sc_detrended.fits'.format(TARGET))
+    sc.to_fits(TARGET, filename, cadence='SHORT')
 else:
     print("No short cadence data")
 

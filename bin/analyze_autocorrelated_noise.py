@@ -30,6 +30,10 @@ global_start_time = timer()
 # In[ ]:
 
 
+
+# In[ ]:
+
+
 # Automatically set inputs (when running batch scripts)
 import argparse
 import matplotlib as mpl
@@ -91,35 +95,11 @@ sys.path.append(PROJECT_DIR)
 
 
 # directories in which to place pipeline outputs for this run
-RESULTS_DIR = PROJECT_DIR + 'Results/' + RUN_ID + '/'
-FIGURE_DIR  = PROJECT_DIR + 'Figures/' + RUN_ID + '/'
+RESULTS_DIR = os.path.join(PROJECT_DIR, 'Results', RUN_ID, TARGET)
+FIGURE_DIR  = os.path.join(PROJECT_DIR, 'Figures', RUN_ID, TARGET)
 
-# check if output directories exist and if not, create them
-if os.path.exists(RESULTS_DIR) == False:
-    if os.path.exists(PROJECT_DIR + 'Results/') == False:
-        os.mkdir(PROJECT_DIR + 'Results/')
-    os.mkdir(RESULTS_DIR)
-
-if os.path.exists(FIGURE_DIR) == False:
-    if os.path.exists(PROJECT_DIR + 'Figures/') == False:
-        os.mkdir(PROJECT_DIR + 'Figures/')
-    os.mkdir(FIGURE_DIR)
-    
-    
-# directories in which to place pipeline outputs for this target
-RESULTS_DIR += TARGET + '/'
-FIGURE_DIR  += TARGET + '/'
-
-# check if output directories exist and if not, create them
-if os.path.exists(RESULTS_DIR) == False:
-    if os.path.exists(PROJECT_DIR + 'Results/') == False:
-        os.mkdir(PROJECT_DIR + 'Results/')
-    os.mkdir(RESULTS_DIR)
-
-if os.path.exists(FIGURE_DIR) == False:
-    if os.path.exists(PROJECT_DIR + 'Figures/') == False:
-        os.mkdir(PROJECT_DIR + 'Figures/')
-    os.mkdir(FIGURE_DIR)
+os.makedirs(RESULTS_DIR, exist_ok=True)
+os.makedirs(FIGURE_DIR, exist_ok=True)
 
 
 # #### Import packages
@@ -188,9 +168,9 @@ print("\nLoading data...\n")
 
 # Read in the data from csv file
 if MISSION == 'Kepler':
-    target_dict = pd.read_csv(PROJECT_DIR + 'Catalogs/' + CATALOG)
+    target_dict = pd.read_csv(os.path.join(PROJECT_DIR, 'Catalogs', CATALOG))
 elif MISSION == 'Simulated':
-    target_dict = pd.read_csv(PROJECT_DIR + 'Simulations/{0}/{0}.csv'.format(RUN_ID))
+    target_dict = pd.read_csv(os.path.join(PROJECT_DIR, 'Simulations/{0}/{0}.csv'.format(RUN_ID)))
 
 # set KOI_ID global variable
 if MISSION == 'Kepler':
@@ -206,7 +186,7 @@ use = np.array(target_dict['koi_id']) == KOI_ID
 KIC = np.array(target_dict['kic_id'], dtype='int')[use]
 NPL = np.array(target_dict['npl'], dtype='int')[use]
 PERIODS = np.array(target_dict['period'], dtype='float')[use]
-DEPTHS  = np.array(target_dict['ror'], dtype='float')[use]**2
+DEPTHS  = np.array(target_dict['depth'], dtype='float')[use]
 DURS = np.array(target_dict['duration'], dtype='float')[use]
 
 if MISSION == 'Kepler':
@@ -233,14 +213,14 @@ else: raise ValueError("There are inconsistencies with NPL in the csv input file
 # In[ ]:
 
 
-if os.path.exists(RESULTS_DIR + TARGET + '_lc_detrended.fits'):
-    lc = io.load_detrended_lightcurve(RESULTS_DIR + TARGET + '_lc_detrended.fits')
+if os.path.exists(os.path.join(RESULTS_DIR , '{0}_lc_detrended.fits'.format(TARGET))):
+    lc = io.load_detrended_lightcurve(os.path.join(RESULTS_DIR, '{0}_lc_detrended.fits'.format(TARGET)))
     lc.season = lc.quarter % 4
 else:
     lc = None
     
-if os.path.exists(RESULTS_DIR + TARGET + '_sc_detrended.fits'):
-    sc = io.load_detrended_lightcurve(RESULTS_DIR + TARGET + '_sc_detrended.fits')
+if os.path.exists(os.path.join(RESULTS_DIR , '{0}_sc_detrended.fits'.format(TARGET))):
+    sc = io.load_detrended_lightcurve(os.path.join(RESULTS_DIR, '{0}_sc_detrended.fits'.format(TARGET)))
     sc.season = sc.quarter % 4
 else:
     sc = None
@@ -259,7 +239,7 @@ indep_transit_times = []
 quick_transit_times = []
 
 for npl in range(NPL):
-    fname_in = RESULTS_DIR + TARGET + '_{:02d}'.format(npl) + '_quick.ttvs'
+    fname_in = os.path.join(RESULTS_DIR, '{0}_{1:02d}_quick.ttvs'.format(TARGET, npl))
     data_in  = np.genfromtxt(fname_in)
     
     transit_inds.append(np.array(data_in[:,0], dtype='int'))
@@ -615,12 +595,12 @@ for z in range(4):
 print("\nSaving detrended lightcurves...\n")
 
 if lc is not None:
-    lc.to_fits(TARGET, RESULTS_DIR + TARGET + '_lc_filtered.fits', cadence='LONG')
+    lc.to_fits(TARGET, os.path.join(RESULTS_DIR, '{0}_lc_filtered.fits'.format(TARGET)), cadence='LONG')
 else:
     print("No long cadence data")
 
 if sc is not None:
-    sc.to_fits(TARGET, RESULTS_DIR + TARGET + '_sc_filtered.fits', cadence='SHORT')
+    sc.to_fits(TARGET, os.path.join(RESULTS_DIR, '{0}_sc_filtered.fits'.format(TARGET)), cadence='SHORT')
 else:
     print("No short cadence data")
 
@@ -808,7 +788,7 @@ for z in range(4):
         for k in gp_priors[z].keys():
             gp_priors[z][k] = list(gp_priors[z][k])
 
-        fname_out = RESULTS_DIR + TARGET + '_shoterm_gp_priors_{0}.txt'.format(z)
+        fname_out = os.path.join(RESULTS_DIR, '{0}_shoterm_gp_priors_{1}.txt'.format(TARGET, z))
 
         with open(fname_out, 'w') as file:
             json.dump(gp_priors[z], file)
@@ -824,6 +804,12 @@ print("+"*shutil.get_terminal_size().columns)
 print("Analysis of autocorrelated noise complete {0}".format(datetime.now().strftime("%d-%b-%Y at %H:%M:%S")))
 print("Total runtime = %.1f min" %((timer()-global_start_time)/60))
 print("+"*shutil.get_terminal_size().columns)
+
+
+# In[ ]:
+
+
+
 
 
 # In[ ]:
