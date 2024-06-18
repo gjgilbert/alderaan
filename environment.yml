@@ -1,0 +1,29 @@
+name: alderaan
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10.12
+  - pip=23.2.1
+  - setuptools=68.1.2
+  - wheel=0.41.2
+  - pip:
+      - aesara-theano-fallback==0.1.0
+      - arviz==0.12.1
+      - astropy==5.3.2
+      - celerite2==0.2.1
+      - corner==2.2.2
+      - dynesty==2.0.1
+      - exoplanet==0.5.3
+      - exoplanet-core==0.1.2
+      - h5py==3.9.0
+      - lightkurve==2.1.1
+      - matplotlib==3.7.2
+      - notebook==7.0.3
+      - numpy==1.21.6
+      - pandas==2.0.3
+      - pymc3==3.11.5
+      - pymc3-ext==0.1.1
+      - scipy==1.7.3
+      - theano-pymc==1.1.2
+      - xarray==2022.9.0

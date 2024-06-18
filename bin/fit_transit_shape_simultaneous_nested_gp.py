@@ -739,11 +739,14 @@ def lnlike(x):
             transit_model[npl][j].t = ephem[npl]._warp_times(t_[j])
             light_curve += transit_model[npl][j].light_curve(theta[npl]) - 1.0
 
-        gp = GaussianProcess(kernel[q%4], mean=light_curve)
-        gp.compute(t_[j], yerr=e_[j])
-
-        loglike += gp.log_likelihood(f_[j])
-        
+        USE_GP = False
+        if USE_GP:
+            gp = GaussianProcess(kernel[q%4], mean=light_curve)
+            gp.compute(t_[j], yerr=e_[j])
+            loglike += gp.log_likelihood(f_[j])
+        else:
+            loglike += np.sum(-np.log(e_[j]) - 0.5*((light_curve - f_[j]) / e_[j])**2)
+            
         # enforce prior on limb darkening
         sig_ld_sq = 0.1**2
         loglike += -0.5*np.log(2*pi*sig_ld_sq) - 1./(2*sig_ld_sq) * (u1 - U1)**2
