@@ -5,6 +5,8 @@ PACKAGEDIR = os.path.abspath(os.path.dirname(__file__))
 from .version import __version__
 from .constants import *
 from .detrend import *
+from .dynesty_helpers import *
+from .Ephemeris import *
 from .io import *
 from .LiteCurve import *
 from .noise import *

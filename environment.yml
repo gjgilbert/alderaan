@@ -1,12 +1,12 @@
 name: alderaan
 channels:
   - conda-forge
-  - defaults
 dependencies:
+  - c-compiler
+  - compilers
+  - cxx-compiler
   - python=3.10.12
-  - pip=23.2.1
-  - setuptools=68.1.2
-  - wheel=0.41.2
+  - pip
   - pip:
       - aesara-theano-fallback==0.1.0
       - arviz==0.12.1
@@ -19,7 +19,7 @@ dependencies:
       - h5py==3.9.0
       - lightkurve==2.1.1
       - matplotlib==3.7.2
-      - notebook==7.0.3
+      - notebook==6.4.13
       - numpy==1.21.6
       - pandas==2.0.3
       - pymc3==3.11.5
@@ -27,3 +27,4 @@ dependencies:
       - scipy==1.7.3
       - theano-pymc==1.1.2
       - xarray==2022.9.0
+      - git+https://github.com/gjgilbert/batman

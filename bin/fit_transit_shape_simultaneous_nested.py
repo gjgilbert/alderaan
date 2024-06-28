@@ -16,7 +16,7 @@ from timeit import default_timer as timer
 
 print("")
 print("+"*shutil.get_terminal_size().columns)
-print("ALDERAAN Transit Fitting (single planet)")
+print("ALDERAAN Transit Fitting")
 print("Initialized {0}".format(datetime.now().strftime("%d-%b-%Y at %H:%M:%S")))
 print("+"*shutil.get_terminal_size().columns)
 print("")
@@ -30,39 +30,38 @@ global_start_time = timer()
 # In[ ]:
 
 
-
-# In[ ]:
-
-
 # Automatically set inputs (when running batch scripts)
 import argparse
 import matplotlib as mpl
 
-try:
-    parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
-    parser.add_argument("--mission", default=None, type=str, required=True,                         help="Mission name; can be 'Kepler' or 'Simulated'")
-    parser.add_argument("--target", default=None, type=str, required=True,                         help="Target name; format should be K00000 or S00000")
-    parser.add_argument("--project_dir", default=None, type=str, required=True,                         help="Project directory for accessing lightcurve data and saving outputs")
-    parser.add_argument("--data_dir", default=None, type=str, required=True,                         help="Data directory for accessing MAST lightcurves")
-    parser.add_argument("--catalog", default=None, type=str, required=True,                         help="CSV file containing input planetary parameters")
-    parser.add_argument("--run_id", default=None, type=str, required=True,                         help="run identifier")
-    parser.add_argument("--interactive", default=False, type=bool, required=False,                         help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
+parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
+parser.add_argument("--mission", default=None, type=str, required=True, \
+                    help="Mission name; can be 'Kepler' or 'Simulated'")
+parser.add_argument("--target", default=None, type=str, required=True, \
+                    help="Target name; format should be K00000 or S00000")
+parser.add_argument("--project_dir", default=None, type=str, required=True, \
+                    help="Project directory for accessing lightcurve data and saving outputs")
+parser.add_argument("--data_dir", default=None, type=str, required=True, \
+                    help="Data directory for accessing MAST lightcurves")
+parser.add_argument("--catalog", default=None, type=str, required=True, \
+                    help="CSV file containing input planetary parameters")
+parser.add_argument("--run_id", default=None, type=str, required=True, \
+                    help="run identifier")
+parser.add_argument("--interactive", default=False, type=bool, required=False, \
+                    help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
 
-    args = parser.parse_args()
-    MISSION      = args.mission
-    TARGET       = args.target
-    PROJECT_DIR  = args.project_dir
-    DATA_DIR     = args.data_dir
-    CATALOG      = args.catalog
-    RUN_ID       = args.run_id
-    
-    # set plotting backend
-    if args.interactive == False:
-        mpl.use('agg')
-    
-except:
-    pass
+args = parser.parse_args()
+MISSION      = args.mission
+TARGET       = args.target
+PROJECT_DIR  = args.project_dir
+DATA_DIR     = args.data_dir
+CATALOG      = args.catalog
+RUN_ID       = args.run_id
 
+# set plotting backend
+if args.interactive == False:
+    mpl.use('agg')
+    
 
 # In[ ]:
 
@@ -111,6 +110,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import json
+import multiprocessing as multipro
 import pickle
 
 import astropy.stats
@@ -127,11 +127,13 @@ from   celerite2 import GaussianProcess
 from   celerite2 import terms as GPterms
 
 from   alderaan.constants import *
-from   alderaan.utils import *
-import alderaan.io as io
 from   alderaan.detrend import make_transitmask
+import alderaan.dynesty_helpers as dynhelp
+from   alderaan.Ephemeris import Ephemeris
+import alderaan.io as io
 from   alderaan.LiteCurve import LiteCurve
 from   alderaan.Planet import Planet
+from   alderaan.utils import *
 
 
 # In[ ]:
@@ -588,44 +590,6 @@ print("\nModeling Lightcurve...\n")
 # In[ ]:
 
 
-class Ephemeris:
-    def __init__(self, inds, tts):
-        self.inds = inds
-        self.tts  = tts
-    
-        # calculate least squares period and epoch
-        self.t0, self.period = poly.polyfit(inds, tts, 1)
-        
-        # calculate ttvs
-        self.ttvs = tts - poly.polyval(inds, [self.t0, self.period])
-    
-        # calculate full set of transit times
-        self.full_transit_times = self.t0 + self.period*np.arange(self.inds.max()+1)
-        self.full_transit_times[self.inds] = self.tts
-
-        # set up histogram for identifying transit offsets
-        ftts = self.full_transit_times
-
-        self._bin_edges = np.concatenate([[ftts[0] - 0.5*self.period],
-                                         0.5*(ftts[1:] + ftts[:-1]),
-                                         [ftts[-1] + 0.5*self.period]
-                                        ])
-
-        self._bin_values = np.concatenate([[ftts[0]], ftts, [ftts[-1]]])
-    
-    
-    def _get_model_dt(self, t):
-        _inds = np.searchsorted(self._bin_edges, t)
-        _vals = self._bin_values[_inds]
-        return _vals
-    
-    def _warp_times(self, t):
-        return t - self._get_model_dt(t)
-
-
-# In[ ]:
-
-
 # identify which quarters and seasons have data
 which_quarters = np.sort(np.unique(np.hstack(transit_quarter)))
 which_seasons = np.sort(np.unique(which_quarters % 4))
@@ -684,91 +648,61 @@ for z in which_seasons:
                                 Q =np.exp(gp_priors[z]['logQ'][0])
                                )
 
-    
-# functions for dynesty (hyperparameters are currently hard-coded)
-def prior_transform(uniform_hypercube):
-    x_ = np.array(uniform_hypercube)
 
-    # 5*NPL (+2) parameters: {C0, C1, r, b, T14}...{q1,q2}
-    dists = []
-    for npl in range(NPL):
-        C0  = stats.norm(loc=0., scale=0.1).ppf(x_[0+npl*5])
-        C1  = stats.norm(loc=0., scale=0.1).ppf(x_[1+npl*5])
-        r   = stats.loguniform(1e-5, 0.99).ppf(x_[2+npl*5])
-        b   = stats.uniform(0., 1+r).ppf(x_[3+npl*5])
-        T14 = stats.loguniform(scit, 3*DURS[npl]).ppf(x_[4+npl*5])
-        
-        dists = np.hstack([dists, [C0, C1, r, b, T14]])
-         
-    # limb darkening coefficients (see Kipping 2013)
-    q1 = stats.uniform(0., 1.).ppf(x_[5*NPL+0])
-    q2 = stats.uniform(0., 1.).ppf(x_[5*NPL+1])
-    
-    return np.hstack([dists, [q1,q2]])
+# In[ ]:
 
 
-def lnlike(x):
-    # limb darkening (see Kipping 2013)
-    q1, q2 = np.array(x[-2:])
+# package everything in dictionaries to simplify passing to dynesty
+# this slightly inefficient method maintains easy backward compatibility
+ephem_args = {}
+ephem_args['ephem'] = ephem
+ephem_args['transit_inds'] = transit_inds
+ephem_args['transit_times'] = quick_transit_times
+ephem_args['Leg0'] = Leg0
+ephem_args['Leg1'] = Leg1
 
-    u1 = 2*np.sqrt(q1)*q2
-    u2 = np.sqrt(q1)*(1-2*q2)
-    
-    # planet paramters
-    for npl in range(NPL):
-        C0, C1, rp, b, T14 = np.array(x[5*npl:5*(npl+1)])
-
-        # update ephemeris
-        ephem[npl] = Ephemeris(transit_inds[npl], quick_transit_times[npl] + C0*Leg0[npl] + C1*Leg1[npl])
-    
-        # update transit parameters
-        theta[npl].per = ephem[npl].period
-        theta[npl].t0  = 0.                     # t0 must be set to zero b/c we are warping TTVs
-        theta[npl].rp  = rp
-        theta[npl].b   = b
-        theta[npl].T14 = T14
-        theta[npl].u   = [u1,u2]
-
-    # calculate likelihood
-    loglike = 0.
-
-    for j, q in enumerate(which_quarters):
-        light_curve = np.ones(len(t_[j]), dtype='float')
-        
-        for npl in range(NPL):
-            transit_model[npl][j].t = ephem[npl]._warp_times(t_[j])
-            light_curve += transit_model[npl][j].light_curve(theta[npl]) - 1.0
-
-        USE_GP = False
-        if USE_GP:
-            gp = GaussianProcess(kernel[q%4], mean=light_curve)
-            gp.compute(t_[j], yerr=e_[j])
-            loglike += gp.log_likelihood(f_[j])
-        else:
-            loglike += np.sum(-np.log(e_[j]) - 0.5*((light_curve - f_[j]) / e_[j])**2)
-            
-        # enforce prior on limb darkening
-        sig_ld_sq = 0.1**2
-        loglike += -0.5*np.log(2*pi*sig_ld_sq) - 1./(2*sig_ld_sq) * (u1 - U1)**2
-        loglike += -0.5*np.log(2*pi*sig_ld_sq) - 1./(2*sig_ld_sq) * (u2 - U2)**2
-
-    if not np.isfinite(loglike):
-        return -1e300
-
-    return loglike
+phot_args = {}
+phot_args['time'] = t_
+phot_args['flux'] = f_
+phot_args['error'] = e_
+phot_args['mask']  = m_
 
 
 # In[ ]:
 
 
+ncores      = multipro.cpu_count()
+ndim        = 5*NPL+2
+logl        = dynhelp.lnlike
+ptform      = dynhelp.prior_transform
+logl_args   = (NPL, theta, transit_model, which_quarters, ephem_args, phot_args, kernel, [U1,U2])
+ptform_args = (NPL, DURS)
+chk_file    = os.path.join(RESULTS_DIR, '{0}-dynesty.checkpoint'.format(TARGET))
 
+
+USE_MULTIPRO = False
+
+if USE_MULTIPRO:
+    with dynesty.pool.Pool(ncores, logl, ptform, logl_args=logl_args, ptform_args=ptform_args) as pool:
+        sampler = dynesty.DynamicNestedSampler(pool.loglike, pool.prior_transform, ndim, pool=pool)
+        sampler.run_nested(n_effective=1000, checkpoint_file=chk_file, checkpoint_every=600)
+        results = sampler.results
+        
+if ~USE_MULTIPRO:
+    sampler = dynesty.DynamicNestedSampler(logl, ptform, ndim, logl_args=logl_args, ptform_args=ptform_args)
+    sampler.run_nested(n_effective=1000, checkpoint_file=chk_file, checkpoint_every=600)
+    results = sampler.results
 
 
 # In[ ]:
 
 
 # now run the sampler
-sampler = dynesty.DynamicNestedSampler(lnlike, prior_transform, 5*NPL+2)
+sampler = dynesty.DynamicNestedSampler(dynhelp.lnlike, dynhelp.prior_transform, 5*NPL+2,
+                                       logl_args=(NPL, theta, transit_model, which_quarters, 
+                                                  ephem_args, phot_args, kernel, [U1,U2]),
+                                       ptform_args=(NPL, DURS)
+                                      )
 sampler.run_nested(n_effective=1000,
                    checkpoint_file=os.path.join(RESULTS_DIR, '{0}-dynesty.checkpoint'.format(TARGET)),
                    checkpoint_every=600)

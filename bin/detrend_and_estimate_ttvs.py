@@ -34,30 +34,33 @@ global_start_time = timer()
 import argparse
 import matplotlib as mpl
 
-try:
-    parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
-    parser.add_argument("--mission", default=None, type=str, required=True,                         help="Mission name; can be 'Kepler' or 'Simulated'")
-    parser.add_argument("--target", default=None, type=str, required=True,                         help="Target name; format should be K00000 or S00000")
-    parser.add_argument("--project_dir", default=None, type=str, required=True,                         help="Project directory for saving outputs")
-    parser.add_argument("--data_dir", default=None, type=str, required=True,                         help="Data directory for accessing MAST lightcurves")
-    parser.add_argument("--catalog", default=None, type=str, required=True,                         help="CSV file containing input planetary parameters")
-    parser.add_argument("--run_id", default=None, type=str, required=True,                         help="run identifier")
-    parser.add_argument("--interactive", default=False, type=bool, required=False,                         help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
+parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
+parser.add_argument("--mission", default=None, type=str, required=True, \
+                    help="Mission name; can be 'Kepler' or 'Simulated'")
+parser.add_argument("--target", default=None, type=str, required=True, \
+                    help="Target name; format should be K00000 or S00000")
+parser.add_argument("--project_dir", default=None, type=str, required=True, \
+                    help="Project directory for saving outputs")
+parser.add_argument("--data_dir", default=None, type=str, required=True, \
+                    help="Data directory for accessing MAST lightcurves")
+parser.add_argument("--catalog", default=None, type=str, required=True, \
+                    help="CSV file containing input planetary parameters")
+parser.add_argument("--run_id", default=None, type=str, required=True, \
+                    help="run identifier")
+parser.add_argument("--interactive", default=False, type=bool, required=False, \
+                    help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
 
-    args = parser.parse_args()
-    MISSION      = args.mission
-    TARGET       = args.target
-    PROJECT_DIR  = args.project_dir
-    DATA_DIR     = args.data_dir
-    CATALOG      = args.catalog
-    RUN_ID       = args.run_id
-    
-    # set plotting backend
-    if args.interactive == False:
-        mpl.use('agg')
-    
-except:
-    pass
+args = parser.parse_args()
+MISSION      = args.mission
+TARGET       = args.target
+PROJECT_DIR  = args.project_dir
+DATA_DIR     = args.data_dir
+CATALOG      = args.catalog
+RUN_ID       = args.run_id
+
+# set plotting backend
+if args.interactive == False:
+    mpl.use('agg')
 
 
 # In[ ]:
@@ -143,7 +146,10 @@ from   alderaan.Planet import Planet
 sys.stdout.flush()
 
 # turn off FutureWarnings
-warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings('ignore', category=FutureWarning)
+
+# supress UnitsWarnings (this code doesn't use astropy units)
+warnings.filterwarnings(action='ignore', category=astropy.units.UnitsWarning, module='astropy')
 
 # check for interactive matplotlib backends
 if np.any(np.array(['agg', 'png', 'svg', 'pdf', 'ps']) == mpl.get_backend()):
@@ -156,7 +162,7 @@ print("theano cache: {0}\n".format(theano.config.compiledir))
 
 
 # # ################
-# # ----- DATA I/O -----
+# # --- DATA I/O ---
 # # ################
 
 # In[ ]:
@@ -167,7 +173,7 @@ print("\nLoading data...\n")
 
 # ## Read in planet and stellar properties
 # 
-# ##### WARNING!!! Reference epochs are not always consistent between catalogs. If using DR25, you will need to correct from BJD to BJKD with an offset of 2454833.0 days - the cumulative exoplanet archive catalog has already converted epochs to BJKD
+# ##### WARNING!!! Reference epochs are not always consistent between catalogs. If using DR25, you will need to correct from BJD to BJKD with an offset of 2454833 days - the cumulative exoplanet archive catalog has already converted epochs to BJKD
 
 # In[ ]:
 
@@ -256,7 +262,8 @@ sc_data = sc_lite
 lc_rawdata_list = []
 for i, mf in enumerate(mast_files):
     with fits.open(mf) as hduL:
-        if (hduL[0].header['OBSMODE'] == 'long cadence')         and ~np.isin(hduL[0].header['QUARTER'], sc_quarters):
+        if (hduL[0].header['OBSMODE'] == 'long cadence') \
+        and ~np.isin(hduL[0].header['QUARTER'], sc_quarters):
             lc_rawdata_list.append(lk.read(mf))
             
 lc_raw_collection = lk.LightCurveCollection(lc_rawdata_list)
@@ -440,7 +447,8 @@ for npl in range(NPL):
         plt.xlabel("Time [BJKD]", fontsize=20)
         plt.ylabel("O-C [min]", fontsize=20)
         plt.legend(fontsize=12)
-        plt.savefig(FIGURE_DIR + TARGET + '_ttvs_holczer_{0:02d}.png'.format(npl), bbox_inches='tight')
+        #plt.savefig(os.path.join(FIGURE_DIR, TARGET + '_ttvs_holczer_{0:02d}.png'.format(npl)), bbox_inches='tight')
+        if iplot: plt.show()
         if ~iplot: plt.close()
 
 
@@ -1732,7 +1740,7 @@ for npl, p in enumerate(planets):
     plt.yticks(fontsize=14)
     plt.legend(fontsize=14, loc='upper right')
     plt.title(TARGET, fontsize=20)
-    plt.savefig(FIGURE_DIR + TARGET + '_ttvs_quick_{0:02d}.png'.format(npl), bbox_inches='tight')
+    plt.savefig(os.path.join(FIGURE_DIR, TARGET + '_ttvs_quick_{0:02d}.png'.format(npl)), bbox_inches='tight')
     if ~iplot: plt.close()
 
 
@@ -2308,7 +2316,7 @@ for npl, p in enumerate(planets):
         plt.xlabel("Time from mid-transit [hrs]", fontsize=20)
         plt.ylabel("Flux", fontsize=20)
         plt.legend(fontsize=20, loc='upper right', framealpha=1)
-        plt.savefig(FIGURE_DIR + TARGET + '_folded_transit_{0:02d}.png'.format(npl), bbox_inches='tight')
+        plt.savefig(os.path.join(FIGURE_DIR, TARGET + '_folded_transit_{0:02d}.png'.format(npl)), bbox_inches='tight')
         if ~iplot: plt.close()
 
 

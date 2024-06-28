@@ -115,7 +115,10 @@ tab*
 val*
 *ipynb
 temp*
+
+# shell scripts
 *tot
+*sh
 
 *load_table_cache*
 
