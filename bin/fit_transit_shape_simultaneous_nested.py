@@ -697,21 +697,6 @@ if ~USE_MULTIPRO:
 # In[ ]:
 
 
-# now run the sampler
-sampler = dynesty.DynamicNestedSampler(dynhelp.lnlike, dynhelp.prior_transform, 5*NPL+2,
-                                       logl_args=(NPL, theta, transit_model, which_quarters, 
-                                                  ephem_args, phot_args, kernel, [U1,U2]),
-                                       ptform_args=(NPL, DURS)
-                                      )
-sampler.run_nested(n_effective=1000,
-                   checkpoint_file=os.path.join(RESULTS_DIR, '{0}-dynesty.checkpoint'.format(TARGET)),
-                   checkpoint_every=600)
-results = sampler.results
-
-
-# In[ ]:
-
-
 labels = []
 for npl in range(NPL):
     labels = labels + 'C0_{0} C1_{0} r_{0} b_{0} T14_{0}'.format(npl).split()
