@@ -18,23 +18,24 @@ def prior_transform(uniform_hypercube, num_planets, durations):
         raise ValueError("input durations must match provided num_planets")
     
     x_ = np.array(uniform_hypercube)
-
-    # 5*NPL (+2) parameters: {C0, C1, r, b, T14}...{q1,q2}
-    dists = []
-    for npl in range(num_planets):
-        C0  = stats.norm(loc=0., scale=0.1).ppf(x_[0+npl*5])
-        C1  = stats.norm(loc=0., scale=0.1).ppf(x_[1+npl*5])
-        r   = stats.loguniform(1e-5, 0.99).ppf(x_[2+npl*5])
-        b   = stats.uniform(0., 1+r).ppf(x_[3+npl*5])
-        T14 = stats.loguniform(scit, 3*durations[npl]).ppf(x_[4+npl*5])
-        
-        dists = np.hstack([dists, [C0, C1, r, b, T14]])
-         
-    # limb darkening coefficients (see Kipping 2013)
-    q1 = stats.uniform(0., 1.).ppf(x_[5*num_planets+0])
-    q2 = stats.uniform(0., 1.).ppf(x_[5*num_planets+1])
     
-    return np.hstack([dists, [q1,q2]])
+
+    # 5*num_planets (+2) parameters: {C0, C1, r, b, T14}...{q1,q2}
+    #dists = [None] * (5*num_planets + 2)
+    dists = np.zeros_like(x_)
+    
+    for npl in range(num_planets):
+        dists[5*npl+0] = stats.norm.ppf(x_[0+npl*5], 0., 0.1)
+        dists[5*npl+1] = stats.norm.ppf(x_[1+npl*5], 0., 0.1)
+        dists[5*npl+2] = stats.loguniform.ppf(x_[2+npl*5], 1e-5, 0.99)
+        dists[5*npl+3] = stats.uniform.ppf(x_[3+npl*5], 0., 1+dists[5*npl+2])
+        dists[5*npl+4] = stats.loguniform.ppf(x_[4+npl*5], scit, 3*durations[npl])
+                 
+    # limb darkening coefficients (see Kipping 2013)
+    dists[-2] = stats.uniform.ppf(x_[5*num_planets+0], 0, 1)
+    dists[-1] = stats.uniform.ppf(x_[5*num_planets+1], 0, 1)
+    
+    return np.array(dists)
 
 
 
