@@ -516,4 +516,14 @@ def lnlike(x, num_planets, theta, transit_model, quarters, ephem_args, phot_args
         return -1e300
     return loglike
 
-lnlike(ptform([0.5,0.5,0.5,0.5,0.5,0.5,0.5],1,[1]),*logl_args)
+
+
+if __name__=='__main__':
+    # Added in a check to confirm that we are getting the intended loglikelihood value back
+    loglike = lnlike(ptform([0.5,0.5,0.5,0.5,0.5,0.5,0.5],1,[1]),*logl_args)
+    assert(np.allclose(loglike,6316.574714899007))
+    print('passed assertion test')
+    print('\n'*30)
+
+
+
