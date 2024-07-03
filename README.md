@@ -13,4 +13,5 @@ This software is powered by ``exoplanet``, ``starry``, ``celerite``, ``PyMC3``, 
 ```
 git clone https://github.com/petigura/alderaan alderaan-petigura
 conda create -n alderaan-petigura -f alderaan-petigura/environment.yml
+
 ```
