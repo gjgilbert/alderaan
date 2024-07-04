@@ -2,7 +2,8 @@ import batman
 from   celerite2 import GaussianProcess
 from   celerite2 import terms as GPterms
 import numpy as np
-from   scipy import stats
+from scipy import stats
+from scipy.special import erfinv
 
 from .Ephemeris import Ephemeris
 from .constants import *
@@ -12,31 +13,39 @@ __all__ = ['prior_transform',
           ]
 
 
+def uniform_ppf(u, a, b):
+    return u*(b-a) + a
+
+
+def loguniform_ppf(u, a, b):
+    return np.exp(u*np.log(b) + (1-u)*np.log(a))
+
+
+def norm_ppf(u, mu, sig):
+    return mu + sig*np.sqrt(2)*erfinv(2*u-1)
+
+
 # functions for dynesty (hyperparameters are currently hard-coded)
 def prior_transform(uniform_hypercube, num_planets, durations):
     if num_planets != len(durations):
         raise ValueError("input durations must match provided num_planets")
     
-    x_ = np.array(uniform_hypercube)
+    u_ = np.array(uniform_hypercube)
+    x_ = np.zeros_like(u_)
     
-
     # 5*num_planets (+2) parameters: {C0, C1, r, b, T14}...{q1,q2}
-    #dists = [None] * (5*num_planets + 2)
-    dists = np.zeros_like(x_)
-    
     for npl in range(num_planets):
-        dists[5*npl+0] = stats.norm.ppf(x_[0+npl*5], 0., 0.1)
-        dists[5*npl+1] = stats.norm.ppf(x_[1+npl*5], 0., 0.1)
-        dists[5*npl+2] = stats.loguniform.ppf(x_[2+npl*5], 1e-5, 0.99)
-        dists[5*npl+3] = stats.uniform.ppf(x_[3+npl*5], 0., 1+dists[5*npl+2])
-        dists[5*npl+4] = stats.loguniform.ppf(x_[4+npl*5], scit, 3*durations[npl])
+        x_[5*npl+0] = norm_ppf(u_[0+npl*5], 0., 0.1)
+        x_[5*npl+1] = norm_ppf(u_[1+npl*5], 0., 0.1)
+        x_[5*npl+2] = loguniform_ppf(u_[2+npl*5], 1e-5, 0.99)
+        x_[5*npl+3] = uniform_ppf(u_[3+npl*5], 0., 1+x_[5*npl+2])
+        x_[5*npl+4] = loguniform_ppf(u_[4+npl*5], scit, 3*durations[npl])
                  
     # limb darkening coefficients (see Kipping 2013)
-    dists[-2] = stats.uniform.ppf(x_[5*num_planets+0], 0, 1)
-    dists[-1] = stats.uniform.ppf(x_[5*num_planets+1], 0, 1)
+    x_[-2] = uniform_ppf(u_[-2], 0, 1)
+    x_[-1] = uniform_ppf(u_[-1], 0, 1)
     
-    return np.array(dists)
-
+    return x_
 
 
 def lnlike(x, num_planets, theta, transit_model, quarters, ephem_args, phot_args, gp_kernel, ld_priors):
