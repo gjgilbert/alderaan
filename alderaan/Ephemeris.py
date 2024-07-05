@@ -1,9 +1,6 @@
 import numpy as np
-import numpy.polynomial.polynomial as poly
-
 
 __all__ = ['Ephemeris']
-
 
 class Ephemeris:
     def __init__(self, inds, tts):
@@ -11,10 +8,10 @@ class Ephemeris:
         self.tts  = tts
     
         # calculate least squares period and epoch
-        self.t0, self.period = poly.polyfit(inds, tts, 1)
+        self.period, self.t0 = self._fit_ephem()
         
         # calculate ttvs
-        self.ttvs = tts - poly.polyval(inds, [self.t0, self.period])
+        self.ttvs = self.tts - self.period*self.inds + self.t0
     
         # calculate full set of transit times
         self.full_transit_times = self.t0 + self.period*np.arange(self.inds.max()+1)
@@ -31,10 +28,26 @@ class Ephemeris:
         self._bin_values = np.concatenate([[ftts[0]], ftts, [ftts[-1]]])
     
     
-    def _get_model_dt(self, t):
+    def _fit_ephem(self):
+        A = np.ones((len(self.inds),2))
+        A[:,0] = self.inds
+        
+        return np.linalg.lstsq(A, self.tts)[0]
+        
+        
+    def _get_model_dt(self, t, return_inds=False):
         _inds = np.searchsorted(self._bin_edges, t)
         _vals = self._bin_values[_inds]
+        
+        if return_inds:
+            return _vals, _inds
         return _vals
     
-    def _warp_times(self, t):
-        return t - self._get_model_dt(t)
+    
+    def _warp_times(self, t, return_inds=False):
+        warps = self._get_model_dt(t, return_inds=return_inds)
+        
+        if return_inds:
+            return t - warps[0], warps[1]
+        else:
+            return t - warps
