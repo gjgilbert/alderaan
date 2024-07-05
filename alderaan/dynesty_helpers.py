@@ -47,7 +47,7 @@ def prior_transform(uniform_hypercube, num_planets, durations):
     
     return x_
 
-
+@profile
 def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=None):
     # extract ephemeris kwargs
     inds = ephem_args['transit_inds']

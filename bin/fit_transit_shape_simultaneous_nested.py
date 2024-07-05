@@ -144,7 +144,7 @@ print("theano cache: {0}\n".format(theano.config.compiledir))
 
 
 # MAIN SCRIPT BEGINS HERE
-if __name__ == '__main__':    
+def main():
     
     # # ################
     # # ----- DATA I/O -----
@@ -671,7 +671,15 @@ if __name__ == '__main__':
     
     
     USE_MULTIPRO = False
-    
+    profile_likelihood = True
+    if profile_likelihood:
+        def profile_func():
+            for i in range(1000):
+                logl(ptform([0.5,0.5,0.5,0.5,0.5,0.5,0.5],1,[1]), *logl_args)
+
+        profile_func()
+        return 
+
     if USE_MULTIPRO:
         with dynesty.pool.Pool(ncores, logl, ptform, logl_args=logl_args, ptform_args=ptform_args) as pool:
             sampler = dynesty.DynamicNestedSampler(pool.loglike, pool.prior_transform, ndim, pool=pool)
@@ -684,7 +692,6 @@ if __name__ == '__main__':
         results = sampler.results
     
     
-    #%prun [logl(ptform([0.5,0.5,0.5,0.5,0.5,0.5,0.5],1,[1]), *logl_args) for i in range(1000)]
     
     
     labels = []
@@ -722,4 +729,6 @@ if __name__ == '__main__':
     print("Total runtime = %.1f min" %((timer()-global_start_time)/60))
     print("+"*shutil.get_terminal_size().columns)
     
+if __name__ == '__main__':
+    main()
     
