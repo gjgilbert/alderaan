@@ -87,7 +87,8 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
         
         for npl in range(num_planets):
             t_ = phot_args['warped_t'][npl][j]
-            x_ = phot_args['warped_x'][npl][j]            
+            x_ = phot_args['warped_x'][npl][j]
+            import pdb;pdb.set_trace()
             C0 = x[5*npl]
             C1 = x[5*npl+1]
             
