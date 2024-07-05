@@ -21,10 +21,10 @@ import matplotlib as mpl
 
 MISSION      = 'Kepler' # args.mission
 TARGET       = 'K00273' # args.target
-PROJECT_DIR  = '/Users/petigura/code/alderaan/' # args.project_dir
-DATA_DIR     = '/Users/petigura/code/alderaan/alderaan/MAST_downloads/' # args.data_dir
+PROJECT_DIR  = '/Users/research/projects/alderaan/' # args.project_dir
+DATA_DIR     = '/Users/research/data/MAST_downloads/' # args.data_dir
 CATALOG      = 'kepler_dr25_gaia_dr2_crossmatch.csv'# args.catalog
-RUN_ID       = 'profile' #args.run_id
+RUN_ID       = 'development' #args.run_id
 # set plotting backend
 #if args.interactive == False:
 #    mpl.use('agg')

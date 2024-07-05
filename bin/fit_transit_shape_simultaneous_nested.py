@@ -246,6 +246,7 @@ if __name__ == '__main__':
     quick_transit_times = []
     
     for npl in range(NPL):
+        # read in transit time data
         fname_in = os.path.join(RESULTS_DIR, '{0}_{1:02d}_quick.ttvs'.format(TARGET, npl))
         data_in  = np.genfromtxt(fname_in)
         
@@ -253,16 +254,23 @@ if __name__ == '__main__':
         indep_transit_times.append(np.array(data_in[:,1], dtype='float'))
         quick_transit_times.append(np.array(data_in[:,2], dtype='float'))
         
+        # make sure transits are zero-indexed
+        transit_inds[npl] -= transit_inds[npl][0]
+        
         # do a quick fit to get a linear ephemeris
         pfit = poly.polyfit(transit_inds[npl], quick_transit_times[npl], 1)
         
         epochs[npl] = pfit[0]
         periods[npl] = pfit[1]
         ephemeris[npl] = poly.polyval(transit_inds[npl], pfit)
+    
         
-    # make sure transit_inds are zero-indexed
+    # calculate centered transit indexes
+    centered_transit_inds = [None]*NPL
     for npl in range(NPL):
-        transit_inds[npl] = np.array(transit_inds[npl] - transit_inds[npl][0], dtype='int')
+        centered_transit_inds[npl] = (transit_inds[npl] - transit_inds[npl][-1]//2)
+        
+        
     
     fig, axes = plt.subplots(NPL, figsize=(12,3*NPL))
     if NPL == 1: axes = [axes]
@@ -558,7 +566,7 @@ if __name__ == '__main__':
     mbq = mean_by_quarter[which_quarters]
     vbq = var_by_quarter[which_quarters]
     
-    # initialize alderaan.Ephemeris object
+    # initialize alderaan.Ephemeris objects
     ephem = [None]*NPL
     for npl in range(NPL):
         ephem[npl] = Ephemeris(transit_inds[npl], quick_transit_times[npl])
@@ -608,27 +616,56 @@ if __name__ == '__main__':
                                    )
     
     
-    # package everything in dictionaries to simplify passing to dynesty
-    # this slightly inefficient method maintains easy backward compatibility
-    ephem_args = {}
-    ephem_args['ephem'] = ephem
-    ephem_args['transit_inds'] = transit_inds
-    ephem_args['transit_times'] = quick_transit_times
-    ephem_args['Leg0'] = Leg0
-    ephem_args['Leg1'] = Leg1
+    # #### TODO:
+    # 1. Rename x --> theta (this is the parameter vector that is fed into dynesty)
+    # 2. Infer num_planets as (len(theta)-2)//5
+    # 3. Eliminate redundant batman theta
+    # 4. Generalize ld_priors to allow for non-static Gaussian uncertainty
+    
+    
+    warped_t = []
+    warped_x = []
+    
+    for npl in range(NPL):
+        warped_t.append([])
+        warped_x.append([])
+        
+        for j, q in enumerate(quarters):
+            _warp_time, _warp_index = ephem[npl]._warp_times(t_[j], return_inds=True)
+            _warp_legx = (_warp_index - transit_inds[npl][-1]//2)/(transit_inds[npl][-1]/2)
+            
+            warped_t[npl].append(_warp_time)
+            warped_x[npl].append(_warp_legx)
+    
+    
+    transit_legx = [None]*NPL
+    
+    for npl in range(NPL):
+        transit_legx[npl] = centered_transit_inds[npl]/(transit_inds[npl][-1]/2)
+    
     
     phot_args = {}
+    
     phot_args['time'] = t_
     phot_args['flux'] = f_
     phot_args['error'] = e_
-    phot_args['mask']  = m_
+    phot_args['quarters'] = which_quarters
+    phot_args['warped_t'] = warped_t
+    phot_args['warped_x'] = warped_x
+    phot_args['exptime']  = texp
+    phot_args['oversample'] = oversample
+    
+    ephem_args = {}
+    ephem_args['transit_inds']  = centered_transit_inds
+    ephem_args['transit_times'] = quick_transit_times
+    ephem_args['transit_legx']  = transit_legx
     
     
     ncores      = multipro.cpu_count()
     ndim        = 5*NPL+2
     logl        = dynhelp.lnlike
     ptform      = dynhelp.prior_transform
-    logl_args   = (NPL, theta, transit_model, which_quarters, ephem_args, phot_args, kernel, [U1,U2])
+    logl_args   = (NPL, theta, ephem_args, phot_args, [U1,U2], kernel)
     ptform_args = (NPL, DURS)
     chk_file    = os.path.join(RESULTS_DIR, '{0}-dynesty.checkpoint'.format(TARGET))
     
@@ -645,6 +682,9 @@ if __name__ == '__main__':
         sampler = dynesty.DynamicNestedSampler(logl, ptform, ndim, logl_args=logl_args, ptform_args=ptform_args)
         sampler.run_nested(n_effective=1000, checkpoint_file=chk_file, checkpoint_every=600)
         results = sampler.results
+    
+    
+    #%prun [logl(ptform([0.5,0.5,0.5,0.5,0.5,0.5,0.5],1,[1]), *logl_args) for i in range(1000)]
     
     
     labels = []

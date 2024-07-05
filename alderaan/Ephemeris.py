@@ -35,11 +35,19 @@ class Ephemeris:
         return np.linalg.lstsq(A, self.tts)[0]
         
         
-    def _get_model_dt(self, t):
+    def _get_model_dt(self, t, return_inds=False):
         _inds = np.searchsorted(self._bin_edges, t)
         _vals = self._bin_values[_inds]
+        
+        if return_inds:
+            return _vals, _inds
         return _vals
     
     
-    def _warp_times(self, t):
-        return t - self._get_model_dt(t)
+    def _warp_times(self, t, return_inds=False):
+        warps = self._get_model_dt(t, return_inds=return_inds)
+        
+        if return_inds:
+            return t - warps[0], warps[1]
+        else:
+            return t - warps
