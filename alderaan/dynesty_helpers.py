@@ -5,6 +5,10 @@ import numpy as np
 from scipy import stats
 from scipy.special import erfinv
 
+
+import matplotlib.pyplot as plt
+
+
 from .Ephemeris import Ephemeris
 from .constants import *
 
@@ -21,8 +25,11 @@ def loguniform_ppf(u, a, b):
     return np.exp(u*np.log(b) + (1-u)*np.log(a))
 
 
-def norm_ppf(u, mu, sig):
-    return mu + sig*np.sqrt(2)*erfinv(2*u-1)
+def norm_ppf(u, mu, sig, eps=1e-12):
+    '''
+    eps provides numerical stability in the error function at edges u=[0,1]
+    '''
+    return mu + sig*np.sqrt(2)*erfinv((2*u-1)/(1+eps))
 
 
 # functions for dynesty (hyperparameters are currently hard-coded)
@@ -77,6 +84,7 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
         theta[npl].b   = b
         theta[npl].T14 = T14
         theta[npl].u   = [u1,u2]
+        theta[npl].limb_dark = 'quadratic'
 
     # calculate likelihood
     loglike = 0.
@@ -103,6 +111,15 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
                                                )
             
             light_curve += transit_model.light_curve(theta[npl]) - 1.0
+            
+            
+            #print(theta[npl].rp, theta[npl].b, theta[npl].T14)
+            
+            #plt.figure()
+            #plt.plot(t_, f_, 'k.')
+            #plt.plot(t_, light_curve, 'r.')
+            #plt.show()
+            
 
         USE_GP = False
         if USE_GP:
