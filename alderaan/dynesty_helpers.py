@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 
 from .Ephemeris import Ephemeris
-from .constants import *
+from .constants import scit
 
 __all__ = ['prior_transform',
            'lnlike'
@@ -54,7 +54,7 @@ def prior_transform(uniform_hypercube, num_planets, durations):
     
     return x_
 
-@profile
+#@profile
 def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=None):
     # extract ephemeris kwargs
     inds = ephem_args['transit_inds']
@@ -97,7 +97,6 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
         for npl in range(num_planets):
             t_ = phot_args['warped_t'][npl][j]
             x_ = phot_args['warped_x'][npl][j]
-            import pdb;pdb.set_trace()
             C0 = x[5*npl]
             C1 = x[5*npl+1]
             
@@ -127,7 +126,8 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
             gp.compute(t_, yerr=e_)
             loglike += gp.log_likelihood(f_)
         else:
-            loglike += -np.sum(-0.5*((light_curve - f_) / e_)**2)
+            chisq = np.sum( ((light_curve - f_) / e_)**2)
+            loglike = -0.5 * chisq
         
         # enforce prior on limb darkening
         U1, U2 = ld_priors

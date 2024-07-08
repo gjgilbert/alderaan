@@ -11,7 +11,7 @@ import shutil
 import warnings
 from datetime import datetime
 from timeit import default_timer as timer
-
+from scipy import optimize
 print("")
 print("+"*shutil.get_terminal_size().columns)
 print("ALDERAAN Transit Fitting")
@@ -671,7 +671,7 @@ def main():
     
     
     USE_MULTIPRO = False
-    profile_likelihood = True
+    profile_likelihood = False
     if profile_likelihood:
         def profile_func():
             for i in range(1000):
@@ -687,9 +687,16 @@ def main():
             results = sampler.results
             
     if ~USE_MULTIPRO:
-        sampler = dynesty.DynamicNestedSampler(logl, ptform, ndim, logl_args=logl_args, ptform_args=ptform_args)
-        sampler.run_nested(n_effective=1000, checkpoint_file=chk_file, checkpoint_every=600)
-        results = sampler.results
+        x0 = [0.5,0.5,0.5,0.5,0.5,0.5,0.5]
+        print(ptform(x0,1,[1]))
+        obj = lambda x :-1.0 * logl(ptform(x,1,[1]), *logl_args)
+        res = optimize.minimize(obj, x0, method='BFGS',options={'disp':True})
+        print(ptform(res.x,1,[1]))
+        
+        
+        #sampler = dynesty.DynamicNestedSampler(logl, ptform, ndim, logl_args=logl_args, ptform_args=ptform_args)
+        #sampler.run_nested(n_effective=1000, checkpoint_file=chk_file, checkpoint_every=600)
+        #results = sampler.results
     
     
     
