@@ -690,6 +690,7 @@ def main():
         print('objective = {}'.format(obj(x0)))
         result = optimize.minimize(obj, x0, bounds=[(0,1)]*len(x0),method='L-BFGS-B')
 
+        print('\n')
         print('final values')
         print(result)
         print('x0 = {}'.format(result.x))

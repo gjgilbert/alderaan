@@ -5,7 +5,8 @@ import numpy as np
 from scipy import stats
 from scipy.special import erfinv
 
-
+from batman import _rsky
+from batman import _quadratic_ld
 import matplotlib.pyplot as plt
 
 
@@ -101,16 +102,19 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
             C1 = x[5*npl+1]
             
             t_ = t_ + C0 + C1*x_
-            
-            
-            transit_model = batman.TransitModel(theta[npl], 
-                                                t_,
-                                                supersample_factor=phot_args['oversample'][q],
-                                                exp_time=phot_args['exptime'][q]
-                                               )
-            
-            light_curve += transit_model.light_curve(theta[npl]) - 1.0
-            
+
+            supersample_factor = phot_args['oversample'][q]
+            exp_time = phot_args['exptime'][q]
+            t_offsets = np.linspace(-exp_time/2., exp_time/2., supersample_factor)
+            t_supersample = (t_offsets + t_.reshape(t_.size, 1)).flatten()
+
+            nthreads = 1
+            ds = _rsky._rsky(t_supersample, theta[npl].t0, theta[npl].per, theta[npl].rp,
+                             theta[npl].b, theta[npl].T14, 1, nthreads)
+            # look into the transit type argument
+            lc = _quadratic_ld._quadratic_ld(ds, np.abs(theta[npl].rp), theta[npl].u[0], theta[npl].u[1], nthreads)
+            lc = np.mean(lc.reshape(-1, supersample_factor), axis=1 )# PERF can probably speed this up.
+            light_curve += lc - 1.0
             
             #print(theta[npl].rp, theta[npl].b, theta[npl].T14)
             
