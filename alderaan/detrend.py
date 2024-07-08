@@ -7,9 +7,9 @@ import scipy.signal as sig
 from   scipy.interpolate import interp1d
 import warnings
 
-#import pymc3 as pm
-#import pymc3_ext as pmx
-#import exoplanet as exo
+import pymc3 as pm
+import pymc3_ext as pmx
+import exoplanet as exo
 import aesara_theano_fallback.tensor as T
 from   aesara_theano_fallback import aesara as theano
 from   celerite2.theano import GaussianProcess
