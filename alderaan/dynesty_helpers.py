@@ -54,7 +54,7 @@ def prior_transform(uniform_hypercube, num_planets, durations):
     
     return x_
 
-#@profile
+@profile
 def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=None):
     # extract ephemeris kwargs
     inds = ephem_args['transit_inds']
@@ -127,7 +127,7 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
             loglike += gp.log_likelihood(f_)
         else:
             chisq = np.sum( ((light_curve - f_) / e_)**2)
-            loglike = -0.5 * chisq
+            loglike += -0.5 * chisq
         
         # enforce prior on limb darkening
         U1, U2 = ld_priors

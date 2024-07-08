@@ -672,6 +672,7 @@ def main():
     
     USE_MULTIPRO = False
     profile_likelihood = False
+    profile_map = True
     if profile_likelihood:
         def profile_func():
             for i in range(1000):
@@ -680,6 +681,22 @@ def main():
         profile_func()
         return 
 
+    if profile_map:
+        x0 = [0.5,0.5,0.65,0.5,0.8,0.3,0.3]
+        obj = lambda x: -1.0 * logl(ptform(x,1,DURS), *logl_args)
+        print('initial values')
+        print('x0 = {}'.format(x0))
+        print('ptform(x0,1,[1]) = {}'.format(ptform(x0,1,DURS)))
+        print('objective = {}'.format(obj(x0)))
+        result = optimize.minimize(obj, x0, bounds=[(0,1)]*len(x0),method='L-BFGS-B')
+
+        print('final values')
+        print(result)
+        print('x0 = {}'.format(result.x))
+        print('ptform(result.x,1,[1]) = {}'.format(ptform(result.x,1,[1])))
+        print('objective = {}'.format(obj(result.x)))
+        return result
+
     if USE_MULTIPRO:
         with dynesty.pool.Pool(ncores, logl, ptform, logl_args=logl_args, ptform_args=ptform_args) as pool:
             sampler = dynesty.DynamicNestedSampler(pool.loglike, pool.prior_transform, ndim, pool=pool)
@@ -687,13 +704,7 @@ def main():
             results = sampler.results
             
     if ~USE_MULTIPRO:
-        x0 = [0.5,0.5,0.5,0.5,0.5,0.5,0.5]
-        print(ptform(x0,1,[1]))
-        obj = lambda x :-1.0 * logl(ptform(x,1,[1]), *logl_args)
-        res = optimize.minimize(obj, x0, method='BFGS',options={'disp':True})
-        print(ptform(res.x,1,[1]))
-        
-        
+        pass
         #sampler = dynesty.DynamicNestedSampler(logl, ptform, ndim, logl_args=logl_args, ptform_args=ptform_args)
         #sampler.run_nested(n_effective=1000, checkpoint_file=chk_file, checkpoint_every=600)
         #results = sampler.results
