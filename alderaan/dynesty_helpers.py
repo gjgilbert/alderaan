@@ -64,10 +64,11 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
         C0, C1, rp, b, T14 = np.array(x[5*npl:5*(npl+1)])
 
         # update ephemeris
-        A = np.ones((len(inds[npl]),2))
-        A[:,0] = inds[npl]
+        #A = np.ones((len(inds[npl]),2))
+        #A[:,0] = inds[npl]
         
-        P, t0 = np.linalg.lstsq(A, tts[npl] + C0 + C1*legx[npl])[0]
+        #P, t0 = np.linalg.lstsq(A, tts[npl] + C0 + C1*legx[npl], rcond=None)[0]
+        P = theta[npl].per
         
         # update transit parameters
         theta[npl].per = P
