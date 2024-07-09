@@ -1,17 +1,16 @@
 import batman
+from   batman import _rsky
+from   batman import _quadratic_ld
 from   celerite2 import GaussianProcess
 from   celerite2 import terms as GPterms
-import numpy as np
-from scipy import stats
-from scipy.special import erfinv
-
-from batman import _rsky
-from batman import _quadratic_ld
 import matplotlib.pyplot as plt
-
+import numpy as np
+from   scipy import stats
+from   scipy.special import erfinv
 
 from .Ephemeris import Ephemeris
 from .constants import scit
+
 
 __all__ = ['prior_transform',
            'lnlike'
@@ -55,7 +54,7 @@ def prior_transform(uniform_hypercube, num_planets, durations):
     
     return x_
 
-@profile
+
 def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=None):
     # extract ephemeris kwargs
     inds = ephem_args['transit_inds']
@@ -103,10 +102,10 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
             
             t_ = t_ + C0 + C1*x_
 
-            supersample_factor = phot_args['oversample'][q]
             exp_time = phot_args['exptime'][q]
-            t_offsets = np.linspace(-exp_time/2., exp_time/2., supersample_factor)
-            t_supersample = (t_offsets + t_.reshape(t_.size, 1)).flatten()
+            texp_offsets = phot_args['texp_offsets'][q]
+            supersample_factor = phot_args['oversample'][q]
+            t_supersample = (texp_offsets + t_.reshape(t_.size, 1)).flatten()
 
             nthreads = 1
             ds = _rsky._rsky(t_supersample, 
@@ -130,7 +129,6 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
             #plt.plot(t_, light_curve, 'r.')
             #plt.show()
 
-            
 
         USE_GP = False
         if USE_GP:
