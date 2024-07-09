@@ -96,7 +96,7 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
         
         for npl in range(num_planets):
             t_ = phot_args['warped_t'][npl][j]
-            x_ = phot_args['warped_x'][npl][j]            
+            x_ = phot_args['warped_x'][npl][j]
             C0 = x[5*npl]
             C1 = x[5*npl+1]
             
@@ -111,14 +111,6 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
             
             light_curve += transit_model.light_curve(theta[npl]) - 1.0
             
-            
-            #print(theta[npl].rp, theta[npl].b, theta[npl].T14)
-            
-            #plt.figure()
-            #plt.plot(t_, f_, 'k.')
-            #plt.plot(t_, light_curve, 'r.')
-            #plt.show()
-            
 
         USE_GP = False
         if USE_GP:
@@ -126,13 +118,13 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
             gp.compute(t_, yerr=e_)
             loglike += gp.log_likelihood(f_)
         else:
-            loglike += -np.sum(-0.5*((light_curve - f_) / e_)**2)
+            loglike += -0.5*np.sum(((light_curve - f_) / e_)**2)
         
-        # enforce prior on limb darkening
-        U1, U2 = ld_priors
-        sig_ld_sq = 0.01
-        loglike -= 1./(2*sig_ld_sq) * (u1 - U1)**2
-        loglike -= 1./(2*sig_ld_sq) * (u2 - U2)**2
+    # enforce prior on limb darkening
+    U1, U2 = ld_priors
+    sig_ld_sq = 0.01
+    loglike -= 1./(2*sig_ld_sq) * (u1 - U1)**2
+    loglike -= 1./(2*sig_ld_sq) * (u2 - U2)**2
 
     if not np.isfinite(loglike):
         return -1e300
