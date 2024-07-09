@@ -11,7 +11,7 @@ import shutil
 import warnings
 from datetime import datetime
 from timeit import default_timer as timer
-from scipy import optimize
+
 print("")
 print("+"*shutil.get_terminal_size().columns)
 print("ALDERAAN Transit Fitting")
@@ -144,7 +144,7 @@ print("theano cache: {0}\n".format(theano.config.compiledir))
 
 
 # MAIN SCRIPT BEGINS HERE
-def main():
+def main():    
     
     # # ################
     # # ----- DATA I/O -----
@@ -457,35 +457,18 @@ def main():
                 
     # set oversampling factors and expoure times
     oversample = np.zeros(18, dtype='int')
-    texp = np.zeros(18)
+    exptime = np.zeros(18)
     
     oversample[np.array(all_dtype)=='short'] = 1
-    oversample[np.array(all_dtype)=='long'] = 15
+    oversample[np.array(all_dtype)=='long'] = 7
     
-    texp[np.array(all_dtype)=='short'] = scit
-    texp[np.array(all_dtype)=='long'] = lcit
+    exptime[np.array(all_dtype)=='short'] = scit
+    exptime[np.array(all_dtype)=='long'] = lcit
     
-    
-    # ## Define Legendre polynomials
-    
-    
-    # Legendre polynomials for better orthogonality when fitting period and epoch; "x" is in the range (-1,1)
-    # In practice only linear perturbations are used; higher orders are vestiges of a previous pipeline version
-    Leg0 = []
-    Leg1 = []
-    Leg2 = []
-    Leg3 = []
-    t = []
-    
-    # this assumes a baseline in the range (TIME_START,TIME_END)
-    for npl in range(NPL):    
-        t.append(ephemeris[npl])
-        x = 2*(t[npl]-TIME_START)/(TIME_END-TIME_START) - 1
-    
-        Leg0.append(np.ones_like(x))
-        Leg1.append(x.copy())
-        Leg2.append(0.5*(3*x**2 - 1))
-        Leg3.append(0.5*(5*x**3 - 3*x))
+    # precompute exposure integration time offsets
+    texp_offsets = [None]*18
+    for j, q in enumerate(quarters):
+        texp_offsets[q] = np.linspace(-exptime[q]/2., exptime[q]/2., oversample[q])
     
     
     # ## Set up GP noise priors
@@ -603,7 +586,7 @@ def main():
             transit_model[npl].append(batman.TransitModel(theta[npl], 
                                                           ephem[npl]._warp_times(t_[j]),
                                                           supersample_factor=oversample[q],
-                                                          exp_time=texp[q]
+                                                          exp_time=exptime[q]
                                                          )
                                      )
         
@@ -638,10 +621,10 @@ def main():
             warped_x[npl].append(_warp_legx)
     
     
-    transit_legx = [None]*NPL
+    transit_legx = []
     
     for npl in range(NPL):
-        transit_legx[npl] = centered_transit_inds[npl]/(transit_inds[npl][-1]/2)
+        transit_legx.append(centered_transit_inds[npl]/(transit_inds[npl][-1]/2))
     
     
     phot_args = {}
@@ -652,8 +635,9 @@ def main():
     phot_args['quarters'] = which_quarters
     phot_args['warped_t'] = warped_t
     phot_args['warped_x'] = warped_x
-    phot_args['exptime']  = texp
+    phot_args['exptime']  = exptime
     phot_args['oversample'] = oversample
+    phot_args['texp_offsets'] = texp_offsets
     
     ephem_args = {}
     ephem_args['transit_inds']  = centered_transit_inds
@@ -661,7 +645,7 @@ def main():
     ephem_args['transit_legx']  = transit_legx
     
     
-    ncores      = multipro.cpu_count()
+    ncores      = multipro.cpu_count() - 2
     ndim        = 5*NPL+2
     logl        = dynhelp.lnlike
     ptform      = dynhelp.prior_transform
@@ -670,47 +654,21 @@ def main():
     chk_file    = os.path.join(RESULTS_DIR, '{0}-dynesty.checkpoint'.format(TARGET))
     
     
-    USE_MULTIPRO = False
-    profile_likelihood = False
-    profile_map = True
-    if profile_likelihood:
-        def profile_func():
-            for i in range(1000):
-                logl(ptform([0.5,0.5,0.5,0.5,0.5,0.5,0.5],1,[1]), *logl_args)
-
-        profile_func()
-        return 
-
-    if profile_map:
-        x0 = [0.5,0.5,0.65,0.5,0.8,0.3,0.3]
-        obj = lambda x: -1.0 * logl(ptform(x,1,DURS), *logl_args)
-        print('initial values')
-        print('x0 = {}'.format(x0))
-        print('ptform(x0,1,[1]) = {}'.format(ptform(x0,1,DURS)))
-        print('objective = {}'.format(obj(x0)))
-        result = optimize.minimize(obj, x0, bounds=[(0,1)]*len(x0),method='L-BFGS-B')
-
-        print('\n')
-        print('final values')
-        print(result)
-        print('x0 = {}'.format(result.x))
-        print('ptform(result.x,1,[1]) = {}'.format(ptform(result.x,1,[1])))
-        print('objective = {}'.format(obj(result.x)))
-        return result
-
+    #%prun [logl(ptform([0.5,0.5,0.5,0.5,0.5,0.5,0.5],1,[1]), *logl_args) for i in range(1000)]
+    
+    
+    USE_MULTIPRO = True
+    
     if USE_MULTIPRO:
         with dynesty.pool.Pool(ncores, logl, ptform, logl_args=logl_args, ptform_args=ptform_args) as pool:
-            sampler = dynesty.DynamicNestedSampler(pool.loglike, pool.prior_transform, ndim, pool=pool)
-            sampler.run_nested(n_effective=1000, checkpoint_file=chk_file, checkpoint_every=600)
+            sampler = dynesty.DynamicNestedSampler(pool.loglike, pool.prior_transform, ndim, bound='multi', sample='rwalk', pool=pool)
+            sampler.run_nested(checkpoint_file=chk_file, checkpoint_every=60)
             results = sampler.results
             
     if ~USE_MULTIPRO:
-        pass
-        #sampler = dynesty.DynamicNestedSampler(logl, ptform, ndim, logl_args=logl_args, ptform_args=ptform_args)
-        #sampler.run_nested(n_effective=1000, checkpoint_file=chk_file, checkpoint_every=600)
-        #results = sampler.results
-    
-    
+        sampler = dynesty.DynamicNestedSampler(logl, ptform, ndim, bound='multi', sample='rwalk', logl_args=logl_args, ptform_args=ptform_args)
+        sampler.run_nested(checkpoint_file=chk_file, checkpoint_every=60)
+        results = sampler.results
     
     
     labels = []
@@ -748,6 +706,6 @@ def main():
     print("Total runtime = %.1f min" %((timer()-global_start_time)/60))
     print("+"*shutil.get_terminal_size().columns)
     
-if __name__ == '__main__':
-    main()
     
+if __name__ == '__main__'
+    main()
