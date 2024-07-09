@@ -109,12 +109,19 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
             t_supersample = (t_offsets + t_.reshape(t_.size, 1)).flatten()
 
             nthreads = 1
-            ds = _rsky._rsky(t_supersample, theta[npl].t0, theta[npl].per, theta[npl].rp,
-                             theta[npl].b, theta[npl].T14, 1, nthreads)
+            ds = _rsky._rsky(t_supersample, 
+                             theta[npl].t0, 
+                             theta[npl].per, 
+                             theta[npl].rp,
+                             theta[npl].b, 
+                             theta[npl].T14, 
+                             1, 
+                             nthreads)
+            
             # look into the transit type argument
-            lc = _quadratic_ld._quadratic_ld(ds, np.abs(theta[npl].rp), theta[npl].u[0], theta[npl].u[1], nthreads)
-            lc = np.mean(lc.reshape(-1, supersample_factor), axis=1 )# PERF can probably speed this up.
-            light_curve += lc - 1.0
+            qld_flux = _quadratic_ld._quadratic_ld(ds, np.abs(theta[npl].rp), theta[npl].u[0], theta[npl].u[1], nthreads)
+            qld_flux = np.mean(qld_flux.reshape(-1, supersample_factor), axis=1) # PERF can probably speed this up.
+            light_curve += qld_flux - 1.0
             
             #print(theta[npl].rp, theta[npl].b, theta[npl].T14)
             
@@ -122,6 +129,7 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
             #plt.plot(t_, f_, 'k.')
             #plt.plot(t_, light_curve, 'r.')
             #plt.show()
+
             
 
         USE_GP = False
@@ -130,14 +138,13 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
             gp.compute(t_, yerr=e_)
             loglike += gp.log_likelihood(f_)
         else:
-            chisq = np.sum( ((light_curve - f_) / e_)**2)
-            loglike += -0.5 * chisq
+            loglike += -0.5*np.sum( ((light_curve - f_)/e_)**2 )
         
-        # enforce prior on limb darkening
-        U1, U2 = ld_priors
-        sig_ld_sq = 0.01
-        loglike -= 1./(2*sig_ld_sq) * (u1 - U1)**2
-        loglike -= 1./(2*sig_ld_sq) * (u2 - U2)**2
+    # enforce prior on limb darkening
+    U1, U2 = ld_priors
+    sig_ld_sq = 0.01
+    loglike -= 1./(2*sig_ld_sq) * (u1 - U1)**2
+    loglike -= 1./(2*sig_ld_sq) * (u2 - U2)**2
 
     if not np.isfinite(loglike):
         return -1e300
