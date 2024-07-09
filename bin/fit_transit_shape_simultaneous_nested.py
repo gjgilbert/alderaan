@@ -11,7 +11,7 @@ import shutil
 import warnings
 from datetime import datetime
 from timeit import default_timer as timer
-
+from scipy import optimize
 print("")
 print("+"*shutil.get_terminal_size().columns)
 print("ALDERAAN Transit Fitting")
@@ -144,7 +144,7 @@ print("theano cache: {0}\n".format(theano.config.compiledir))
 
 
 # MAIN SCRIPT BEGINS HERE
-if __name__ == '__main__':    
+def main():
     
     # # ################
     # # ----- DATA I/O -----
@@ -671,7 +671,33 @@ if __name__ == '__main__':
     
     
     USE_MULTIPRO = False
-    
+    profile_likelihood = False
+    profile_map = True
+    if profile_likelihood:
+        def profile_func():
+            for i in range(1000):
+                logl(ptform([0.5,0.5,0.5,0.5,0.5,0.5,0.5],1,[1]), *logl_args)
+
+        profile_func()
+        return 
+
+    if profile_map:
+        x0 = [0.5,0.5,0.65,0.5,0.8,0.3,0.3]
+        obj = lambda x: -1.0 * logl(ptform(x,1,DURS), *logl_args)
+        print('initial values')
+        print('x0 = {}'.format(x0))
+        print('ptform(x0,1,[1]) = {}'.format(ptform(x0,1,DURS)))
+        print('objective = {}'.format(obj(x0)))
+        result = optimize.minimize(obj, x0, bounds=[(0,1)]*len(x0),method='L-BFGS-B')
+
+        print('\n')
+        print('final values')
+        print(result)
+        print('x0 = {}'.format(result.x))
+        print('ptform(result.x,1,[1]) = {}'.format(ptform(result.x,1,[1])))
+        print('objective = {}'.format(obj(result.x)))
+        return result
+
     if USE_MULTIPRO:
         with dynesty.pool.Pool(ncores, logl, ptform, logl_args=logl_args, ptform_args=ptform_args) as pool:
             sampler = dynesty.DynamicNestedSampler(pool.loglike, pool.prior_transform, ndim, pool=pool)
@@ -679,12 +705,12 @@ if __name__ == '__main__':
             results = sampler.results
             
     if ~USE_MULTIPRO:
-        sampler = dynesty.DynamicNestedSampler(logl, ptform, ndim, logl_args=logl_args, ptform_args=ptform_args)
-        sampler.run_nested(n_effective=1000, checkpoint_file=chk_file, checkpoint_every=600)
-        results = sampler.results
+        pass
+        #sampler = dynesty.DynamicNestedSampler(logl, ptform, ndim, logl_args=logl_args, ptform_args=ptform_args)
+        #sampler.run_nested(n_effective=1000, checkpoint_file=chk_file, checkpoint_every=600)
+        #results = sampler.results
     
     
-    #%prun [logl(ptform([0.5,0.5,0.5,0.5,0.5,0.5,0.5],1,[1]), *logl_args) for i in range(1000)]
     
     
     labels = []
@@ -722,4 +748,6 @@ if __name__ == '__main__':
     print("Total runtime = %.1f min" %((timer()-global_start_time)/60))
     print("+"*shutil.get_terminal_size().columns)
     
+if __name__ == '__main__':
+    main()
     

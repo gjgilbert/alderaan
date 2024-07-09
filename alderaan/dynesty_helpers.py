@@ -5,12 +5,13 @@ import numpy as np
 from scipy import stats
 from scipy.special import erfinv
 
-
+from batman import _rsky
+from batman import _quadratic_ld
 import matplotlib.pyplot as plt
 
 
 from .Ephemeris import Ephemeris
-from .constants import *
+from .constants import scit
 
 __all__ = ['prior_transform',
            'lnlike'
@@ -54,7 +55,7 @@ def prior_transform(uniform_hypercube, num_planets, durations):
     
     return x_
 
-
+@profile
 def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=None):
     # extract ephemeris kwargs
     inds = ephem_args['transit_inds']
@@ -101,15 +102,34 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
             C1 = x[5*npl+1]
             
             t_ = t_ + C0 + C1*x_
+
+            supersample_factor = phot_args['oversample'][q]
+            exp_time = phot_args['exptime'][q]
+            t_offsets = np.linspace(-exp_time/2., exp_time/2., supersample_factor)
+            t_supersample = (t_offsets + t_.reshape(t_.size, 1)).flatten()
+
+            nthreads = 1
+            ds = _rsky._rsky(t_supersample, 
+                             theta[npl].t0, 
+                             theta[npl].per, 
+                             theta[npl].rp,
+                             theta[npl].b, 
+                             theta[npl].T14, 
+                             1, 
+                             nthreads)
             
+            # look into the transit type argument
+            qld_flux = _quadratic_ld._quadratic_ld(ds, np.abs(theta[npl].rp), theta[npl].u[0], theta[npl].u[1], nthreads)
+            qld_flux = np.mean(qld_flux.reshape(-1, supersample_factor), axis=1) # PERF can probably speed this up.
+            light_curve += qld_flux - 1.0
             
-            transit_model = batman.TransitModel(theta[npl], 
-                                                t_,
-                                                supersample_factor=phot_args['oversample'][q],
-                                                exp_time=phot_args['exptime'][q]
-                                               )
+            #print(theta[npl].rp, theta[npl].b, theta[npl].T14)
             
-            light_curve += transit_model.light_curve(theta[npl]) - 1.0
+            #plt.figure()
+            #plt.plot(t_, f_, 'k.')
+            #plt.plot(t_, light_curve, 'r.')
+            #plt.show()
+
             
 
         USE_GP = False
@@ -118,7 +138,7 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
             gp.compute(t_, yerr=e_)
             loglike += gp.log_likelihood(f_)
         else:
-            loglike += -0.5*np.sum(((light_curve - f_) / e_)**2)
+            loglike += -0.5*np.sum( ((light_curve - f_)/e_)**2 )
         
     # enforce prior on limb darkening
     U1, U2 = ld_priors
