@@ -657,7 +657,7 @@ def main():
     #%prun [logl(ptform([0.5,0.5,0.5,0.5,0.5,0.5,0.5],1,[1]), *logl_args) for i in range(1000)]
     
     
-    USE_MULTIPRO = True
+    USE_MULTIPRO = False
     
     if USE_MULTIPRO:
         with dynesty.pool.Pool(ncores, logl, ptform, logl_args=logl_args, ptform_args=ptform_args) as pool:
@@ -707,5 +707,5 @@ def main():
     print("+"*shutil.get_terminal_size().columns)
     
     
-if __name__ == '__main__'
+if __name__ == '__main__:'
     main()
