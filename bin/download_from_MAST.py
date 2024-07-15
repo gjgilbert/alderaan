@@ -2,8 +2,11 @@
 # - Download from MAST - #
 ##########################
 
+### THIS METHOD IS DEPRECATED!!!
+### Instead use bulk wget scripts at https://exoplanetarchive.ipac.caltech.edu/bulk_data_download/
+
 # This script downloads lightcurves for a single target star from the MAST archive using lightkurve.py
-# To use, specify the KOI identifier (e.g. 'K00137') and a directory <PRIMARY_DIR> to place the downloaded fits files into. 
+# To use, specify the KOI identifier (e.g. 'K00137') and a directory <DATA_DIR> to place the downloaded fits files into. 
 # Lightkurve creates a file structure based on each object's KIC identifier. 
 # These files can then be read back in for detrending and modeling in other scripts.
 
@@ -11,6 +14,7 @@ import argparse
 import lightkurve as lk
 import numpy as np
 import warnings
+import os
 
 # parse inputs
 parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
@@ -19,16 +23,18 @@ parser.add_argument("--mission", default=None, type=str, required=True,
                     help="Mission name")
 parser.add_argument("--target", default=None, type=str, required=True,
                     help="Target name; see ALDERAAN documentation for acceptable formats")
-parser.add_argument("--primary_dir", default=None, type=str, required=True,
-                    help="Primary directory for project; should end in '/'")
+parser.add_argument("--data_dir", default=None, type=str, required=True,
+                    help="Data directory for project")
 
 args = parser.parse_args()
 MISSION     = args.mission
 TARGET      = args.target
-PRIMARY_DIR = args.primary_dir
+DATA_DIR    = args.data_dir
 
 # directory in which to place MAST downloads
-DOWNLOAD_DIR = PRIMARY_DIR + 'MAST_downloads/'
+DOWNLOAD_DIR = os.path.join(DATA_DIR, 'MAST_downloads/')
+
+print(DOWNLOAD_DIR)
 
 # make a target name lightkurve and MAST can understand
 MAST_TARGET = 'KOI-'+ str(int(TARGET[1:]))

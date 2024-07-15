@@ -149,7 +149,7 @@ print("theano cache: {0}\n".format(theano.config.compiledir))
 
 
 # MAIN SCRIPT BEGINS HERE
-if __name__ == '__main__':    
+def main():    
     
     # # ################
     # # --- DATA I/O ---
@@ -219,10 +219,11 @@ if __name__ == '__main__':
     
     # short cadence data
     sc_rawdata_list = []
-    for i, mf in enumerate(mast_files):
-        with fits.open(mf) as hduL:
-            if hduL[0].header['OBSMODE'] == 'short cadence':
-                sc_rawdata_list.append(lk.read(mf))
+    if USE_SC:
+        for i, mf in enumerate(mast_files):
+            with fits.open(mf) as hduL:
+                if hduL[0].header['OBSMODE'] == 'short cadence':
+                    sc_rawdata_list.append(lk.read(mf))
     
     sc_raw_collection = lk.LightCurveCollection(sc_rawdata_list)
     sc_data = io.cleanup_lkfc(sc_raw_collection, KIC)
@@ -767,8 +768,8 @@ if __name__ == '__main__':
     
     
     for npl, p in enumerate(planets):
-        count_expect_lc = int(np.ceil(p.duration/lcit))
-        count_expect_sc = int(np.ceil(p.duration/scit))
+        count_expect_lc = np.max([1,int(np.floor(p.duration/lcit))])
+        count_expect_sc = np.max([15,int(np.floor(p.duration/scit))])
             
         quality = np.zeros(len(p.tts), dtype='bool')
         
@@ -2042,8 +2043,8 @@ if __name__ == '__main__':
     
     
     for npl, p in enumerate(planets):
-        count_expect_lc = int(np.ceil(p.duration/lcit))
-        count_expect_sc = int(np.ceil(p.duration/scit))
+        count_expect_lc = np.max([1,int(np.floor(p.duration/lcit))])
+        count_expect_sc = np.max([15,int(np.floor(p.duration/scit))])
             
         quality = np.zeros(len(p.tts), dtype='bool')
         
@@ -2179,3 +2180,5 @@ if __name__ == '__main__':
     print("+"*shutil.get_terminal_size().columns)
     
     
+if __name__ == '__main__':
+    main()

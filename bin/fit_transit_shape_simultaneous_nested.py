@@ -613,7 +613,7 @@ def main():
         warped_t.append([])
         warped_x.append([])
         
-        for j, q in enumerate(quarters):
+        for j, q in enumerate(which_quarters):
             _warp_time, _warp_index = ephem[npl]._warp_times(t_[j], return_inds=True)
             _warp_legx = (_warp_index - transit_inds[npl][-1]//2)/(transit_inds[npl][-1]/2)
             
@@ -707,5 +707,5 @@ def main():
     print("+"*shutil.get_terminal_size().columns)
     
     
-if __name__ == '__main__:'
+if __name__ == '__main__':
     main()

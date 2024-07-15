@@ -137,7 +137,7 @@ print("theano cache: {0}\n".format(theano.config.compiledir))
 
 
 # MAIN SCRIPT BEGINS HERE
-if __name__ == '__main__':    
+def main():    
     
     # # ################
     # # ----- DATA I/O -----
@@ -436,6 +436,9 @@ if __name__ == '__main__':
     fcut = 2/lcit
     fmin = 2/(5*DURS.max())
     
+    # short cadency Nyquist freqency
+    fnyq = 1/(2*scit)
+    
     # now estimate the ACF
     acf_lag = []
     acf_emp = []
@@ -510,9 +513,9 @@ if __name__ == '__main__':
                 
                 # filter out high-frequency components in short cadence data
                 if season_dtype[z] == 'short':
-                    fring = list(freqs[freqs > fcut])
+                    fring = list(freqs[(freqs > fcut)*(freqs < fnyq)])
                     bw = 1/(lcit-scit) - 1/(lcit+scit)
-                    
+                                                    
                     if len(fring) > 0:
                         # apply the notch filter
                         flux_filtered = detrend.filter_ringing(sc, 15, fring, bw)
@@ -525,7 +528,7 @@ if __name__ == '__main__':
                             pass
                                
                         new_freqs = noise.model_acf(xcor, acor, fcut, fmin=fmin, method='savgol')[4]
-                        new_fring = new_freqs[new_freqs > fcut]
+                        new_fring = new_freqs[(new_freqs > fcut)*(new_freqs < fnyq)]
                         
                         for nf in new_fring:
                             if np.sum(np.abs(fring-nf) < bw) == 0:
@@ -649,7 +652,7 @@ if __name__ == '__main__':
                 plt.xticks(fontsize=14)
                 plt.yticks(fontsize=14)
                 plt.legend(fontsize=20, loc='upper right', framealpha=1)
-                plt.savefig(os.path.join(FIGURE_DIR, TARGET + '_synthetic_noise_season_{0}.png'.format(z)), bbox_inches='tight')
+                #plt.savefig(os.path.join(FIGURE_DIR, TARGET + '_synthetic_noise_season_{0}.png'.format(z)), bbox_inches='tight')
                 if iplot: 
                     plt.show()
                 else:
@@ -763,3 +766,5 @@ if __name__ == '__main__':
     print("+"*shutil.get_terminal_size().columns)
     
     
+if __name__ == '__main__':
+    main()
