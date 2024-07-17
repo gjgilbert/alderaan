@@ -347,9 +347,11 @@ class Results:
             ln_wt = self.posteriors.ln_wt
 
             # least squares period and epoch
-            Leg0 = self._legendre(n,0)
-            Leg1 = self._legendre(n,1)
-            ephem = self.transittimes.model[n] + np.outer(C0,Leg0) + np.outer(C1,Leg1)            
+            centered_index = self.transittimes.index[n] - self.transittimes.index[n][-1]//2
+           
+            LegX = centered_index / (self.transittimes.index[n][-1]/2)
+            Leg0 = np.ones_like(LegX)
+            ephem = self.transittimes.model[n] +  np.outer(C0,Leg0) + np.outer(C1,LegX)
             t0, P = poly.polyfit(self.transittimes.index[n], ephem.T, 1)
 
             # limb darkening (see Kipping 2013)
@@ -378,15 +380,3 @@ class Results:
         theta.limb_dark = 'quadratic'
         
         return theta
-    
-    
-    def _legendre(self, n, k):
-        t = self.transittimes.model[n]
-        x = 2*(t-self.lightcurve.time.min())/(self.lightcurve.time.max()-self.lightcurve.time.min()) - 1
-        
-        if k==0:
-            return np.ones_like(x)
-        if k==1:
-            return x
-        else:
-            return ValueError("only configured for 0th and 1st order Legendre polynomials")

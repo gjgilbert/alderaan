@@ -29,37 +29,33 @@ global_start_time = timer()
 import argparse
 import matplotlib as mpl
 
-try:
-    parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
-    parser.add_argument("--mission", default=None, type=str, required=True, \
-                        help="Mission name; can be 'Kepler' or 'Simulated'")
-    parser.add_argument("--target", default=None, type=str, required=True, \
-                        help="Target name; format should be K00000 or S00000")
-    parser.add_argument("--project_dir", default=None, type=str, required=True, \
-                        help="Project directory for saving outputs")
-    parser.add_argument("--data_dir", default=None, type=str, required=True, \
-                        help="Data directory for accessing MAST lightcurves")
-    parser.add_argument("--catalog", default=None, type=str, required=True, \
-                        help="CSV file containing input planetary parameters")
-    parser.add_argument("--run_id", default=None, type=str, required=True, \
-                        help="run identifier")
-    parser.add_argument("--interactive", default=False, type=bool, required=False, \
-                        help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
+parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
+parser.add_argument("--mission", default=None, type=str, required=True, \
+                    help="Mission name; can be 'Kepler' or 'Simulated'")
+parser.add_argument("--target", default=None, type=str, required=True, \
+                    help="Target name; format should be K00000 or S00000")
+parser.add_argument("--project_dir", default=None, type=str, required=True, \
+                    help="Project directory for saving outputs")
+parser.add_argument("--data_dir", default=None, type=str, required=True, \
+                    help="Data directory for accessing MAST lightcurves")
+parser.add_argument("--catalog", default=None, type=str, required=True, \
+                    help="CSV file containing input planetary parameters")
+parser.add_argument("--run_id", default=None, type=str, required=True, \
+                    help="run identifier")
+parser.add_argument("--interactive", default=False, type=bool, required=False, \
+                    help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
 
-    args = parser.parse_args()
-    MISSION      = args.mission
-    TARGET       = args.target
-    PROJECT_DIR  = args.project_dir
-    DATA_DIR     = args.data_dir
-    CATALOG      = args.catalog
-    RUN_ID       = args.run_id
-    
-    # set plotting backend
-    if args.interactive == False:
-        mpl.use('agg')
-    
-except:
-    pass
+args = parser.parse_args()
+MISSION      = args.mission
+TARGET       = args.target
+PROJECT_DIR  = args.project_dir
+DATA_DIR     = args.data_dir
+CATALOG      = args.catalog
+RUN_ID       = args.run_id
+
+# set plotting backend
+if args.interactive == False:
+    mpl.use('agg')
 
 
 print("")
