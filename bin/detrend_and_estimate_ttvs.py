@@ -1676,7 +1676,7 @@ def main():
         ttv_buffer[npl] = eta*ttv_scatter[npl] + lcit
     
     
-    # ## Update and save TTVs
+    # ## Update TTVs
     
     
     for npl, p in enumerate(planets):
@@ -1688,13 +1688,13 @@ def main():
         p.tts = np.copy(full_quick_transit_times[npl])
         
         # save transit timing info to output file
-        data_out  = np.vstack([transit_inds[npl],
-                               indep_transit_times[npl],
-                               quick_transit_times[npl],
-                               outlier_prob[npl], 
-                               outlier_class[npl]]).swapaxes(0,1)
-        fname_out = os.path.join(RESULTS_DIR, '{0}_{1:02d}_quick.ttvs'.format(TARGET, npl))
-        np.savetxt(fname_out, data_out, fmt=('%1d', '%.8f', '%.8f', '%.8f', '%1d'), delimiter='\t')
+        #data_out  = np.vstack([transit_inds[npl],
+        #                       indep_transit_times[npl],
+        #                       quick_transit_times[npl],
+        #                       outlier_prob[npl], 
+        #                       outlier_class[npl]]).swapaxes(0,1)
+        #fname_out = os.path.join(RESULTS_DIR, '{0}_{1:02d}_quick.ttvs'.format(TARGET, npl))
+        #np.savetxt(fname_out, data_out, fmt=('%1d', '%.8f', '%.8f', '%.8f', '%1d'), delimiter='\t')
     
     
     print("")
@@ -2193,6 +2193,22 @@ def main():
             plt.legend(fontsize=20, loc='upper right', framealpha=1)
             plt.savefig(os.path.join(FIGURE_DIR, TARGET + '_folded_transit_{0:02d}.png'.format(npl)), bbox_inches='tight')
             if ~iplot: plt.close()
+    
+    
+    # ## Save transit times
+    
+    
+    for npl, p in enumerate(planets):
+        keep = np.isin(quick_transit_times[npl], p.tts[p.quality])
+        
+        data_out  = np.vstack([transit_inds[npl][keep],
+                               indep_transit_times[npl][keep],
+                               quick_transit_times[npl][keep],
+                               outlier_prob[npl][keep], 
+                               outlier_class[npl][keep]]).swapaxes(0,1)
+        
+        fname_out = os.path.join(RESULTS_DIR, '{0}_{1:02d}_quick.ttvs'.format(TARGET, npl))
+        np.savetxt(fname_out, data_out, fmt=('%1d', '%.8f', '%.8f', '%.8f', '%1d'), delimiter='\t')
     
     
     # ## Save detrended lightcurves
