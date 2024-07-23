@@ -29,33 +29,40 @@ global_start_time = timer()
 import argparse
 import matplotlib as mpl
 
-parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
-parser.add_argument("--mission", default=None, type=str, required=True, \
-                    help="Mission name; can be 'Kepler' or 'Simulated'")
-parser.add_argument("--target", default=None, type=str, required=True, \
-                    help="Target name; format should be K00000 or S00000")
-parser.add_argument("--project_dir", default=None, type=str, required=True, \
-                    help="Project directory for saving outputs")
-parser.add_argument("--data_dir", default=None, type=str, required=True, \
-                    help="Data directory for accessing MAST lightcurves")
-parser.add_argument("--catalog", default=None, type=str, required=True, \
-                    help="CSV file containing input planetary parameters")
-parser.add_argument("--run_id", default=None, type=str, required=True, \
-                    help="run identifier")
-parser.add_argument("--interactive", default=False, type=bool, required=False, \
-                    help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
+try:
+    parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
+    parser.add_argument("--mission", default=None, type=str, required=True, \
+                        help="Mission name; can be 'Kepler' or 'Simulated'")
+    parser.add_argument("--target", default=None, type=str, required=True, \
+                        help="Target name; format should be K00000 or S00000")
+    parser.add_argument("--project_dir", default=None, type=str, required=True, \
+                        help="Project directory for saving outputs")
+    parser.add_argument("--data_dir", default=None, type=str, required=True, \
+                        help="Data directory for accessing MAST lightcurves")
+    parser.add_argument("--catalog", default=None, type=str, required=True, \
+                        help="CSV file containing input planetary parameters")
+    parser.add_argument("--run_id", default=None, type=str, required=True, \
+                        help="run identifier")
+    parser.add_argument("--interactive", default=False, type=bool, required=False, \
+                        help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
 
-args = parser.parse_args()
-MISSION      = args.mission
-TARGET       = args.target
-PROJECT_DIR  = args.project_dir
-DATA_DIR     = args.data_dir
-CATALOG      = args.catalog
-RUN_ID       = args.run_id
+    args = parser.parse_args()
+    MISSION      = args.mission
+    TARGET       = args.target
+    PROJECT_DIR  = args.project_dir
+    DATA_DIR     = args.data_dir
+    CATALOG      = args.catalog
+    RUN_ID       = args.run_id
+    
+    # set plotting backend
+    if args.interactive == False:
+        mpl.use('agg')
+    
+except:
+    pass
 
-# set plotting backend
-if args.interactive == False:
-    mpl.use('agg')
+
+USE_SC = False
 
 
 print("")
@@ -392,7 +399,10 @@ def main():
             out  = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 3.0
             
             # estimate TTV signal with a regularized Matern-3/2 GP
-            holczer_model = omc.matern32_model(xtime[~out], yomc[~out], hephem)
+            if np.sum(~out) > 4:
+                holczer_model = omc.matern32_model(xtime[~out], yomc[~out], hephem)
+            else:
+                holczer_model = omc.poly_model(xtime[~out], yomc[~out], 1, hephem)
     
             with holczer_model:
                 holczer_map = pmx.optimize()
@@ -1501,18 +1511,27 @@ def main():
         ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode='mirror'), winsize=5)
         out  = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 5.0
         
-        
         # compare various models
         aiclist = []
         biclist = []
         fgplist = []
         outlist = []
+        plylist = []
         
-        if np.sum(~out) >= 16: max_polyorder = 3
-        elif np.sum(~out) >= 8: max_polyorder = 2
-        else: max_polyorder = 1
+        if np.sum(~out) >= 16: 
+            min_polyorder = -1
+            max_polyorder = 3
+        elif np.sum(~out) >= 8:
+            min_polyorder = -1
+            max_polyorder = 2
+        elif np.sum(~out) >= 4: 
+            min_polyorder = 0
+            max_polyorder = 2
+        else:
+            min_polyorder = 1
+            max_polyorder = 1
         
-        for polyorder in range(-1, max_polyorder+1):
+        for polyorder in range(min_polyorder, max_polyorder+1):
             if polyorder == -1:
                 omc_model = omc.matern32_model(xtime[~out], yomc[~out], xtime)
             elif polyorder == 0:
@@ -1528,14 +1547,6 @@ def main():
             omc_trend = np.nanmedian(omc_trace['pred'], 0)
             residuals = yomc - omc_trend
     
-            plt.figure(figsize=(12,3))
-            plt.plot(xtime, yomc*24*60, '.', c='lightgrey')
-            plt.plot(xtime[out], yomc[out]*24*60, 'rx')
-            plt.plot(xtime, omc_trend*24*60, c='C{0}'.format(npl), lw=2)
-            plt.xlabel("Time [BJKD]", fontsize=16)
-            plt.ylabel("O-C [min]", fontsize=16)
-            if ~iplot: plt.close()
-    
             # flag outliers via mixture model of the residuals
             mix_model = omc.mix_model(residuals)
     
@@ -1547,12 +1558,29 @@ def main():
     
             fg_prob, bad = omc.flag_outliers(residuals, loc, scales)
             
+            while np.sum(bad)/len(bad) > 0.3:
+                thresh = np.max(fg_prob[bad])
+                bad = fg_prob < thresh
+                
             fgplist.append(fg_prob)
             outlist.append(bad)
+            plylist.append(polyorder)
             
             print("{0} outliers found out of {1} transit times ({2}%)".format(np.sum(bad), len(bad), 
                                                                               np.round(100.*np.sum(bad)/len(bad),1)))
             
+            plt.figure(figsize=(12,3))
+            plt.plot(xtime, yomc*24*60, 'o', c='lightgrey')
+            plt.plot(xtime[bad], yomc[bad]*24*60, 'rx')
+            plt.plot(xtime, omc_trend*24*60, c='C{0}'.format(npl), lw=2)
+            plt.xlabel("Time [BJKD]", fontsize=16)
+            plt.ylabel("O-C [min]", fontsize=16)
+            if iplot: 
+                plt.show()
+            else:
+                plt.close()
+                
+                
             # calculate AIC & BIC
             n = len(yomc)
             
@@ -1570,10 +1598,11 @@ def main():
             print("AIC:", np.round(aic,1))
             print("BIC:", np.round(bic,1))
             
+            
         # choose the best model and recompute
         out = outlist[np.argmin(aiclist)]
         fg_prob = fgplist[np.argmin(aiclist)]
-        polyorder = np.argmin(aiclist) - 1
+        polyorder = plylist[np.argmin(aiclist)]
         xt_predict = full_indep_linear_ephemeris[npl]
     
         if polyorder == -1:
@@ -1588,9 +1617,27 @@ def main():
             omc_map = pmx.optimize(start=omc_map)
             omc_trace = pmx.sample(tune=8000, draws=2000, start=omc_map, chains=2, target_accept=0.95)
     
-        full_omc_trend = np.nanmedian(omc_trace['pred'], 0)
+        
+        omc_trend = np.nanmedian(omc_trace['pred'], 0)
+        residuals = yomc - omc_trend[np.isin(xt_predict, xtime)]
+        mix_model = omc.mix_model(residuals)
     
+        with mix_model:
+            mix_trace = pmx.sample(tune=8000, draws=2000, chains=1, target_accept=0.95)
+    
+        loc = np.nanmedian(mix_trace['mu'], axis=0)
+        scales = np.nanmedian(1/np.sqrt(mix_trace['tau']), axis=0)
+    
+        fg_prob, bad = omc.flag_outliers(residuals, loc, scales)
+    
+        while np.sum(bad)/len(bad) > 0.3:
+            thresh = np.max(fg_prob[bad])
+            bad = fg_prob < thresh
+        
+        
         # save the final results
+        full_omc_trend = np.nanmedian(omc_trace['pred'], 0)
+        
         full_quick_transit_times.append(full_indep_linear_ephemeris[npl] + full_omc_trend)
         quick_transit_times.append(full_quick_transit_times[npl][transit_inds[npl]])
         

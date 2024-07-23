@@ -434,7 +434,7 @@ def main():
     
     # set cutoff between low and high frequency signals
     fcut = 2/lcit
-    fmin = 2/(5*DURS.max())
+    fmin = 2/(5*(DURS.max()+lcit))
     
     # short cadency Nyquist freqency
     fnyq = 1/(2*scit)
@@ -592,7 +592,7 @@ def main():
             
         else:
             if season_dtype[z] == 'short':
-                Npts = int(2*DURS.max()/scit)
+                Npts = np.min([int(2*DURS.max()/scit), len(acf_emp[z])])
                 use = sc.season == z
                 m_ = sc.mask[use]
     
@@ -601,7 +601,7 @@ def main():
                     f_ = sc.flux[use][~m_]
                     
             if season_dtype[z] == 'long':
-                Npts = int(5*DURS.max()/lcit)
+                Npts = np.min([int(5*DURS.max()/lcit), len(acf_emp[z])])
                 use = lc.season == z
                 m_ = lc.mask[use]
     
