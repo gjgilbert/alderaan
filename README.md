@@ -5,7 +5,7 @@ The pipeline is currently capable of processing photometric lightcurve data from
 
 Detrending and transit fitting are optimized to detect low-amplitude transit timing variations (TTVs). Autocorrelated noise arising from both instrumental and astrophysical sources is handled using a combination of narrow bandstop filters and Gaussian Process regression. Sampling can be performed either using Dynamic Nested Sampling or using Hamiltonian Monte Carlo + umbrella sampling.
 
-This software is powered by  ``astropy``, ``batman'', ``celerite``, ``dynesty``, ``exoplanet``, ``lightkurve``, ``PyMC3``, ``scipy``, and ``starry``.
+This software is powered by  ``astropy``, ``batman``, ``celerite``, ``dynesty``, ``exoplanet``, ``lightkurve``, ``PyMC3``, ``scipy``, and ``starry``.
 
 
 # Installation instructions
