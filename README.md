@@ -22,6 +22,6 @@ if <ENV_NAME> is not specified, the conda environment will be named "alderaan"
 Before running the ALDERAAN pipeline, raw photometric lightcurves must be downloaded from the Mikulski Archive for Space Telescopes (MAST).
 
 The ALDERAAN pipeline proceeds in three phases.
-  1. detrend_and_estimate_ttvs.py
-  2. analyze_autocorrelated_noise.py
-  3. fit_transit_shape_*.py
+  1. ``detrend_and_estimate_ttvs.py``
+  2. ``analyze_autocorrelated_noise.py``
+  3. ``fit_transit_shape_*.py``
