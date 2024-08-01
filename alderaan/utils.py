@@ -251,12 +251,12 @@ def FFT_estimator(x, y, fmin=None, fmax=None, crit_fap=0.003, nboot=1000, return
 
     xf = np.linspace(0, fnyq, len(x)//2)
     yf = np.abs(fftpack.fft(y*w)[:len(x)//2])
-    
+        
     keep = (xf >= fmin)*(xf <= fmax)
     
     xf = xf[keep]
     yf = yf[keep]
-    
+        
     # calculate false alarm probabilities w/ bootstrap test
     yf_max = np.zeros(nboot)
     
@@ -277,34 +277,35 @@ def FFT_estimator(x, y, fmin=None, fmax=None, crit_fap=0.003, nboot=1000, return
     freqs = []
     faps = []
     
-    loop = True
-    while loop:
-        peakfreq = xf[~m][np.argmax(yf[~m])]
-        peakfap = yf_fap[~m][np.argmax(yf[~m])]
-        
-        if peakfreq == xf[~m].min():
-            m[xf <= xf[~m].min()] = 1
-        
-        elif peakfap < crit_fap:
-            fxn_ = lambda theta, x, y: y - lorentzian(theta, x)
-            
-            theta_in = np.array([peakfreq, fbas, yf.max(), np.median(yf)])
-            theta_out, success = op.leastsq(fxn_, theta_in, args=(xf, yf))
+    if len(xf) > 3:   
+        loop = True
+        while loop:
+            peakfreq = xf[~m][np.argmax(yf[~m])]
+            peakfap = yf_fap[~m][np.argmax(yf[~m])]
 
-            width = np.max(5*[theta_out[1], 3*(xf[1]-xf[0])])
-            m += np.abs(xf-theta_out[0])/width < 1
+            if peakfreq == xf[~m].min():
+                m[xf <= xf[~m].min()] = 1
 
-            freqs.append(theta_out[0])
-            faps.append(peakfap)
+            elif peakfap < crit_fap:
+                fxn_ = lambda theta, x, y: y - lorentzian(theta, x)
 
-        else:
-            loop = False
+                theta_in = np.array([peakfreq, fbas, yf.max(), np.median(yf)])
+                theta_out, success = op.leastsq(fxn_, theta_in, args=(xf, yf))
 
-        if len(freqs) >= max_peaks:
-            loop = False
-            
-        if np.sum(m)/len(m) > 0.5:
-            loop = False
+                width = np.max(5*[theta_out[1], 3*(xf[1]-xf[0])])
+                m += np.abs(xf-theta_out[0])/width < 1
+
+                freqs.append(theta_out[0])
+                faps.append(peakfap)
+
+            else:
+                loop = False
+
+            if len(freqs) >= max_peaks:
+                loop = False
+
+            if np.sum(m)/len(m) > 0.5:
+                loop = False
     
     freqs = np.asarray(freqs)
     faps = np.asarray(faps)

@@ -1,30 +1,34 @@
 name: alderaan
 channels:
   - conda-forge
+  - defaults
 dependencies:
   - c-compiler
   - compilers
   - cxx-compiler
-  - python=3.10.12
+  - python>=3.9
   - pip
+  - line_profiler
+  - aesara-theano-fallback==0.1.0
+  - arviz==0.12.1
+  - astropy==5.3.2
+  - corner==2.2.2
+  - cython==3.0.10
+  - exoplanet==0.5.3
+  - exoplanet-core==0.1.2
+  - h5py==3.9.0
+  - lightkurve==2.1.1
+  - matplotlib==3.7.2
+  - numpy==1.21.6
+  - pandas==1.5.3
+  - pymc3==3.11.5
+  - pymc3-ext==0.1.1
+  - scipy==1.7.3
+  - theano-pymc==1.1.2
+  - xarray==2022.9.0
   - pip:
-      - aesara-theano-fallback==0.1.0
-      - arviz==0.12.1
-      - astropy==5.3.2
-      - celerite2==0.2.1
-      - corner==2.2.2
-      - dynesty==2.0.1
-      - exoplanet==0.5.3
-      - exoplanet-core==0.1.2
-      - h5py==3.9.0
-      - lightkurve==2.1.1
-      - matplotlib==3.7.2
-      - notebook==6.4.13
-      - numpy==1.21.6
-      - pandas==2.0.3
-      - pymc3==3.11.5
-      - pymc3-ext==0.1.1
-      - scipy==1.7.3
-      - theano-pymc==1.1.2
-      - xarray==2022.9.0
-      - git+https://github.com/gjgilbert/batman
+     - celerite2==0.2.1
+     - dynesty==2.1.3
+     - git+https://github.com/gjgilbert/batman
+     - notebook==6.4.13
+     - rebound==4.4.2

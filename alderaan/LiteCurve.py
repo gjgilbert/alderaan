@@ -43,11 +43,25 @@ class LiteCurve:
         count = 0
 
         while loop:
-            smoothed = sig.medfilt(self.flux, kernel_size=kernel_size)
+            # first pass: try median filter
+            if loop:
+                smoothed = sig.medfilt(self.flux, kernel_size=kernel_size)
 
-            bad = astropy.stats.sigma_clip(self.flux-smoothed, sigma_upper=sigma_upper, sigma_lower=sigma_lower,
-                                           stdfunc=astropy.stats.mad_std).mask
-            bad = bad*~mask
+                bad = astropy.stats.sigma_clip(self.flux-smoothed, sigma_upper=sigma_upper, sigma_lower=sigma_lower,
+                                               stdfunc=astropy.stats.mad_std).mask
+                bad = bad*~mask
+            
+            # second pass: try savgol filter (if over 1% of points were flagged with median filter)
+            if np.sum(bad)/len(bad) > 0.01:
+                smoothed = sig.savgol_filter(self.flux, window_length=kernel_size, polyorder=2)
+            
+                bad = astropy.stats.sigma_clip(self.flux-smoothed, sigma_upper=sigma_upper, sigma_lower=sigma_lower,
+                                               stdfunc=astropy.stats.mad_std).mask
+                bad = bad*~mask
+            
+            # third pass: skip outlier rejection
+            if np.sum(bad)/len(bad) > 0.01:
+                bad = np.zeros_like(mask)
 
             for k in self.__dict__.keys():
                 if type(self.__dict__[k]) is np.ndarray:

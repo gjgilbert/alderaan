@@ -43,7 +43,9 @@ try:
                         help="CSV file containing input planetary parameters")
     parser.add_argument("--run_id", default=None, type=str, required=True, \
                         help="run identifier")
-    parser.add_argument("--interactive", default=False, type=bool, required=False, \
+    parser.add_argument("--verbose", default=False, type=bool, required=False, \
+                        help="'True' to enable verbose logging")
+    parser.add_argument("--iplot", default=False, type=bool, required=False, \
                         help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
 
     args = parser.parse_args()
@@ -53,13 +55,18 @@ try:
     DATA_DIR     = args.data_dir
     CATALOG      = args.catalog
     RUN_ID       = args.run_id
+    VERBOSE      = args.verbose
+    IPLOT        = args.iplot
     
     # set plotting backend
-    if args.interactive == False:
+    if not IPLOT:
         mpl.use('agg')
     
 except:
     pass
+
+
+USE_SC = True
 
 
 print("")
@@ -119,6 +126,7 @@ import aesara_theano_fallback.tensor as T
 from   aesara_theano_fallback import aesara as theano
 from   celerite2.theano import GaussianProcess
 from   celerite2.theano import terms as GPterms
+from   celerite2.backprop import LinAlgError
 
 from   alderaan.constants import *
 from   alderaan.utils import *
@@ -140,16 +148,15 @@ warnings.filterwarnings(action='ignore', category=astropy.units.UnitsWarning, mo
 
 # check for interactive matplotlib backends
 if np.any(np.array(['agg', 'png', 'svg', 'pdf', 'ps']) == mpl.get_backend()):
-    iplot = False
-else:
-    iplot = True
+    warnings.warn("Selected matplotlib backend does not support interactive plotting")
+    IPLOT = False
     
 # print theano compiledir cache
 print("theano cache: {0}\n".format(theano.config.compiledir))
 
 
 # MAIN SCRIPT BEGINS HERE
-if __name__ == '__main__':    
+def main():    
     
     # # ################
     # # --- DATA I/O ---
@@ -219,10 +226,11 @@ if __name__ == '__main__':
     
     # short cadence data
     sc_rawdata_list = []
-    for i, mf in enumerate(mast_files):
-        with fits.open(mf) as hduL:
-            if hduL[0].header['OBSMODE'] == 'short cadence':
-                sc_rawdata_list.append(lk.read(mf))
+    if USE_SC:
+        for i, mf in enumerate(mast_files):
+            with fits.open(mf) as hduL:
+                if hduL[0].header['OBSMODE'] == 'short cadence':
+                    sc_rawdata_list.append(lk.read(mf))
     
     sc_raw_collection = lk.LightCurveCollection(sc_rawdata_list)
     sc_data = io.cleanup_lkfc(sc_raw_collection, KIC)
@@ -391,14 +399,24 @@ if __name__ == '__main__':
             xtime = np.copy(holczer_tts[npl])
             yomc  = (holczer_tts[npl] - ephem)
     
-            ymed = ndimage.median_filter(yomc, size=5, mode='mirror')
-            out  = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 3.0
+            if len(yomc) > 16:
+                ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode='mirror'), winsize=5)
+            else:
+                ymed = np.median(yomc)
+                
+            if len(yomc) > 4:
+                out  = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 3.0
+            else:
+                out = np.zeros(len(yomc), dtype='bool')
             
             # estimate TTV signal with a regularized Matern-3/2 GP
-            holczer_model = omc.matern32_model(xtime[~out], yomc[~out], hephem)
+            if np.sum(~out) > 4:
+                holczer_model = omc.matern32_model(xtime[~out], yomc[~out], hephem)
+            else:
+                holczer_model = omc.poly_model(xtime[~out], yomc[~out], 1, hephem)
     
             with holczer_model:
-                holczer_map = pmx.optimize()
+                holczer_map = pmx.optimize(verbose=VERBOSE)
     
             htts = hephem + holczer_map['pred']
     
@@ -414,8 +432,10 @@ if __name__ == '__main__':
             plt.ylabel("O-C [min]", fontsize=20)
             plt.legend(fontsize=12)
             #plt.savefig(os.path.join(FIGURE_DIR, TARGET + '_ttvs_holczer_{0:02d}.png'.format(npl)), bbox_inches='tight')
-            if iplot: plt.show()
-            if ~iplot: plt.close()
+            if IPLOT:
+                plt.show()
+            else:
+                plt.close()
     
     
     # check if Holczer TTVs exist, and if so, replace the linear ephemeris
@@ -434,9 +454,10 @@ if __name__ == '__main__':
             # first update to Holczer ephemeris
             epoch, period = poly.polyfit(hinds, htts, 1)
             
-            p.epoch = np.copy(epoch)
+            p.epoch  = np.copy(epoch)
             p.period = np.copy(period)
-            p.tts = np.arange(p.epoch, TIME_END, p.period)
+            p.tts    = np.arange(p.epoch, TIME_END, p.period)
+            p.index  = np.array(np.round((p.tts-p.epoch)/p.period),dtype='int')
             
             for i, t0 in enumerate(p.tts):
                 for j, tH in enumerate(htts):
@@ -451,10 +472,11 @@ if __name__ == '__main__':
     # # ----- SIMULATED DATA -----
     # # ########################
     
-    # #### Remove known real transits
-    
     
     if MISSION == 'Simulated':
+        print("Simulating transits for injection-and-recovery test")
+        
+        # REMOVE KNOWN TRANSITS    
         tts  = []
         inds = []
         b    = np.zeros(NPL)
@@ -472,7 +494,7 @@ if __name__ == '__main__':
         orbit = exo.orbits.TTVOrbit(transit_times=tts, transit_inds=inds, b=b, ror=ror, duration=dur)
     
         for i, lcd in enumerate(lc_data):
-            light_curve = starrystar.get_light_curve(orbit=orbit, r=ror, t=lcd.time, oversample=15, texp=lcit)
+            light_curve = starrystar.get_light_curve(orbit=orbit, r=ror, t=lcd.time, oversample=7, texp=lcit)
             model_flux = pm.math.sum(light_curve, axis=-1) + T.ones(len(lcd.time))
     
             lcd.flux /= model_flux.eval()
@@ -482,12 +504,9 @@ if __name__ == '__main__':
             model_flux = pm.math.sum(light_curve, axis=-1) + T.ones(len(scd.time))
     
             scd.flux /= model_flux.eval()
-    
-    
-    # #### Load simulated data
-    
-    
-    if MISSION == 'Simulated':
+            
+        
+        # LOAD SIMULATED DATA
         target_dict = pd.read_csv(PROJECT_DIR + 'Simulations/{0}/{0}.csv'.format(RUN_ID))
     
         # pull relevant quantities and establish GLOBAL variables
@@ -533,12 +552,9 @@ if __name__ == '__main__':
             if EPOCHS[npl] > (TIME_START + PERIODS[npl]):
                 adj = (EPOCHS[npl] - TIME_START)//PERIODS[npl]
                 EPOCHS[npl] -= adj*PERIODS[npl]
-    
-    
-    # #### Initialize new Planet objects
-    
-    
-    if MISSION == 'Simulated':
+                
+        
+        # INITIALIZE NEW PLANET OBJECTS
         planets = []
         for npl in range(NPL):
             p = Planet()
@@ -559,10 +575,8 @@ if __name__ == '__main__':
             p.tts = true_tts[1]
             p.index = np.array(true_tts[0], dtype='int')
     
-            # add to list
             planets.append(p)
     
-        # put planets in order by period
         order = np.argsort(PERIODS)
     
         sorted_planets = []
@@ -570,12 +584,9 @@ if __name__ == '__main__':
             sorted_planets.append(planets[order[npl]])
     
         planets = np.copy(sorted_planets)
-    
-    
-    # #### Inject synthetic transits
-    
-    
-    if MISSION == 'Simulated':
+        
+        
+        # INJECT SYNTHETIC TRANSITS
         tts  = []
         inds = []
         b    = np.zeros(NPL)
@@ -692,16 +703,16 @@ if __name__ == '__main__':
         nom_per = oscillation_period_by_season[lcd.quarter[0] % 4][0]
         
         try:
-            lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, nominal_period=nom_per)
-        except:
+            lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, nominal_period=nom_per, verbose=VERBOSE)
+        except LinAlgError:
             warnings.warn("Initial detrending model failed...attempting to refit without exponential ramp component")
             try:
-                lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, 
-                                              nominal_period=nom_per, correct_ramp=False)
-            except:
+                lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, nominal_period=nom_per, 
+                                              correct_ramp=False, verbose=VERBOSE)
+            except LinAlgError:
                 warnings.warn("Detrending with RotationTerm failed...attempting to detrend with SHOTerm")
-                lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, 
-                                              nominal_period=nom_per, kterm="SHOTerm", correct_ramp=False)
+                lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, nominal_period=nom_per, 
+                                              kterm="SHOTerm", correct_ramp=False, verbose=VERBOSE)
                          
     if len(lc_data) > 0:
         lc = detrend.stitch(lc_data)
@@ -719,16 +730,16 @@ if __name__ == '__main__':
         nom_per = oscillation_period_by_season[scd.quarter[0] % 4][0]
     
         try:
-            scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, nominal_period=nom_per)
-        except:
+            scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, nominal_period=nom_per, verbose=VERBOSE)
+        except LinAlgError:
             warnings.warn("Initial detrending model failed...attempting to refit without exponential ramp component")
             try:
-                scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, 
-                                              nominal_period=nom_per, correct_ramp=False)
-            except:
+                scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, nominal_period=nom_per, 
+                                              correct_ramp=False, verbose=VERBOSE)
+            except LinAlgError:
                 warnings.warn("Detrending with RotationTerm failed...attempting to detrend with SHOTerm")
                 scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, nominal_period=nom_per, 
-                                              kterm="SHOTerm", correct_ramp=False)
+                                              kterm="SHOTerm", correct_ramp=False, verbose=VERBOSE)
                 
     if len(sc_data) > 0:
         sc = detrend.stitch(sc_data)
@@ -767,8 +778,8 @@ if __name__ == '__main__':
     
     
     for npl, p in enumerate(planets):
-        count_expect_lc = int(np.ceil(p.duration/lcit))
-        count_expect_sc = int(np.ceil(p.duration/scit))
+        count_expect_lc = np.max([1,int(np.floor(p.duration/lcit))])
+        count_expect_sc = np.max([15,int(np.floor(p.duration/scit))])
             
         quality = np.zeros(len(p.tts), dtype='bool')
         
@@ -898,7 +909,7 @@ if __name__ == '__main__':
     texp = np.zeros(18)
     
     oversample[np.array(all_dtype)=='short'] = 1
-    oversample[np.array(all_dtype)=='long'] = 15
+    oversample[np.array(all_dtype)=='long'] = 7
     
     texp[np.array(all_dtype)=='short'] = scit
     texp[np.array(all_dtype)=='long'] = lcit
@@ -1010,10 +1021,10 @@ if __name__ == '__main__':
     
     with shape_model:
         shape_map = shape_model.test_point
-        shape_map = pmx.optimize(start=shape_map, vars=[flux0, log_jit])
-        shape_map = pmx.optimize(start=shape_map, vars=[b, r, dur])
-        shape_map = pmx.optimize(start=shape_map, vars=[C0, C1])
-        shape_map = pmx.optimize(start=shape_map)
+        shape_map = pmx.optimize(start=shape_map, vars=[flux0, log_jit], progress=VERBOSE)
+        shape_map = pmx.optimize(start=shape_map, vars=[b, r, dur], progress=VERBOSE)
+        shape_map = pmx.optimize(start=shape_map, vars=[C0, C1], progress=VERBOSE)
+        shape_map = pmx.optimize(start=shape_map, progress=VERBOSE)
     
     
     # grab transit times and ephemeris
@@ -1328,12 +1339,12 @@ if __name__ == '__main__':
     
     with indep_model:
         indep_map = indep_model.test_point
-        indep_map = pmx.optimize(start=indep_map, vars=[flux0, log_jit])
+        indep_map = pmx.optimize(start=indep_map, vars=[flux0, log_jit], progress=VERBOSE)
         
         for npl in range(NPL):
-            indep_map = pmx.optimize(start=indep_map, vars=[tt_offset[npl]])
+            indep_map = pmx.optimize(start=indep_map, vars=[tt_offset[npl]], progress=VERBOSE)
             
-        indep_map = pmx.optimize(start=indep_map)
+        indep_map = pmx.optimize(start=indep_map, progress=VERBOSE)
     
     
     indep_transit_times = []
@@ -1476,7 +1487,10 @@ if __name__ == '__main__':
             plt.figure(figsize=(12,3))
             plt.plot(xtime, yomc*24*60, "o", c="lightgrey")
             plt.plot(xtime, LS.model(xtime, omc_freqs[npl])*24*60, c="C{0}".format(npl), lw=3)
-            if ~iplot: plt.close()
+            if IPLOT:
+                plt.show()
+            else:
+                plt.close()
         
         else:
             print("no sigificant periodic component found")
@@ -1500,22 +1514,38 @@ if __name__ == '__main__':
         # grab data
         xtime = indep_linear_ephemeris[npl]
         yomc  = indep_transit_times[npl] - indep_linear_ephemeris[npl]
-    
-        ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode='mirror'), winsize=5)
-        out  = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 5.0
         
+        if len(yomc) > 16:
+            ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode='mirror'), winsize=5)
+        else:
+            ymed = np.median(yomc)
+        
+        if len(yomc) > 4:
+            out = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 5.0
+        else:
+            out = np.zeros(len(yomc), dtype='bool')
         
         # compare various models
         aiclist = []
         biclist = []
         fgplist = []
         outlist = []
+        plylist = []
         
-        if np.sum(~out) >= 16: max_polyorder = 3
-        elif np.sum(~out) >= 8: max_polyorder = 2
-        else: max_polyorder = 1
+        if np.sum(~out) >= 16: 
+            min_polyorder = -1
+            max_polyorder = 3
+        elif np.sum(~out) >= 8:
+            min_polyorder = -1
+            max_polyorder = 2
+        elif np.sum(~out) >= 4: 
+            min_polyorder = 0
+            max_polyorder = 2
+        else:
+            min_polyorder = 1
+            max_polyorder = 1
         
-        for polyorder in range(-1, max_polyorder+1):
+        for polyorder in range(min_polyorder, max_polyorder+1):
             if polyorder == -1:
                 omc_model = omc.matern32_model(xtime[~out], yomc[~out], xtime)
             elif polyorder == 0:
@@ -1525,37 +1555,46 @@ if __name__ == '__main__':
     
             with omc_model:
                 omc_map = omc_model.test_point
-                omc_map = pmx.optimize(start=omc_map)
-                omc_trace = pmx.sample(tune=8000, draws=2000, start=omc_map, chains=2, target_accept=0.95)
+                omc_map = pmx.optimize(start=omc_map, progress=VERBOSE)
+                omc_trace = pmx.sample(tune=8000, draws=2000, start=omc_map, chains=2, target_accept=0.95, progressbar=VERBOSE)
     
             omc_trend = np.nanmedian(omc_trace['pred'], 0)
             residuals = yomc - omc_trend
-    
-            plt.figure(figsize=(12,3))
-            plt.plot(xtime, yomc*24*60, '.', c='lightgrey')
-            plt.plot(xtime[out], yomc[out]*24*60, 'rx')
-            plt.plot(xtime, omc_trend*24*60, c='C{0}'.format(npl), lw=2)
-            plt.xlabel("Time [BJKD]", fontsize=16)
-            plt.ylabel("O-C [min]", fontsize=16)
-            if ~iplot: plt.close()
     
             # flag outliers via mixture model of the residuals
             mix_model = omc.mix_model(residuals)
     
             with mix_model:
-                mix_trace = pmx.sample(tune=8000, draws=2000, chains=1, target_accept=0.95)
+                mix_trace = pmx.sample(tune=8000, draws=2000, chains=1, target_accept=0.95, progressbar=VERBOSE)
     
             loc = np.nanmedian(mix_trace['mu'], axis=0)
             scales = np.nanmedian(1/np.sqrt(mix_trace['tau']), axis=0)
     
             fg_prob, bad = omc.flag_outliers(residuals, loc, scales)
             
+            while np.sum(bad)/len(bad) > 0.3:
+                thresh = np.max(fg_prob[bad])
+                bad = fg_prob < thresh
+                
             fgplist.append(fg_prob)
             outlist.append(bad)
+            plylist.append(polyorder)
             
             print("{0} outliers found out of {1} transit times ({2}%)".format(np.sum(bad), len(bad), 
                                                                               np.round(100.*np.sum(bad)/len(bad),1)))
             
+            plt.figure(figsize=(12,3))
+            plt.plot(xtime, yomc*24*60, 'o', c='lightgrey')
+            plt.plot(xtime[bad], yomc[bad]*24*60, 'rx')
+            plt.plot(xtime, omc_trend*24*60, c='C{0}'.format(npl), lw=2)
+            plt.xlabel("Time [BJKD]", fontsize=16)
+            plt.ylabel("O-C [min]", fontsize=16)
+            if IPLOT: 
+                plt.show()
+            else:
+                plt.close()
+                
+                
             # calculate AIC & BIC
             n = len(yomc)
             
@@ -1573,10 +1612,11 @@ if __name__ == '__main__':
             print("AIC:", np.round(aic,1))
             print("BIC:", np.round(bic,1))
             
+            
         # choose the best model and recompute
         out = outlist[np.argmin(aiclist)]
         fg_prob = fgplist[np.argmin(aiclist)]
-        polyorder = np.argmin(aiclist) - 1
+        polyorder = plylist[np.argmin(aiclist)]
         xt_predict = full_indep_linear_ephemeris[npl]
     
         if polyorder == -1:
@@ -1588,12 +1628,30 @@ if __name__ == '__main__':
     
         with omc_model:
             omc_map = omc_model.test_point
-            omc_map = pmx.optimize(start=omc_map)
-            omc_trace = pmx.sample(tune=8000, draws=2000, start=omc_map, chains=2, target_accept=0.95)
+            omc_map = pmx.optimize(start=omc_map, progress=VERBOSE)
+            omc_trace = pmx.sample(tune=8000, draws=2000, start=omc_map, chains=2, target_accept=0.95, progressbar=VERBOSE)
     
-        full_omc_trend = np.nanmedian(omc_trace['pred'], 0)
+        
+        omc_trend = np.nanmedian(omc_trace['pred'], 0)
+        residuals = yomc - omc_trend[np.isin(xt_predict, xtime)]
+        mix_model = omc.mix_model(residuals)
     
+        with mix_model:
+            mix_trace = pmx.sample(tune=8000, draws=2000, chains=1, target_accept=0.95, progressbar=VERBOSE)
+    
+        loc = np.nanmedian(mix_trace['mu'], axis=0)
+        scales = np.nanmedian(1/np.sqrt(mix_trace['tau']), axis=0)
+    
+        fg_prob, bad = omc.flag_outliers(residuals, loc, scales)
+    
+        while np.sum(bad)/len(bad) > 0.3:
+            thresh = np.max(fg_prob[bad])
+            bad = fg_prob < thresh
+        
+        
         # save the final results
+        full_omc_trend = np.nanmedian(omc_trace['pred'], 0)
+        
         full_quick_transit_times.append(full_indep_linear_ephemeris[npl] + full_omc_trend)
         quick_transit_times.append(full_quick_transit_times[npl][transit_inds[npl]])
         
@@ -1612,7 +1670,10 @@ if __name__ == '__main__':
         plt.legend(fontsize=14, loc='upper right')
         plt.title(TARGET, fontsize=20)
         plt.savefig(os.path.join(FIGURE_DIR, TARGET + '_ttvs_quick_{0:02d}.png'.format(npl)), bbox_inches='tight')
-        if ~iplot: plt.close()
+        if IPLOT:
+            plt.show()
+        else:
+            plt.close()
     
     
     # ## Estimate TTV scatter w/ uncertainty buffer
@@ -1632,7 +1693,7 @@ if __name__ == '__main__':
         ttv_buffer[npl] = eta*ttv_scatter[npl] + lcit
     
     
-    # ## Update and save TTVs
+    # ## Update TTVs
     
     
     for npl, p in enumerate(planets):
@@ -1642,15 +1703,6 @@ if __name__ == '__main__':
         p.epoch = np.copy(epoch)
         p.period = np.copy(period)
         p.tts = np.copy(full_quick_transit_times[npl])
-        
-        # save transit timing info to output file
-        data_out  = np.vstack([transit_inds[npl],
-                               indep_transit_times[npl],
-                               quick_transit_times[npl],
-                               outlier_prob[npl], 
-                               outlier_class[npl]]).swapaxes(0,1)
-        fname_out = os.path.join(RESULTS_DIR, '{0}_{1:02d}_quick.ttvs'.format(TARGET, npl))
-        np.savetxt(fname_out, data_out, fmt=('%1d', '%.8f', '%.8f', '%.8f', '%1d'), delimiter='\t')
     
     
     print("")
@@ -1718,7 +1770,7 @@ if __name__ == '__main__':
                 oversample = 1
                 texp = scit
             elif all_dtype[q] == 'long':
-                oversample = 15
+                oversample = 7
                 texp = lcit
     
             # calculate light curves
@@ -1743,7 +1795,7 @@ if __name__ == '__main__':
                 oversample = 1
                 texp = scit*1.0
             elif all_dtype[q] == 'long':
-                oversample = 15
+                oversample = 7
                 texp = lcit*1.0
     
             # calculate light curves
@@ -1774,7 +1826,10 @@ if __name__ == '__main__':
         plt.plot(x_, res, 'k', lw=0.5)
         plt.plot(x_[bad], res[bad], 'rx')
         plt.xlim(x_.min(), x_.max())
-        if ~iplot: plt.close()
+        if IPLOT:
+            plt.show()
+        else:
+            plt.close()
     
     
     bad_lc = []
@@ -1964,16 +2019,16 @@ if __name__ == '__main__':
         nom_per = oscillation_period_by_season[lcd.quarter[0] % 4][0]
         
         try:
-            lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, nominal_period=nom_per)
-        except:
+            lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, nominal_period=nom_per, verbose=VERBOSE)
+        except LinAlgError:
             warnings.warn("Initial detrending model failed...attempting to refit without exponential ramp component")
             try:
-                lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, 
-                                              nominal_period=nom_per, correct_ramp=False)
-            except:
+                lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, nominal_period=nom_per, 
+                                              correct_ramp=False, verbose=VERBOSE)
+            except LinAlgError:
                 warnings.warn("Detrending with RotationTerm failed...attempting to detrend with SHOTerm")
-                lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, 
-                                              nominal_period=nom_per, kterm="SHOTerm", correct_ramp=False)
+                lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, nominal_period=nom_per, 
+                                              kterm="SHOTerm", correct_ramp=False, verbose=VERBOSE)
     
     if len(lc_data) > 0:
         lc = detrend.stitch(lc_data)
@@ -1991,16 +2046,16 @@ if __name__ == '__main__':
         nom_per = oscillation_period_by_season[scd.quarter[0] % 4][0]
     
         try:
-            scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, nominal_period=nom_per)
-        except:
+            scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, nominal_period=nom_per, verbose=VERBOSE)
+        except LinAlgError:
             warnings.warn("Initial detrending model failed...attempting to refit without exponential ramp component")
             try:
-                scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, 
-                                              nominal_period=nom_per, correct_ramp=False)
-            except:
+                scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, nominal_period=nom_per, 
+                                              correct_ramp=False, verbose=VERBOSE)
+            except LinAlgError:
                 warnings.warn("Detrending with RotationTerm failed...attempting to detrend with SHOTerm")
                 scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, nominal_period=nom_per, 
-                                              kterm="SHOTerm", correct_ramp=False)
+                                              kterm="SHOTerm", correct_ramp=False, verbose=VERBOSE)
                 
     if len(sc_data) > 0:
         sc = detrend.stitch(sc_data)
@@ -2042,8 +2097,8 @@ if __name__ == '__main__':
     
     
     for npl, p in enumerate(planets):
-        count_expect_lc = int(np.ceil(p.duration/lcit))
-        count_expect_sc = int(np.ceil(p.duration/scit))
+        count_expect_lc = np.max([1,int(np.floor(p.duration/lcit))])
+        count_expect_sc = np.max([15,int(np.floor(p.duration/scit))])
             
         quality = np.zeros(len(p.tts), dtype='bool')
         
@@ -2148,7 +2203,26 @@ if __name__ == '__main__':
             plt.ylabel("Flux", fontsize=20)
             plt.legend(fontsize=20, loc='upper right', framealpha=1)
             plt.savefig(os.path.join(FIGURE_DIR, TARGET + '_folded_transit_{0:02d}.png'.format(npl)), bbox_inches='tight')
-            if ~iplot: plt.close()
+            if IPLOT:
+                plt.show()
+            else:
+                plt.close()
+    
+    
+    # ## Save transit times
+    
+    
+    for npl, p in enumerate(planets):
+        keep = np.isin(quick_transit_times[npl], p.tts[p.quality])
+        
+        data_out  = np.vstack([transit_inds[npl][keep],
+                               indep_transit_times[npl][keep],
+                               quick_transit_times[npl][keep],
+                               outlier_prob[npl][keep], 
+                               outlier_class[npl][keep]]).swapaxes(0,1)
+        
+        fname_out = os.path.join(RESULTS_DIR, '{0}_{1:02d}_quick.ttvs'.format(TARGET, npl))
+        np.savetxt(fname_out, data_out, fmt=('%1d', '%.8f', '%.8f', '%.8f', '%1d'), delimiter='\t')
     
     
     # ## Save detrended lightcurves
@@ -2179,3 +2253,5 @@ if __name__ == '__main__':
     print("+"*shutil.get_terminal_size().columns)
     
     
+if __name__ == '__main__':
+    main()

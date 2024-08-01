@@ -44,7 +44,9 @@ try:
                         help="CSV file containing input planetary parameters")
     parser.add_argument("--run_id", default=None, type=str, required=True, \
                         help="run identifier")
-    parser.add_argument("--interactive", default=False, type=bool, required=False, \
+    parser.add_argument("--verbose", default=False, type=bool, required=False, \
+                        help="'True' to enable verbose logging")
+    parser.add_argument("--iplot", default=False, type=bool, required=False, \
                         help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
 
     args = parser.parse_args()
@@ -54,11 +56,13 @@ try:
     DATA_DIR     = args.data_dir
     CATALOG      = args.catalog
     RUN_ID       = args.run_id
+    VERBOSE      = args.verbose
+    IPLOT        = args.iplot
     
     # set plotting backend
-    if args.interactive == False:
+    if not IPLOT:
         mpl.use('agg')
-    
+        
 except:
     pass
 
@@ -128,16 +132,15 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 # check for interactive matplotlib backends
 if np.any(np.array(['agg', 'png', 'svg', 'pdf', 'ps']) == mpl.get_backend()):
-    iplot = False
-else:
-    iplot = True
+    warnings.warn("Selected matplotlib backend does not support interactive plotting")
+    IPLOT = False
     
 # print theano compiledir cache
 print("theano cache: {0}\n".format(theano.config.compiledir))
 
 
 # MAIN SCRIPT BEGINS HERE
-if __name__ == '__main__':    
+def main():    
     
     # # ################
     # # ----- DATA I/O -----
@@ -234,7 +237,7 @@ if __name__ == '__main__':
         periods[npl] = pfit[0]
         linear_ephemeris[npl] = poly.polyval(transit_inds[npl], pfit)
         
-    if iplot:
+    if IPLOT:
         fig, axes = plt.subplots(NPL, figsize=(12,3*NPL))
         if NPL == 1: axes = [axes]
     
@@ -434,7 +437,10 @@ if __name__ == '__main__':
     
     # set cutoff between low and high frequency signals
     fcut = 2/lcit
-    fmin = 2/(5*DURS.max())
+    fmin = 2/(5*(DURS.max()+lcit))
+    
+    # short cadency Nyquist freqency
+    fnyq = 1/(2*scit)
     
     # now estimate the ACF
     acf_lag = []
@@ -505,14 +511,14 @@ if __name__ == '__main__':
                 # make some plots
                 fig = plot_acf(xcor, acor_emp, acor_mod, xf, yf, freqs, TARGET, z)
                 fig.savefig(os.path.join(FIGURE_DIR, TARGET + '_ACF_season_{0}.png'.format(z)), bbox_inches='tight')
-                if iplot: plt.show()
+                if IPLOT:plt.show()
                 else: plt.close()
                 
                 # filter out high-frequency components in short cadence data
                 if season_dtype[z] == 'short':
-                    fring = list(freqs[freqs > fcut])
+                    fring = list(freqs[(freqs > fcut)*(freqs < fnyq)])
                     bw = 1/(lcit-scit) - 1/(lcit+scit)
-                    
+                                                    
                     if len(fring) > 0:
                         # apply the notch filter
                         flux_filtered = detrend.filter_ringing(sc, 15, fring, bw)
@@ -525,7 +531,7 @@ if __name__ == '__main__':
                             pass
                                
                         new_freqs = noise.model_acf(xcor, acor, fcut, fmin=fmin, method='savgol')[4]
-                        new_fring = new_freqs[new_freqs > fcut]
+                        new_fring = new_freqs[(new_freqs > fcut)*(new_freqs < fnyq)]
                         
                         for nf in new_fring:
                             if np.sum(np.abs(fring-nf) < bw) == 0:
@@ -589,7 +595,7 @@ if __name__ == '__main__':
             
         else:
             if season_dtype[z] == 'short':
-                Npts = int(2*DURS.max()/scit)
+                Npts = np.min([int(2*DURS.max()/scit), len(acf_emp[z])])
                 use = sc.season == z
                 m_ = sc.mask[use]
     
@@ -598,7 +604,7 @@ if __name__ == '__main__':
                     f_ = sc.flux[use][~m_]
                     
             if season_dtype[z] == 'long':
-                Npts = int(5*DURS.max()/lcit)
+                Npts = np.min([int(5*DURS.max()/lcit), len(acf_emp[z])])
                 use = lc.season == z
                 m_ = lc.mask[use]
     
@@ -628,6 +634,10 @@ if __name__ == '__main__':
     
                 x, red_noise, white_noise = noise.generate_synthetic_noise(acf_lag[z][:Npts], clipped_acf, 
                                                                            vector_length, np.std(f_))
+                
+                # hacky fix for zero red noise
+                if np.var(red_noise) == 0:
+                    red_noise = 1e-6*boxcar_smooth(white_noise, 5)
     
                 # add to list
                 synth_time.append(x)
@@ -649,8 +659,8 @@ if __name__ == '__main__':
                 plt.xticks(fontsize=14)
                 plt.yticks(fontsize=14)
                 plt.legend(fontsize=20, loc='upper right', framealpha=1)
-                plt.savefig(os.path.join(FIGURE_DIR, TARGET + '_synthetic_noise_season_{0}.png'.format(z)), bbox_inches='tight')
-                if iplot: 
+                #plt.savefig(os.path.join(FIGURE_DIR, TARGET + '_synthetic_noise_season_{0}.png'.format(z)), bbox_inches='tight')
+                if IPLOT: 
                     plt.show()
                 else:
                     plt.close()
@@ -664,6 +674,8 @@ if __name__ == '__main__':
     gp_priors = []
     
     for z in range(4):
+        print("SEASON {0}".format(x))
+        
         if season_dtype[z] == 'none':
             gp_priors.append(None)
            
@@ -696,20 +708,21 @@ if __name__ == '__main__':
                                                  srz + np.random.normal(srz)*np.std(srz)*0.1, 
                                                  var_method = 'fit', 
                                                  fmax = 2/lcit, 
-                                                 f0 = lf)
+                                                 f0 = lf
+                                                )
             
                 with gp_model:
                     gp_map = gp_model.test_point
     
                     for mv in gp_model.vars:
-                        gp_map = pmx.optimize(start=gp_map, vars=[mv])
+                        gp_map = pmx.optimize(start=gp_map, vars=[mv], verbose=VERBOSE)
     
-                    gp_map = pmx.optimize(start=gp_map)
+                    gp_map = pmx.optimize(start=gp_map, verbose=VERBOSE)
                     
                     try:
-                        gp_trace = pmx.sample(tune=6000, draws=1500, start=gp_map, chains=2, target_accept=0.9)
+                        gp_trace = pmx.sample(tune=6000, draws=1500, start=gp_map, chains=2, target_accept=0.9, progressbar=VERBOSE)
                     except:
-                        gp_trace = pmx.sample(tune=12000, draws=1500, start=gp_map, chains=2, target_accept=0.95)
+                        gp_trace = pmx.sample(tune=12000, draws=1500, start=gp_map, chains=2, target_accept=0.95, progressbar=VERBOSE)
                     
             except:
                 gp_model = noise.build_sho_model(synth_time[z], 
@@ -724,12 +737,12 @@ if __name__ == '__main__':
                     gp_map = gp_model.test_point
     
                     for mv in gp_model.vars:
-                        gp_map = pmx.optimize(start=gp_map, vars=[mv])
+                        gp_map = pmx.optimize(start=gp_map, vars=[mv], verbose=VERBOSE)
     
-                    gp_map = pmx.optimize(start=gp_map)
+                    gp_map = pmx.optimize(start=gp_map, verbose=VERBOSE)
                     
                     try:
-                        gp_trace = pmx.sample(tune=12000, draws=1500, start=gp_map, chains=2, target_accept=0.95)
+                        gp_trace = pmx.sample(tune=12000, draws=1500, start=gp_map, chains=2, target_accept=0.95, progressbar=VERBOSE)
                     except:
                         gp_trace = gp_map
             
@@ -763,3 +776,5 @@ if __name__ == '__main__':
     print("+"*shutil.get_terminal_size().columns)
     
     
+if __name__ == '__main__':
+    main()
