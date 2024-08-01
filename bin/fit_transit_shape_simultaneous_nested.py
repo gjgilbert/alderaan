@@ -44,7 +44,9 @@ try:
                         help="CSV file containing input planetary parameters")
     parser.add_argument("--run_id", default=None, type=str, required=True, \
                         help="run identifier")
-    parser.add_argument("--interactive", default=False, type=bool, required=False, \
+    parser.add_argument("--verbose", default=False, type=bool, required=False, \
+                        help="'True' to enable verbose logging")
+    parser.add_argument("--iplot", default=False, type=bool, required=False, \
                         help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
 
     args = parser.parse_args()
@@ -54,9 +56,12 @@ try:
     DATA_DIR     = args.data_dir
     CATALOG      = args.catalog
     RUN_ID       = args.run_id
+    VERBOSE      = args.verbose
+    IPLOT        = args.iplot
+    
     
     # set plotting backend
-    if args.interactive == False:
+    if not IPLOT:
         mpl.use('agg')
     
 except:
@@ -135,9 +140,8 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 # check for interactive matplotlib backends
 if np.any(np.array(['agg', 'png', 'svg', 'pdf', 'ps']) == mpl.get_backend()):
-    iplot = False
-else:
-    iplot = True
+    warnings.warn("Selected matplotlib backend does not support interactive plotting")
+    IPLOT = False
     
 # print theano compiledir cache
 print("theano cache: {0}\n".format(theano.config.compiledir))
@@ -271,22 +275,22 @@ def main():
         centered_transit_inds[npl] = (transit_inds[npl] - transit_inds[npl][-1]//2)
         
         
+    if IPLOT:
+        fig, axes = plt.subplots(NPL, figsize=(12,3*NPL))
+        if NPL == 1: axes = [axes]
     
-    fig, axes = plt.subplots(NPL, figsize=(12,3*NPL))
-    if NPL == 1: axes = [axes]
+        for npl in range(NPL):
+            xtime = ephemeris[npl]
+            yomc_i = (indep_transit_times[npl] - ephemeris[npl])*24*60
+            yomc_q = (quick_transit_times[npl] - ephemeris[npl])*24*60
     
-    for npl in range(NPL):
-        xtime = ephemeris[npl]
-        yomc_i = (indep_transit_times[npl] - ephemeris[npl])*24*60
-        yomc_q = (quick_transit_times[npl] - ephemeris[npl])*24*60
+            axes[npl].plot(xtime, yomc_i, 'o', c='lightgrey')
+            axes[npl].plot(xtime, yomc_q, lw=2, c='C{0}'.format(npl))
+            axes[npl].set_ylabel('O-C [min]', fontsize=20)
         
-        axes[npl].plot(xtime, yomc_i, 'o', c='lightgrey')
-        axes[npl].plot(xtime, yomc_q, lw=2, c='C{0}'.format(npl))
-        axes[npl].set_ylabel('O-C [min]', fontsize=20)
-    axes[NPL-1].set_xlabel('Time [BJKD]', fontsize=20)
+        axes[NPL-1].set_xlabel('Time [BJKD]', fontsize=20)
     
-    if iplot: plt.show()
-    else: plt.close()
+        plt.show()
     
     
     # # ####################
@@ -662,12 +666,12 @@ def main():
     if USE_MULTIPRO:
         with dynesty.pool.Pool(ncores, logl, ptform, logl_args=logl_args, ptform_args=ptform_args) as pool:
             sampler = dynesty.DynamicNestedSampler(pool.loglike, pool.prior_transform, ndim, bound='multi', sample='rwalk', pool=pool)
-            sampler.run_nested(checkpoint_file=chk_file, checkpoint_every=60)
+            sampler.run_nested(checkpoint_file=chk_file, checkpoint_every=60, print_progress=VERBOSE)
             results = sampler.results
             
-    if ~USE_MULTIPRO:
+    if not USE_MULTIPRO:
         sampler = dynesty.DynamicNestedSampler(logl, ptform, ndim, bound='multi', sample='rwalk', logl_args=logl_args, ptform_args=ptform_args)
-        sampler.run_nested(checkpoint_file=chk_file, checkpoint_every=60)
+        sampler.run_nested(checkpoint_file=chk_file, checkpoint_every=60, print_progress=VERBOSE)
         results = sampler.results
     
     

@@ -104,7 +104,7 @@ def identify_gaps(lc, break_tolerance, jump_tolerance=5.0):
 
 
 def flatten_with_gp(lc, break_tolerance, min_period, nominal_period=None, 
-                    kterm='RotationTerm', correct_ramp=True, return_trend=False):
+                    kterm='RotationTerm', correct_ramp=True, return_trend=False, verbose=True):
     """
     Remove trends from a LiteCurve using celerite Gaussian processes
     
@@ -231,18 +231,21 @@ def flatten_with_gp(lc, break_tolerance, min_period, nominal_period=None,
     # optimize the GP hyperparameters
     with trend_model:
         trend_map = trend_model.test_point
-        trend_map = pmx.optimize(start=trend_map, vars=[flux0])
-        trend_map = pmx.optimize(start=trend_map, vars=[flux0, log_yvar])
+        trend_map = pmx.optimize(start=trend_map, vars=[flux0], progress=verbose)
+        trend_map = pmx.optimize(start=trend_map, vars=[flux0, log_yvar], progress=verbose)
         
         for i in range(1 + correct_ramp):
             if kterm == 'RotationTerm':
-                trend_map = pmx.optimize(start=trend_map, vars=[log_yvar, flux0, sigma, P, log_Q0, log_dQ, mix])
+                trend_map = pmx.optimize(start=trend_map, 
+                                         vars=[log_yvar, flux0, sigma, P, log_Q0, log_dQ, mix], 
+                                         progress=verbose
+                                        )
             if kterm == 'SHOTerm':
-                trend_map = pmx.optimize(start=trend_map, vars=[log_yvar, flux0, sigma, P, log_Q0])
+                trend_map = pmx.optimize(start=trend_map, vars=[log_yvar, flux0, sigma, P, log_Q0], progress=verbose)
             if correct_ramp:
-                trend_map = pmx.optimize(start=trend_map, vars=[log_yvar, flux0, ramp_amp, log_tau])
+                trend_map = pmx.optimize(start=trend_map, vars=[log_yvar, flux0, ramp_amp, log_tau], progress=verbose)
                 
-        trend_map = pmx.optimize(start=trend_map)     
+        trend_map = pmx.optimize(start=trend_map, progress=verbose)     
         
     # reconstruct the GP to interpolate over masked transits
     if kterm == 'RotationTerm':

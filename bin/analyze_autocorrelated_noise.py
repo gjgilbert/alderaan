@@ -44,7 +44,9 @@ try:
                         help="CSV file containing input planetary parameters")
     parser.add_argument("--run_id", default=None, type=str, required=True, \
                         help="run identifier")
-    parser.add_argument("--interactive", default=False, type=bool, required=False, \
+    parser.add_argument("--verbose", default=False, type=bool, required=False, \
+                        help="'True' to enable verbose logging")
+    parser.add_argument("--iplot", default=False, type=bool, required=False, \
                         help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
 
     args = parser.parse_args()
@@ -54,11 +56,13 @@ try:
     DATA_DIR     = args.data_dir
     CATALOG      = args.catalog
     RUN_ID       = args.run_id
+    VERBOSE      = args.verbose
+    IPLOT        = args.iplot
     
     # set plotting backend
-    if args.interactive == False:
+    if not IPLOT:
         mpl.use('agg')
-    
+        
 except:
     pass
 
@@ -128,9 +132,8 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 # check for interactive matplotlib backends
 if np.any(np.array(['agg', 'png', 'svg', 'pdf', 'ps']) == mpl.get_backend()):
-    iplot = False
-else:
-    iplot = True
+    warnings.warn("Selected matplotlib backend does not support interactive plotting")
+    IPLOT = False
     
 # print theano compiledir cache
 print("theano cache: {0}\n".format(theano.config.compiledir))
@@ -234,7 +237,7 @@ def main():
         periods[npl] = pfit[0]
         linear_ephemeris[npl] = poly.polyval(transit_inds[npl], pfit)
         
-    if iplot:
+    if IPLOT:
         fig, axes = plt.subplots(NPL, figsize=(12,3*NPL))
         if NPL == 1: axes = [axes]
     
@@ -508,7 +511,7 @@ def main():
                 # make some plots
                 fig = plot_acf(xcor, acor_emp, acor_mod, xf, yf, freqs, TARGET, z)
                 fig.savefig(os.path.join(FIGURE_DIR, TARGET + '_ACF_season_{0}.png'.format(z)), bbox_inches='tight')
-                if iplot: plt.show()
+                if IPLOT:plt.show()
                 else: plt.close()
                 
                 # filter out high-frequency components in short cadence data
@@ -631,6 +634,10 @@ def main():
     
                 x, red_noise, white_noise = noise.generate_synthetic_noise(acf_lag[z][:Npts], clipped_acf, 
                                                                            vector_length, np.std(f_))
+                
+                # hacky fix for zero red noise
+                if np.var(red_noise) == 0:
+                    red_noise = 1e-6*boxcar_smooth(white_noise, 5)
     
                 # add to list
                 synth_time.append(x)
@@ -653,7 +660,7 @@ def main():
                 plt.yticks(fontsize=14)
                 plt.legend(fontsize=20, loc='upper right', framealpha=1)
                 #plt.savefig(os.path.join(FIGURE_DIR, TARGET + '_synthetic_noise_season_{0}.png'.format(z)), bbox_inches='tight')
-                if iplot: 
+                if IPLOT: 
                     plt.show()
                 else:
                     plt.close()
@@ -667,6 +674,8 @@ def main():
     gp_priors = []
     
     for z in range(4):
+        print("SEASON {0}".format(x))
+        
         if season_dtype[z] == 'none':
             gp_priors.append(None)
            
@@ -699,20 +708,21 @@ def main():
                                                  srz + np.random.normal(srz)*np.std(srz)*0.1, 
                                                  var_method = 'fit', 
                                                  fmax = 2/lcit, 
-                                                 f0 = lf)
+                                                 f0 = lf
+                                                )
             
                 with gp_model:
                     gp_map = gp_model.test_point
     
                     for mv in gp_model.vars:
-                        gp_map = pmx.optimize(start=gp_map, vars=[mv])
+                        gp_map = pmx.optimize(start=gp_map, vars=[mv], verbose=VERBOSE)
     
-                    gp_map = pmx.optimize(start=gp_map)
+                    gp_map = pmx.optimize(start=gp_map, verbose=VERBOSE)
                     
                     try:
-                        gp_trace = pmx.sample(tune=6000, draws=1500, start=gp_map, chains=2, target_accept=0.9)
+                        gp_trace = pmx.sample(tune=6000, draws=1500, start=gp_map, chains=2, target_accept=0.9, progressbar=VERBOSE)
                     except:
-                        gp_trace = pmx.sample(tune=12000, draws=1500, start=gp_map, chains=2, target_accept=0.95)
+                        gp_trace = pmx.sample(tune=12000, draws=1500, start=gp_map, chains=2, target_accept=0.95, progressbar=VERBOSE)
                     
             except:
                 gp_model = noise.build_sho_model(synth_time[z], 
@@ -727,12 +737,12 @@ def main():
                     gp_map = gp_model.test_point
     
                     for mv in gp_model.vars:
-                        gp_map = pmx.optimize(start=gp_map, vars=[mv])
+                        gp_map = pmx.optimize(start=gp_map, vars=[mv], verbose=VERBOSE)
     
-                    gp_map = pmx.optimize(start=gp_map)
+                    gp_map = pmx.optimize(start=gp_map, verbose=VERBOSE)
                     
                     try:
-                        gp_trace = pmx.sample(tune=12000, draws=1500, start=gp_map, chains=2, target_accept=0.95)
+                        gp_trace = pmx.sample(tune=12000, draws=1500, start=gp_map, chains=2, target_accept=0.95, progressbar=VERBOSE)
                     except:
                         gp_trace = gp_map
             
