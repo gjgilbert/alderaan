@@ -312,8 +312,8 @@ class Results:
         f_mod = (batman.TransitModel(theta, t_mod-tc).light_curve(theta) - 1.0)*1000
                 
         plt.figure(figsize=(12,4))
-        plt.plot(t_obs, f_obs, '.', color='lightgrey')
-        plt.plot(t_mod, f_mod, color='C{0}'.format(n), lw=3)
+        plt.plot(t_mod, f_mod, color='C{0}'.format(n), lw=2)
+        plt.plot(t_obs, f_obs, 'o', color='lightgrey')
         plt.xlim(tc-1.55*T14, tc+1.55*T14)
         plt.xticks(fontsize=12)
         plt.yticks(fontsize=12)
@@ -325,9 +325,45 @@ class Results:
         
         
     def plot_folded(self, n, max_pts=1000):
-        tts = self.transittimes.ttime[n]
         time = self.lightcurve.time
         flux = self.lightcurve.flux
+        tts = self.transittimes.ttime[n]
+        T14 = self.posteriors.summary()['median']['DUR14_{0}'.format(n)]
+        
+        t_folded = []
+        f_folded = []
+        
+        for t0 in tts:
+            use = np.abs(time - t0)/T14 < 1.5
+            t_folded.append(time[use]-t0)
+            f_folded.append(flux[use])
+            
+        t_folded = np.hstack(t_folded)
+        f_folded = np.hstack(f_folded)
+        
+        inds = np.arange(len(t_folded), dtype="int")
+        inds = np.random.choice(inds, size=np.min([max_pts,len(inds)]), replace=False)
+
+        theta = self._batman_theta(n)
+        
+        t_mod_sc = np.arange(t_folded.min(),t_folded.max(),scit)
+        t_mod_lc = np.sort(t_folded[inds])
+        
+        f_mod_sc = (batman.TransitModel(theta, t_mod_sc).light_curve(theta))
+        f_mod_lc = (batman.TransitModel(theta, t_mod_lc, supersample_factor=7, exp_time=lcit).light_curve(theta))
+
+        
+        plt.figure(figsize=(12,4))
+        plt.plot(t_folded[inds]*24, f_folded[inds], '.', color='lightgrey')
+        plt.plot(t_mod_sc*24, f_mod_sc, color='C{0}'.format(n), lw=2)
+        plt.plot(t_mod_lc*24, f_mod_lc, 'k--', lw=1)
+        plt.xlim(t_folded.min()*24, t_folded.max()*24)
+        plt.xticks(fontsize=12)
+        plt.yticks(fontsize=12)
+        plt.xlabel("Time from mid-transit [hrs]", fontsize=24)
+        plt.ylabel("Flux", fontsize=24)
+        plt.show()
+        
         
         
     def summary(self):
