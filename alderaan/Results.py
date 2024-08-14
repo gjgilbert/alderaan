@@ -13,7 +13,7 @@ import pickle
 import warnings
 
 from .io import load_detrended_lightcurve
-from .utils import weighted_percentile
+from .utils import weighted_percentile, bin_data
 from .constants import lcit, scit
 
 __all__ = ['Results']
@@ -327,7 +327,7 @@ class Results:
     def plot_folded(self, n, max_pts=1000):
         time = self.lightcurve.time
         flux = self.lightcurve.flux
-        tts = self.transittimes.ttime[n]
+        tts = self.transittimes.model[n]
         T14 = self.posteriors.summary()['median']['DUR14_{0}'.format(n)]
         
         t_folded = []
@@ -341,29 +341,38 @@ class Results:
         t_folded = np.hstack(t_folded)
         f_folded = np.hstack(f_folded)
         
-        inds = np.arange(len(t_folded), dtype="int")
+        t_binned, f_binned = bin_data(t_folded, f_folded, T14/11)
+        
+        inds = np.arange(len(t_folded), dtype='int')
         inds = np.random.choice(inds, size=np.min([max_pts,len(inds)]), replace=False)
 
         theta = self._batman_theta(n)
         
         t_mod_sc = np.arange(t_folded.min(),t_folded.max(),scit)
-        t_mod_lc = np.sort(t_folded[inds])
+        t_mod_lc = np.arange(t_folded.min(),t_folded.max(),lcit/5)
         
-        f_mod_sc = (batman.TransitModel(theta, t_mod_sc).light_curve(theta))
-        f_mod_lc = (batman.TransitModel(theta, t_mod_lc, supersample_factor=7, exp_time=lcit).light_curve(theta))
+        f_mod_sc = batman.TransitModel(theta, t_mod_sc).light_curve(theta)
+        f_mod_lc = batman.TransitModel(theta, t_mod_lc, supersample_factor=7, exp_time=lcit).light_curve(theta)
+      
+        f_pred = batman.TransitModel(theta, t_folded, supersample_factor=7, exp_time=lcit).light_curve(theta) 
 
+        fig = plt.figure(figsize=(12,6))
+
+        ax = [plt.subplot2grid(shape=(3,1), loc=(0,0), rowspan=2, colspan=1),
+              plt.subplot2grid(shape=(3,1), loc=(2,0), rowspan=1, colspan=1)]
         
-        plt.figure(figsize=(12,4))
-        plt.plot(t_folded[inds]*24, f_folded[inds], '.', color='lightgrey')
-        plt.plot(t_mod_sc*24, f_mod_sc, color='C{0}'.format(n), lw=2)
-        plt.plot(t_mod_lc*24, f_mod_lc, 'k--', lw=1)
-        plt.xlim(t_folded.min()*24, t_folded.max()*24)
-        plt.xticks(fontsize=12)
-        plt.yticks(fontsize=12)
-        plt.xlabel("Time from mid-transit [hrs]", fontsize=24)
-        plt.ylabel("Flux", fontsize=24)
+        ax[0].plot(t_folded[inds]*24, f_folded[inds], 'o', color='lightgrey')
+        ax[0].plot(t_binned*24, f_binned, 's', color='w', mec='k', ms=10)
+        ax[0].plot(t_mod_sc*24, f_mod_sc, color='C{0}'.format(n), lw=3)
+        ax[0].plot(t_mod_lc*24, f_mod_lc, 'k--', lw=2)
+        ax[0].set_xlim(t_folded.min()*24, t_folded.max()*24)
+        
+        ax[1].plot(t_folded[inds]*24, f_folded[inds]-f_pred[inds], '.', color='lightgrey')
+        ax[1].set_xlim(t_folded.min()*24, t_folded.max()*24)
+        ax[1].set_xlabel("Time from mid-transit [hrs]", fontsize=24)
+        ax[1].set_ylabel("Flux", fontsize=24)
+        
         plt.show()
-        
         
         
     def summary(self):
