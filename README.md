@@ -12,7 +12,7 @@ This software is powered by  ``astropy``, ``batman``, ``celerite``, ``dynesty``,
 
 ```
 $ git clone https://github.com/gjgilbert/alderaan <LOCAL_DIR>
-$ conda create -n <ENV_NAME> -f <LOCAL_DIR>/environment.yml
+$ conda env create -n <ENV_NAME> -f <LOCAL_DIR>/environment.yml
 
 if <ENV_NAME> is not specified, the conda environment will be named "alderaan"
 ```
