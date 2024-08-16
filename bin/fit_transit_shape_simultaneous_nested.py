@@ -184,12 +184,11 @@ def main():
     NPL = np.array(target_dict['npl'], dtype='int')[use]
     
     PERIODS = np.array(target_dict['period'], dtype='float')[use]
-    DEPTHS  = np.array(target_dict['depth'], dtype='float')[use]
+    DEPTHS  = np.array(target_dict['depth'], dtype='float')[use]/1e6
     DURS    = np.array(target_dict['duration'], dtype='float')[use]
     
     if MISSION == 'Kepler':
         DURS /= 24.  # [hrs] --> [days]
-    
     
     U1 = np.array(target_dict['limbdark_1'], dtype='float')[use]
     U2 = np.array(target_dict['limbdark_2'], dtype='float')[use]
@@ -457,14 +456,35 @@ def main():
     
                 mean_by_quarter[q] = np.mean(lc.flux[lc.quarter == q])
                 var_by_quarter[q] = np.var(lc.flux[lc.quarter == q])
-                
-                
+    
+    
+    # determine best oversampling factor following Kipping 2010
+    long_cadence_oversample = [None]*NPL
+    
+    for npl in range(NPL):
+        # rough ingress/egress timescale estimate following Winn 2010
+        ror = np.sqrt(DEPTHS[npl])
+        tau = 13*(PERIODS[npl]/365.25)**(1/3) * ror / 24
+        
+        # set sigma so binning error is < 0.1% of photometric uncertainty
+        sigma = np.mean(lc.error/lc.flux) * 0.04
+        
+        N = int(np.ceil(np.sqrt((DEPTHS[npl]/tau) * (lcit/8/sigma))))
+        N = N + (N % 2 + 1)
+        
+        long_cadence_oversample[npl] = np.min([np.max([N,7]),29])
+        
+    long_cadence_oversample = np.max(long_cadence_oversample)
+    
+    print("Oversampling factor = {0}".format(long_cadence_oversample))
+    
+    
     # set oversampling factors and expoure times
     oversample = np.zeros(18, dtype='int')
     exptime = np.zeros(18)
     
     oversample[np.array(all_dtype)=='short'] = 1
-    oversample[np.array(all_dtype)=='long'] = 7
+    oversample[np.array(all_dtype)=='long'] = long_cadence_oversample
     
     exptime[np.array(all_dtype)=='short'] = scit
     exptime[np.array(all_dtype)=='long'] = lcit
@@ -567,7 +587,7 @@ def main():
         theta[npl].rp  = np.sqrt(DEPTHS[npl])
         theta[npl].b   = 0.5
         theta[npl].T14 = DURS[npl]
-        theta[npl].u   = [0.25, 0.4]
+        theta[npl].u   = [U1, U2]
         theta[npl].limb_dark = 'quadratic'
         
     # grab data
@@ -582,7 +602,7 @@ def main():
         f_[j] = all_flux[q][m_[j]]
         e_[j] = all_error[q][m_[j]]
         
-    # initialize TransitModel objects
+    '''# initialize TransitModel objects
     transit_model = []
     for npl in range(NPL):
         transit_model.append([])
@@ -593,7 +613,7 @@ def main():
                                                           exp_time=exptime[q]
                                                          )
                                      )
-        
+    '''    
     # build the GP kernel using a different noise model for each season
     kernel = [None]*4
     for z in which_seasons:

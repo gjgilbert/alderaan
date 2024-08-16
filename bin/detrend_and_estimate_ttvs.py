@@ -66,7 +66,7 @@ except:
     pass
 
 
-USE_SC = True
+USE_SC = False
 
 
 print("")
@@ -339,6 +339,29 @@ def main():
     planets = np.copy(sorted_planets)
     
     
+    # ## Set oversampling factor
+    
+    
+    long_cadence_oversample = [None]*NPL
+    
+    for npl in range(NPL):
+        # rough ingress/egress timescale estimate following Winn 2010
+        ror = np.sqrt(DEPTHS[npl])
+        tau = 13*(PERIODS[npl]/365.25)**(1/3) * ror / 24
+        
+        # set sigma so binning error is < 0.1% of photometric uncertainty
+        sigma = np.mean(lc_data[0].error/lc_data[0].flux) * 0.04
+        
+        N = int(np.ceil(np.sqrt((DEPTHS[npl]/tau) * (lcit/8/sigma))))
+        N = N + (N % 2 + 1)
+        
+        long_cadence_oversample[npl] = np.min([np.max([N,7]),29])
+        
+    long_cadence_oversample = np.max(long_cadence_oversample)
+    
+    print("Oversampling factor = {0}".format(long_cadence_oversample))
+    
+    
     # # ############################
     # # ----- TRANSIT TIME SETUP -----
     # # ############################
@@ -443,7 +466,7 @@ def main():
         match = np.isclose(holczer_pers, p.period, rtol=0.1, atol=DURS.max())
         
         if np.sum(match) > 1:
-            raise ValueError("Something has gone wrong matching periods between DR25 and Holczer+ 2016")
+            raise ValueError("Something has gone wrong matching periods between DR25 and Holczer+2016")
             
         if np.sum(match) == 1:
             loc = np.squeeze(np.where(match))
@@ -494,7 +517,7 @@ def main():
         orbit = exo.orbits.TTVOrbit(transit_times=tts, transit_inds=inds, b=b, ror=ror, duration=dur)
     
         for i, lcd in enumerate(lc_data):
-            light_curve = starrystar.get_light_curve(orbit=orbit, r=ror, t=lcd.time, oversample=7, texp=lcit)
+            light_curve = starrystar.get_light_curve(orbit=orbit, r=ror, t=lcd.time, oversample=long_cadence_oversample, texp=lcit)
             model_flux = pm.math.sum(light_curve, axis=-1) + T.ones(len(lcd.time))
     
             lcd.flux /= model_flux.eval()
@@ -604,7 +627,7 @@ def main():
         orbit = exo.orbits.TTVOrbit(transit_times=tts, transit_inds=inds, b=b, ror=ror, duration=dur)
     
         for i, lcd in enumerate(lc_data):
-            light_curve = starrystar.get_light_curve(orbit=orbit, r=ror, t=lcd.time, oversample=15, texp=lcit)
+            light_curve = starrystar.get_light_curve(orbit=orbit, r=ror, t=lcd.time, oversample=long_cadence_oversample, texp=lcit)
             model_flux = pm.math.sum(light_curve, axis=-1) + T.ones(len(lcd.time))
     
             lcd.flux *= model_flux.eval()
@@ -694,7 +717,7 @@ def main():
     
     
     # detrend long cadence data
-    break_tolerance = np.max([int(DURS.min()/(LCIT/60/24)*5/2), 13])
+    break_tolerance = np.max([int(DURS.min()/lcit*5/2), 13])
     min_period = 1.0
     
     for i, lcd in enumerate(lc_data):
@@ -909,7 +932,7 @@ def main():
     texp = np.zeros(18)
     
     oversample[np.array(all_dtype)=='short'] = 1
-    oversample[np.array(all_dtype)=='long'] = 7
+    oversample[np.array(all_dtype)=='long'] = long_cadence_oversample
     
     texp[np.array(all_dtype)=='short'] = scit
     texp[np.array(all_dtype)=='long'] = lcit
@@ -1524,7 +1547,7 @@ def main():
             out = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 5.0
         else:
             out = np.zeros(len(yomc), dtype='bool')
-        
+            
         # compare various models
         aiclist = []
         biclist = []
@@ -1560,7 +1583,7 @@ def main():
     
             omc_trend = np.nanmedian(omc_trace['pred'], 0)
             residuals = yomc - omc_trend
-    
+            
             # flag outliers via mixture model of the residuals
             mix_model = omc.mix_model(residuals)
     
@@ -1630,7 +1653,6 @@ def main():
             omc_map = omc_model.test_point
             omc_map = pmx.optimize(start=omc_map, progress=VERBOSE)
             omc_trace = pmx.sample(tune=8000, draws=2000, start=omc_map, chains=2, target_accept=0.95, progressbar=VERBOSE)
-    
         
         omc_trend = np.nanmedian(omc_trace['pred'], 0)
         residuals = yomc - omc_trend[np.isin(xt_predict, xtime)]
@@ -1658,7 +1680,6 @@ def main():
         outlier_prob.append(1-fg_prob)
         outlier_class.append(bad)
         
-        # plot the final trend and outliers
         plt.figure(figsize=(12,4))
         plt.scatter(xtime, yomc*24*60, c=1-fg_prob, cmap='viridis', label="MAP TTVs")
         plt.plot(xtime[bad], yomc[bad]*24*60, 'rx')
@@ -2010,7 +2031,7 @@ def main():
     
     
     # detrend long cadence data
-    break_tolerance = np.max([int(DURS.min()/(LCIT/60/24)*5/2), 13])
+    break_tolerance = np.max([int(DURS.min()/lcit*5/2), 13])
     min_period = 1.0
     
     for i, lcd in enumerate(lc_data):

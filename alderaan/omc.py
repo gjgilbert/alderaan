@@ -66,8 +66,8 @@ def matern32_model(xtime, yomc, xt_predict=None):
         gp.marginal('gp', observed=yomc)
 
         # track GP prediction
-        trend = pm.Deterministic('trend', gp.predict(yomc, xtime) + mean)
-        pred  = pm.Deterministic('pred', gp.predict(yomc, xt_predict) + mean)
+        trend = pm.Deterministic('trend', gp.predict(yomc, xtime))
+        pred  = pm.Deterministic('pred', gp.predict(yomc, xt_predict))
         
     return model
 

@@ -343,16 +343,15 @@ class Results:
         
         t_binned, f_binned = bin_data(t_folded, f_folded, T14/11)
         
-
         theta = self._batman_theta(n)
         
         t_mod_sc = np.arange(t_folded.min(),t_folded.max(),scit)
-        t_mod_lc = np.arange(t_folded.min(),t_folded.max(),lcit/5)
+        t_mod_lc = np.arange(t_folded.min(),t_folded.max(),lcit/29)
         
         f_mod_sc = batman.TransitModel(theta, t_mod_sc).light_curve(theta)
-        f_mod_lc = batman.TransitModel(theta, t_mod_lc, supersample_factor=7, exp_time=lcit).light_curve(theta)
+        f_mod_lc = batman.TransitModel(theta, t_mod_lc, supersample_factor=29, exp_time=lcit).light_curve(theta)
       
-        f_pred = batman.TransitModel(theta, t_folded, supersample_factor=7, exp_time=lcit).light_curve(theta)
+        f_pred = batman.TransitModel(theta, t_folded, supersample_factor=29, exp_time=lcit).light_curve(theta)
         
         residuals = f_folded - f_pred
         _, res_binned = bin_data(t_folded, residuals, T14/11)
@@ -371,13 +370,14 @@ class Results:
         ax[0].plot(t_mod_sc*24, f_mod_sc, color='C{0}'.format(n), lw=3)
         ax[0].plot(t_mod_lc*24, f_mod_lc, 'k--', lw=2)
         ax[0].set_xlim(t_folded.min()*24, t_folded.max()*24)
+        ax[0].set_ylabel("Flux", fontsize=24)
         
         ax[1].plot(t_folded[inds]*24, residuals[inds], '.', color='lightgrey')
         ax[1].plot(t_binned*24, res_binned, 's', color='w', mec='k', ms=10)    
         ax[1].axhline(0, color='k', ls='--', lw=2)
         ax[1].set_xlim(t_folded.min()*24, t_folded.max()*24)
         ax[1].set_xlabel("Time from mid-transit [hrs]", fontsize=24)
-        ax[1].set_ylabel("Flux", fontsize=24)
+        ax[1].text(0.02, 0.8, "RMS = {0}".format(int(np.std(residuals)*1e6)), transform=ax[1].transAxes, fontsize=11)
         
         plt.show()
         
