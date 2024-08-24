@@ -1086,11 +1086,46 @@ def main():
     print('\nFitting TTVs..\n')
     
     
+    # get list of quarters with observations
+    if lc is not None:
+        lc_quarters = np.unique(lc.quarter)
+    else:
+        lc_quarters = np.array([], dtype='int')
+        
+    if sc is not None:
+        sc_quarters = np.unique(sc.quarter)
+    else:
+        sc_quarters = np.array([], dtype='int')
+        
+    quarters = np.sort(np.hstack([lc_quarters, sc_quarters]))
+    seasons = np.sort(np.unique(quarters % 4))
+    
+    # get list of threshold times between quarters
+    thresh = np.zeros(len(quarters)+1)
+    thresh[0] = TIME_START
+    
+    for j, q in enumerate(quarters):
+        if np.isin(q, sc_quarters):
+            thresh[j+1] = sc.time[sc.quarter == q].max()
+        if np.isin(q, lc_quarters):
+            thresh[j+1] = lc.time[lc.quarter == q].max()
+            
+    thresh[0] -= 1.0
+    thresh[-1] += 1.0
+    
+    # track individual transits
+    transit_quarter = [None]*NPL
+    
+    for npl in range(NPL):
+        tts = shape_transit_times[npl]
+        transit_quarter[npl] = np.zeros(len(tts), dtype='int')
+    
+        for j, q in enumerate(quarters):
+            transit_quarter[npl][(tts >= thresh[j])*(tts<thresh[j+1])] = q
+    
+    
     slide_transit_times = []
     slide_error = []
-    
-    t_all = np.array(np.hstack(all_time), dtype='float')
-    f_all = np.array(np.hstack(all_flux), dtype='float')
     
     for npl, p in enumerate(planets):
         print("\nPLANET", npl)
@@ -1100,51 +1135,63 @@ def main():
         
         # create template transit
         starrystar = exo.LimbDarkLightCurve([U1,U2])
-        orbit  = exo.orbits.KeplerianOrbit(t0=0, period=p.period, b=p.impact, ror=rors[npl], duration=p.duration)
-    
-        gridstep     = scit/2
-        slide_offset = 1.0
-        delta_chisq  = 2.0
-    
-        template_time = np.arange(-(0.02+p.duration)*(slide_offset+1.6), (0.02+p.duration)*(slide_offset+1.6), gridstep)
-        template_flux = 1.0 + starrystar.get_light_curve(orbit=orbit, r=rors[npl], t=template_time).sum(axis=-1).eval()
+        orbit = exo.orbits.KeplerianOrbit(t0=0, period=p.period, b=p.impact, ror=rors[npl], duration=p.duration)
         
+        slide_offset  = 1.0
+        template_time = np.arange(0, (0.02+p.duration)*(slide_offset+1.6), scit)
+        template_time = np.hstack([-template_time[:-1][::-1],template_time])    
+        template_flux = 1.0 + starrystar.get_light_curve(orbit=orbit, r=rors[npl], t=template_time, oversample=1).sum(axis=-1).eval()
+      
         # empty lists to hold new transit time and uncertainties
         tts = -99*np.ones_like(shape_transit_times[npl])
         err = -99*np.ones_like(shape_transit_times[npl])
+    
         
         for i, t0 in enumerate(shape_transit_times[npl]):
             #print(i, np.round(t0,2))
             if ~p.overlap[p.quality][i]:
+                # identify quarter
+                q = transit_quarter[npl][i]
+                
+                # set exposure time and oversample factor
+                if all_dtype[q] == 'long':
+                    exptime = lcit
+                    texp_offsets = np.linspace(-exptime/2., exptime/2., oversample[q])
+                elif all_dtype[q] == 'short':
+                    exptime = scit
+                    texp_offsets = np.array([0.])
+                else:
+                    raise ValueError("data cadence expected to be 'long' or 'short'")
             
-                # grab flux near each non-overlapping transit
-                use = np.abs(t_all - t0)/p.duration < 2.5
-                mask = np.abs(t_all - t0)/p.duration < 1.0
-    
-                t_ = t_all[use]
-                f_ = f_all[use]
+                # grab data near each non-overlapping transit
+                use = np.abs(all_time[q] - t0)/p.duration < 2.5
+                mask = np.abs(all_time[q] - t0)/p.duration < 1.0
+                
+                t_ = all_time[q][use]
+                f_ = all_flux[q][use]
                 m_ = mask[use]
                 
+                t_supersample = (texp_offsets + t_.reshape(t_.size, 1)).flatten()
+    
                 # remove any residual out-of-transit trend
-                try:
-                    trend = poly.polyval(t_, poly.polyfit(t_[~m_], f_[~m_], 1))
-                
-                    f_ /= trend
-                    e_ = np.ones_like(f_)*np.std(f_[~m_])
-                    
-                except:
-                    e_ = np.ones_like(f_)*np.std(f_)
+                trend = poly.polyval(t_, poly.polyfit(t_[~m_], f_[~m_], 1))
+                f_ /= trend
+                e_ = np.ones_like(f_)*np.std(f_[~m_])
+    
                 
                 # slide along transit time vector and calculate chisq
-                tc_vector = t0 + np.arange(-p.duration*slide_offset, p.duration*slide_offset, gridstep)
+                gridstep  = scit/1.618
+                tc_vector = np.arange(0, p.duration*slide_offset, gridstep)
+                tc_vector = t0 + np.hstack([-tc_vector[:-1][::-1],tc_vector])    
                 chisq_vector = np.zeros_like(tc_vector)
     
                 for j, tc in enumerate(tc_vector):
-                    y_ = np.interp(t_-tc, template_time, template_flux)
+                    y_ = np.interp(t_supersample-tc, template_time, template_flux)
+                    y_ = bin_data(t_supersample, y_, exptime, bin_centers=t_)[1]
+    
                     chisq_vector[j] = np.sum((f_ - y_)**2/e_**2)
-    
-                chisq_vector = boxcar_smooth(chisq_vector, winsize=7)
-    
+                    
+                    
                 # grab points near minimum chisq
                 delta_chisq = 1
                 
@@ -1166,7 +1213,7 @@ def main():
                     x2fit = x2fit[~faraway]
                     
                     # check for stopping conditions
-                    if len(x2fit) >= 3:
+                    if len(x2fit) >= 7:
                         loop = False
                         
                     if delta_chisq >= 9:
@@ -1202,10 +1249,10 @@ def main():
                         err[i] = np.nan
     
                 # show plots
-                if ~np.isnan(tts[i]):
-                    do_plots = False
-                        
-                    if do_plots:
+                do_plots = False
+                if do_plots:
+                    if ~np.isnan(tts[i]):
+    
                         fig, ax = plt.subplots(1,2, figsize=(10,3))
     
                         ax[0].plot(t_-tts[i], f_, 'ko')
@@ -1216,13 +1263,17 @@ def main():
                         ax[1].plot(tcfit, quadfit, c='C{0}'.format(npl), lw=3)
                         ax[1].axvline(tts[i], color='k', ls="--", lw=2)
                         
-                        if ~iplot: plt.close()
+                        if IPLOT:
+                            plt.show()
+                        else:
+                            plt.close()
                         
             else:
                 #print("OVERLAPPING TRANSITS")
                 tts[i] = np.nan
                 err[i] = np.nan
-            
+                
+                
         slide_transit_times[npl] = np.copy(tts)
         slide_error[npl] = np.copy(err)
     

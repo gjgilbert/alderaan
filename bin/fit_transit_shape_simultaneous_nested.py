@@ -492,7 +492,11 @@ def main():
     # precompute exposure integration time offsets
     texp_offsets = [None]*18
     for j, q in enumerate(quarters):
-        texp_offsets[q] = np.linspace(-exptime[q]/2., exptime[q]/2., oversample[q])
+        
+        if all_dtype[q] == 'short':
+            texp_offsets[q] = np.array([0.])
+        elif all_dtype[q] == 'long':
+            texp_offsets[q] = np.linspace(-exptime[q]/2., exptime[q]/2., oversample[q])
     
     
     # ## Set up GP noise priors
