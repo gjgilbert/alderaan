@@ -1031,7 +1031,7 @@ def main():
         for j, q in enumerate(quarters):
             # calculate light curves
             light_curves[j] = starrystar.get_light_curve(orbit=orbit, r=r, t=all_time[q], 
-                                                         oversample=oversample[j], texp=texp[j])
+                                                         oversample=oversample[q], texp=texp[q])
             
             model_flux[j] = pm.math.sum(light_curves[j], axis=-1) + flux0[j]*T.ones(len(all_time[q]))
             flux_err[j] = T.sqrt(np.mean(all_error[q])**2 + T.exp(log_jit[j]))/np.sqrt(2)
@@ -1404,7 +1404,7 @@ def main():
         for j, q in enumerate(map_quarters):
             # calculate light curves
             light_curves[j] = starrystar.get_light_curve(orbit=orbit, r=rors, t=map_time[q], 
-                                                         oversample=oversample[j], texp=texp[j])
+                                                         oversample=oversample[q], texp=texp[q])
             
             model_flux[j] = pm.math.sum(light_curves[j], axis=-1) + flux0[j]*T.ones(len(map_time[q]))
             flux_err[j] = T.sqrt(np.mean(map_error[q])**2 + T.exp(log_jit[j]))/np.sqrt(2)
@@ -1763,7 +1763,7 @@ def main():
         ttv_scatter[npl] = astropy.stats.mad_std(indep_transit_times[npl]-quick_transit_times[npl])
     
         # based on scatter in independent times, set threshold so not even one outlier is expected
-        N   = len(transit_inds[npl])
+        N = len(transit_inds[npl])
         eta = np.max([3., stats.norm.interval((N-1)/N)[1]])
     
         ttv_buffer[npl] = eta*ttv_scatter[npl] + lcit
@@ -1798,114 +1798,105 @@ def main():
     
     for j, q in enumerate(quarters):
         # grab time and flux data
-        if all_dtype[q] == "long":
-            use = lc.quarter == q
-            t_ = lc.time[use]
-            f_ = lc.flux[use]
+        if (all_dtype[q] != 'long') and (all_dtype[q] != 'short'):
+            res_i.append(None)
+            res_q.append(None)
             
-        elif all_dtype[q] == "short":
-            use = sc.quarter == q
-            t_ = sc.time[use]
-            f_ = sc.flux[use]
-        
-        # grab transit times for each planet
-        wp_i = []
-        tts_i = []
-        inds_i = []
-        
-        wp_q = []
-        tts_q = []
-        inds_q = []
-        
-        for npl in range(NPL):
-            itt = indep_transit_times[npl]
-            qtt = quick_transit_times[npl]
-            
-            use_i = (itt > t_.min())*(itt < t_.max())
-            use_q = (qtt > t_.min())*(qtt < t_.max())
-            
-            if np.sum(use_i) > 0:
-                wp_i.append(npl)
-                tts_i.append(itt[use_i])
-                inds_i.append(transit_inds[npl][use_i] - transit_inds[npl][use_i][0])
-                
-            if np.sum(use_q) > 0:
-                wp_q.append(npl)
-                tts_q.append(itt[use_q])
-                inds_q.append(transit_inds[npl][use_q] - transit_inds[npl][use_q][0])
-                
-        # first check independent transit times
-        if len(tts_i) > 0:
-            # set up model
-            starrystar = exo.LimbDarkLightCurve([U1,U2])
-            orbit  = exo.orbits.TTVOrbit(transit_times=tts_i, transit_inds=inds_i, period=list(periods[wp_i]), 
-                                         b=impacts[wp_i], ror=rors[wp_i], duration=durs[wp_i])
-    
-            # set oversampling factor
-            if all_dtype[q] == 'short':
-                oversample = 1
-                texp = scit
-            elif all_dtype[q] == 'long':
-                oversample = 7
-                texp = lcit
-    
-            # calculate light curves
-            light_curves = starrystar.get_light_curve(orbit=orbit, r=rors[wp_i], t=t_, oversample=oversample, texp=texp)
-            model_flux = 1.0 + pm.math.sum(light_curves, axis=-1).eval()
-    
         else:
-            model_flux = np.ones_like(f_)*np.mean(f_)
-        
-        # calculate residuals
-        res_i.append(f_ - model_flux)
-        
-        # then check matern transit times
-        if len(tts_q) > 0:
-            # set up model
-            starrystar = exo.LimbDarkLightCurve([U1,U2])
-            orbit  = exo.orbits.TTVOrbit(transit_times=tts_q, transit_inds=inds_q, period=list(periods[wp_q]), 
-                                         b=impacts[wp_q], ror=rors[wp_q], duration=durs[wp_q])
+            if all_dtype[q] == 'long':
+                use = lc.quarter == q
+                t_ = lc.time[use]
+                f_ = lc.flux[use]
+            elif all_dtype[q] == 'short':
+                use = sc.quarter == q
+                t_ = sc.time[use]
+                f_ = sc.flux[use]
+            else:
+                raise ValueError("cadence data type must be 'short' or 'long'")
     
-            # set oversampling factor
-            if all_dtype[q] == 'short':
-                oversample = 1
-                texp = scit*1.0
-            elif all_dtype[q] == 'long':
-                oversample = 7
-                texp = lcit*1.0
+            # grab transit times for each planet
+            wp_i = []
+            tts_i = []
+            inds_i = []
     
-            # calculate light curves
-            light_curves = starrystar.get_light_curve(orbit=orbit, r=rors[wp_q], t=t_, oversample=oversample, texp=texp)
-            model_flux = 1.0 + pm.math.sum(light_curves, axis=-1).eval()
+            wp_q = []
+            tts_q = []
+            inds_q = []
     
-        else:
-            model_flux = np.ones_like(f_)*np.mean(f_)
-        
-        # calculate residuals
-        res_q.append(f_ - model_flux)
+            for npl in range(NPL):
+                itt = indep_transit_times[npl]
+                qtt = quick_transit_times[npl]
+    
+                use_i = (itt > t_.min())*(itt < t_.max())
+                use_q = (qtt > t_.min())*(qtt < t_.max())
+    
+                if np.sum(use_i) > 0:
+                    wp_i.append(npl)
+                    tts_i.append(itt[use_i])
+                    inds_i.append(transit_inds[npl][use_i] - transit_inds[npl][use_i][0])
+    
+                if np.sum(use_q) > 0:
+                    wp_q.append(npl)
+                    tts_q.append(itt[use_q])
+                    inds_q.append(transit_inds[npl][use_q] - transit_inds[npl][use_q][0])
+    
+            # first check independent transit times
+            if len(tts_i) > 0:
+                # set up model
+                starrystar = exo.LimbDarkLightCurve([U1,U2])
+                orbit  = exo.orbits.TTVOrbit(transit_times=tts_i, transit_inds=inds_i, period=list(periods[wp_i]), 
+                                             b=impacts[wp_i], ror=rors[wp_i], duration=durs[wp_i])
+    
+                # calculate light curves
+                light_curves = starrystar.get_light_curve(orbit=orbit, r=rors[wp_i], t=t_, oversample=oversample[q], texp=texp[q])
+                model_flux = 1.0 + pm.math.sum(light_curves, axis=-1).eval()
+    
+            else:
+                model_flux = np.ones_like(f_)*np.mean(f_)
+    
+            # calculate residuals
+            res_i.append(f_ - model_flux)
+    
+            # then check matern transit times
+            if len(tts_q) > 0:
+                # set up model
+                starrystar = exo.LimbDarkLightCurve([U1,U2])
+                orbit  = exo.orbits.TTVOrbit(transit_times=tts_q, transit_inds=inds_q, period=list(periods[wp_q]), 
+                                             b=impacts[wp_q], ror=rors[wp_q], duration=durs[wp_q])
+    
+                # calculate light curves
+                light_curves = starrystar.get_light_curve(orbit=orbit, r=rors[wp_q], t=t_, oversample=oversample[q], texp=texp[q])
+                model_flux = 1.0 + pm.math.sum(light_curves, axis=-1).eval()
+    
+            else:
+                model_flux = np.ones_like(f_)*np.mean(f_)
+    
+            # calculate residuals
+            res_q.append(f_ - model_flux)
     
     
     for j, q in enumerate(quarters):
-        print("\nQUARTER", q)
-        res = 0.5*(res_i[j] + res_q[j])
-        x_ = np.arange(len(res))
-        
-        bad_i = np.abs(res_i[j] - np.mean(res_i[j]))/astropy.stats.mad_std(res_i[j]) > 5.0
-        bad_q = np.abs(res_q[j] - np.mean(res_q[j]))/astropy.stats.mad_std(res_q[j]) > 5.0
-        
-        bad = bad_i * bad_q
-        
-        print(" outliers rejected:", np.sum(bad))
-        print(" marginal outliers:", np.sum(bad_i*~bad_q)+np.sum(~bad_i*bad_q))
-        
-        plt.figure(figsize=(20,3))
-        plt.plot(x_, res, 'k', lw=0.5)
-        plt.plot(x_[bad], res[bad], 'rx')
-        plt.xlim(x_.min(), x_.max())
-        if IPLOT:
-            plt.show()
-        else:
-            plt.close()
+        if (all_dtype[q] == 'long') or (all_dtype[q] == 'short'):
+            print("\nQUARTER", q)
+            res = 0.5*(res_i[j] + res_q[j])
+            x_ = np.arange(len(res))
+    
+            bad_i = np.abs(res_i[j] - np.mean(res_i[j]))/astropy.stats.mad_std(res_i[j]) > 5.0
+            bad_q = np.abs(res_q[j] - np.mean(res_q[j]))/astropy.stats.mad_std(res_q[j]) > 5.0
+    
+            bad = bad_i * bad_q
+    
+            print(" outliers rejected:", np.sum(bad))
+            print(" marginal outliers:", np.sum(bad_i*~bad_q)+np.sum(~bad_i*bad_q))
+    
+            plt.figure(figsize=(20,3))
+            plt.plot(x_, res, 'k', lw=0.5)
+            plt.plot(x_[bad], res[bad], 'rx')
+            plt.xlim(x_.min(), x_.max())
+            if IPLOT:
+                plt.show()
+            else:
+                plt.close()
     
     
     bad_lc = []
