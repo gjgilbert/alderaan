@@ -1174,13 +1174,17 @@ def main():
                 t_supersample = (texp_offsets + t_.reshape(t_.size, 1)).flatten()
     
                 # remove any residual out-of-transit trend
-                trend = poly.polyval(t_, poly.polyfit(t_[~m_], f_[~m_], 1))
+                try:
+                    trend = poly.polyval(t_, poly.polyfit(t_[~m_], f_[~m_], 1))
+                except TypeError:
+                    trend = np.ones_like(f_)
+                    
                 f_ /= trend
                 e_ = np.ones_like(f_)*np.std(f_[~m_])
-    
                 
+                            
                 # slide along transit time vector and calculate chisq
-                gridstep  = scit/1.618
+                gridstep  = scit/1.618/3
                 tc_vector = np.arange(0, p.duration*slide_offset, gridstep)
                 tc_vector = t0 + np.hstack([-tc_vector[:-1][::-1],tc_vector])    
                 chisq_vector = np.zeros_like(tc_vector)
@@ -1193,12 +1197,12 @@ def main():
                     
                     
                 # grab points near minimum chisq
-                delta_chisq = 1
+                delta_chisq = 1.0
                 
                 loop = True
                 while loop:
                     # incrememnt delta_chisq and find minimum
-                    delta_chisq += 1
+                    delta_chisq *= 2
                     min_chisq = chisq_vector.min()
                     
                     # grab the points near minimum
@@ -1216,7 +1220,7 @@ def main():
                     if len(x2fit) >= 7:
                         loop = False
                         
-                    if delta_chisq >= 9:
+                    if delta_chisq >= 16:
                         loop = False
                         
                 # fit a parabola around the minimum (need at least 3 pts)
