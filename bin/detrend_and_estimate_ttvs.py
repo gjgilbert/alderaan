@@ -1787,7 +1787,6 @@ def main():
     
     
     # ## Flag outliers based on transit model
-    # #### Cadences must be flagged as outliers from BOTH the quick ttv model and the independent ttv model to be rejected
     
     
     print("\nFlagging outliers based on transit model...\n")
@@ -1849,12 +1848,11 @@ def main():
                 
                 loop = 0
                 count = np.sum(bad[j])
-                while loop < 3:
-                    print(loop)
+                while loop < 5:
                     bad[j] = np.abs(res[j]-np.median(res[j][~bad[j]]))/(1.4826*astropy.stats.mad_std(res[j][~bad[j]])) > eta
                     
                     if np.sum(bad[j]) == count:
-                        loop = 3
+                        loop = 5
                     else:
                         loop += 1
                 
@@ -2086,6 +2084,123 @@ def main():
         sc = detrend.stitch(sc_data)
     else:
         sc = None
+    
+    
+    # ## Do a final round of outliers rejection
+    
+    
+    print("\nFlagging remaining outliers...\n")
+    
+    
+    res = [None]*len(quarters)
+    bad = [None]*len(quarters)
+    
+    for j, q in enumerate(quarters):
+        print("QUARTER {0}".format(q))
+    
+        if (all_dtype[q] != 'long') and (all_dtype[q] != 'short'):
+            pass
+            
+        else:
+            if all_dtype[q] == 'long':
+                use = lc.quarter == q
+                t_ = lc.time[use]
+                f_ = lc.flux[use]
+            elif all_dtype[q] == 'short':
+                use = sc.quarter == q
+                t_ = sc.time[use]
+                f_ = sc.flux[use]
+            else:
+                raise ValueError("cadence data type must be 'short' or 'long'")
+                
+                
+            # grab transit times for each planet
+            wp = []
+            tts = []
+            inds = []
+            
+            for npl in range(NPL):
+                qtt = quick_transit_times[npl]
+                use = (qtt > t_.min())*(qtt < t_.max())
+    
+                if np.sum(use) > 0:
+                    wp.append(npl)
+                    tts.append(qtt[use])
+                    inds.append(transit_inds[npl][use] - transit_inds[npl][use][0])
+    
+    
+            if len(tts) > 0:
+                # set up model
+                starrystar = exo.LimbDarkLightCurve([U1,U2])
+                orbit = exo.orbits.TTVOrbit(transit_times=tts, transit_inds=inds, period=list(periods[wp]), 
+                                            b=impacts[wp], ror=rors[wp], duration=durs[wp])
+    
+                # calculate light curves
+                light_curves = starrystar.get_light_curve(orbit=orbit, r=rors[wp], t=t_, oversample=oversample[q], texp=texp[q])
+                model_flux = 1.0 + pm.math.sum(light_curves, axis=-1).eval()
+                
+                # flag outliers
+                N = len(f_)
+                eta = np.max([3., stats.norm.interval((N-1)/N)[1]])
+                
+                res[j] = f_ - model_flux
+                bad[j] = np.abs(res[j]-np.median(res[j]))/(1.4826*astropy.stats.mad_std(res[j])) > eta
+                
+                loop = 0
+                count = np.sum(bad[j])
+                while loop < 5:
+                    bad[j] = np.abs(res[j]-np.median(res[j][~bad[j]]))/(1.4826*astropy.stats.mad_std(res[j][~bad[j]])) > eta
+                    
+                    if np.sum(bad[j]) == count:
+                        loop = 5
+                    else:
+                        loop += 1
+                
+            
+            if res[j] is not None:
+                print(" outliers rejected:", np.sum(bad[j]))
+                
+                plt.figure(figsize=(20,3))
+                plt.plot(t_, res[j], 'k.')
+                plt.plot(t_[bad[j]], res[j][bad[j]], 'x', c='C1', ms=20)
+                
+                for n in range(NPL):
+                    plt.plot(tts[n], np.zeros_like(tts[n]), '|', c='C0', ms=100, mew=3)
+                
+                plt.ylim(np.percentile(res[j],0.15), np.percentile(res[j],99.85))
+                if IPLOT:
+                    plt.show()
+                else:
+                    plt.close()
+    
+    
+    good_cadno_lc = []
+    good_cadno_sc = []
+    
+    for j, q in enumerate(quarters):
+        if all_dtype[q] == 'long':
+            use = lc.quarter == q
+            good_cadno_lc.append(lc.cadno[use][~bad[j]])
+    
+        if all_dtype[q] == 'short':
+            use = sc.quarter == q
+            good_cadno_sc.append(sc.cadno[use][~bad[j]])
+            
+    
+    if len(good_cadno_lc) > 0:
+        good_cadno_lc = np.hstack(good_cadno_lc)
+        
+    if len(good_cadno_sc) > 0:
+        good_cadno_sc = np.hstack(good_cadno_sc)
+    
+    
+    if lc is not None:
+        qmask = np.isin(lc.cadno, good_cadno_lc)
+        lc = lc.remove_flagged_cadences(qmask)
+    
+    if sc is not None:
+        qmask = np.isin(sc.cadno, good_cadno_sc)
+        sc = sc.remove_flagged_cadences(qmask)
     
     
     # # ##############################################
