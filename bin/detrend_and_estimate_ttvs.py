@@ -1829,7 +1829,9 @@ def main():
                     inds.append(transit_inds[npl][use] - transit_inds[npl][use][0])
     
     
-            if len(tts) > 0:
+            if len(tts) == 0:
+                all_dtype[q] = all_dtype[q] + '_no_transits'
+            else:    
                 # set up model
                 starrystar = exo.LimbDarkLightCurve([U1,U2])
                 orbit = exo.orbits.TTVOrbit(transit_times=tts, transit_inds=inds, period=list(periods[wp]), 
