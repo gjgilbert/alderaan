@@ -1,5 +1,5 @@
 # ALDERAAN
-**ALDERAAN** is a pipeline for **A**utomatic **L**ightcurve **D**etrending, **E**xoplanet **R**ecovery, and **A**nalysis of **A**utocorrelated **N**oise.
+**ALDERAAN** is a pipeline for **A**utomated **L**ightcurve **D**etrending, **E**xoplanet **R**ecovery, and **A**nalysis of **A**utocorrelated **N**oise.
 
 The pipeline is currently capable of processing photometric lightcurve data from the *Kepler* Space Telescope, but in the future will be extended to handle data from *K2* and *TESS*.
 
