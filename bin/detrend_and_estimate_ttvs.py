@@ -1866,7 +1866,7 @@ def main():
                 plt.plot(t_, res[j], 'k.')
                 plt.plot(t_[bad[j]], res[j][bad[j]], 'x', c='C1', ms=20)
                 
-                for n in range(NPL):
+                for n in range(len(tts)):
                     plt.plot(tts[n], np.zeros_like(tts[n]), '|', c='C0', ms=100, mew=3)
                 
                 plt.ylim(np.percentile(res[j],0.15), np.percentile(res[j],99.85))
@@ -2166,7 +2166,7 @@ def main():
                 plt.plot(t_, res[j], 'k.')
                 plt.plot(t_[bad[j]], res[j][bad[j]], 'x', c='C1', ms=20)
                 
-                for n in range(NPL):
+                for n in range(len(tts)):
                     plt.plot(tts[n], np.zeros_like(tts[n]), '|', c='C0', ms=100, mew=3)
                 
                 plt.ylim(np.percentile(res[j],0.15), np.percentile(res[j],99.85))
