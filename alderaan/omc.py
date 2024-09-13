@@ -21,10 +21,12 @@ __all__ = ['matern32_model',
           ]
 
 
-def matern32_model(xtime, yomc, xt_predict=None):
+def matern32_model(xtime, yomc, yerr, xt_predict=None):
     """
     Build a PyMC3 model to fit TTV observed-minus-calculated data
     Fits data with a regularized Matern-3/2 GP kernel
+    
+    Units (time) should be the same on all inputs
     
     Parameters
     ----------
@@ -32,7 +34,9 @@ def matern32_model(xtime, yomc, xt_predict=None):
         time values (e.g. linear ephemeris)
     yomc : ndarray
         observed-minus-caculated TTVs
-    xt_predict : ndarray
+    yerr : ndarray
+        corresponding uncertainties on yomc
+    xt_predict : ndarray (optional)
         time values to predict OMC model; if not provided xtime will be used
 
     Returns
@@ -43,36 +47,41 @@ def matern32_model(xtime, yomc, xt_predict=None):
         # delta between each transit time
         dx = np.mean(np.diff(xtime))
 
-       # times where trend will be predicted
+        # times where trend will be predicted
         if xt_predict is None:
             xt_predict = xtime
             
         # build the kernel
-        log_sigma = pm.Normal('log_sigma', mu=np.log(np.std(yomc)), sd=5)
+        log_sigma = pm.Normal('log_sigma', mu=np.log(np.mean(yerr)), sd=5)
         rho = pm.Uniform('rho', lower=2*dx, upper=xtime.max()-xtime.min())
-        
+                
         kernel = GPterms.Matern32Term(sigma=T.exp(log_sigma), rho=rho)
-
-        # regularization penalty
-        pm.Potential('penalty', 2*np.log(rho))
         
-        # mean and log(yvar) -- "diag" in GaussianProcess is diagonal variance
+        # penalty term
+        penalty = -(T.exp(log_sigma)-T.mean(yerr))**2 / T.mean(yerr)**2 * (xtime.max()-xtime.min())/rho
+        pm.Potential('penalty', penalty)
+        
+        # mean
         mean = pm.Normal('mean', mu=np.mean(yomc), sd=np.std(yomc))
-        log_yvar = pm.Normal('log_yvar', mu=np.log(np.var(yomc)), sd=10)
+        
+        # define the GP
+        gp = GaussianProcess(kernel, t=xtime, yerr=yerr, mean=mean)
 
-        # here's the gp and it's likelihood
-        gp = GaussianProcess(kernel, t=xtime, diag=T.exp(log_yvar)*T.ones(len(xtime)), mean=mean)
-
-        gp.marginal('gp', observed=yomc)
-
+        # compute the likelihood
+        gp.compute(xtime, yerr=yerr)
+        
         # track GP prediction
         trend = pm.Deterministic('trend', gp.predict(yomc, xtime))
-        pred  = pm.Deterministic('pred', gp.predict(yomc, xt_predict))
+        pred  = pm.Deterministic('pred', gp.predict(yomc, xt_predict))        
+        
+        # add marginal likelihood to model
+        gp.marginal('gp', observed=yomc)
+        
         
     return model
 
 
-def poly_model(xtime, yomc, polyorder, xt_predict=None):
+def poly_model(xtime, yomc, yerr, polyorder, xt_predict=None):
     """
     Build a PyMC3 model to fit TTV observed-minus-calculated data 
     Fits data with a polynomial (up to cubic)
@@ -110,12 +119,11 @@ def poly_model(xtime, yomc, polyorder, xt_predict=None):
         def poly_fxn(c0, c1, c2, c3, xt):
             return c0 + c1*xt + c2*xt**2 + c3*xt**3
         
-        # mean and variance
+        # mean
         trend = pm.Deterministic('trend', poly_fxn(C0, C1, C2, C3, xtime))
-        log_yvar = pm.Normal('log_yvar', mu=np.log(np.var(yomc)), sd=10)
         
-        # here's the likelihood
-        pm.Normal('obs', mu=trend, sd=T.sqrt(T.exp(log_yvar)*T.ones(len(xtime))), observed=yomc)
+        # likelihood
+        pm.Normal('obs', mu=trend, sd=yerr, observed=yomc)
         
         # track predicted trend
         pred = pm.Deterministic('pred', poly_fxn(C0,C1,C2,C3,xt_predict))
@@ -123,7 +131,7 @@ def poly_model(xtime, yomc, polyorder, xt_predict=None):
     return model
 
 
-def sin_model(xtime, yomc, period, xt_predict=None):
+def sin_model(xtime, yomc, yerr, period, xt_predict=None):
     """
     Build a PyMC3 model to fit TTV observed-minus-calculated data
     Fits data with a single-frequency sinusoid
@@ -157,12 +165,11 @@ def sin_model(xtime, yomc, period, xt_predict=None):
         def sin_fxn(A, B, f, xt):
             return A*T.sin(2*pi*f*xt) + B*T.cos(2*pi*f*xt)
         
-        # mean and variance
+        # mean
         trend = pm.Deterministic('trend', sin_fxn(Ah, Bk, f, xtime))
-        log_yvar = pm.Normal('log_yvar', mu=np.log(np.var(yomc)), sd=10)
         
-        # here's the likelihood
-        pm.Normal('obs', mu=trend, sd=T.sqrt(T.exp(log_yvar)*T.ones(len(xtime))), observed=yomc)
+        # likelihood
+        pm.Normal('obs', mu=trend, sd=yerr, observed=yomc)
         
         # track predicted trend
         pred = pm.Deterministic('pred', sin_fxn(Ah,Bk,f,xt_predict))
@@ -218,7 +225,7 @@ def flag_outliers(res, loc, scales):
     -------
     fg_prob : ndarray (N)
         probability the each item in res belongs to the foreground distribution
-    bad : bool (N)
+    out : bool (N)
         binary classification of each item in res into foreground/background distribution
     """
     resnorm = res/np.std(res)
@@ -227,16 +234,16 @@ def flag_outliers(res, loc, scales):
     order = np.argsort(scales)
     scales = scales[order]
     
+    # calculate foreground/background probability from results of mixture model
     z_fg = stats.norm(loc=loc, scale=scales[0]).pdf(resnorm)
     z_bg = stats.norm(loc=loc, scale=scales[1]).pdf(resnorm)
 
     fg_prob = z_fg/(z_fg+z_bg)
-    fg_prob = (fg_prob - fg_prob.min())/(fg_prob.max()-fg_prob.min())
-
+    
     # use KMeans clustering to assign each point to the foreground or background
     km = KMeans(n_clusters=2)
     group = km.fit_predict(fg_prob.reshape(-1,1))
     centroids = np.array([np.mean(fg_prob[group==0]), np.mean(fg_prob[group==1])])
-    bad = group == np.argmin(centroids)
-        
-    return fg_prob, bad
+    out = group == np.argmin(centroids)
+    
+    return fg_prob, out
