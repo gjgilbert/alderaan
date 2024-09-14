@@ -21,7 +21,7 @@ __all__ = ['matern32_model',
           ]
 
 
-def matern32_model(xtime, yomc, yerr, xt_predict=None):
+def matern32_model(xtime, yomc, yerr, ymax=None, xt_predict=None):
     """
     Build a PyMC3 model to fit TTV observed-minus-calculated data
     Fits data with a regularized Matern-3/2 GP kernel
@@ -36,6 +36,8 @@ def matern32_model(xtime, yomc, yerr, xt_predict=None):
         observed-minus-caculated TTVs
     yerr : ndarray
         corresponding uncertainties on yomc
+    ymax : float (optional)
+        maximum allowed amplitude on GP scale parameter
     xt_predict : ndarray (optional)
         time values to predict OMC model; if not provided xtime will be used
 
@@ -46,15 +48,18 @@ def matern32_model(xtime, yomc, yerr, xt_predict=None):
     with pm.Model() as model:
         # delta between each transit time
         dx = np.mean(np.diff(xtime))
-
+        
         # times where trend will be predicted
         if xt_predict is None:
             xt_predict = xtime
             
         # build the kernel
-        log_sigma = pm.Normal('log_sigma', mu=np.log(np.mean(yerr)), sd=5)
-        rho = pm.Uniform('rho', lower=2*dx, upper=xtime.max()-xtime.min())
-                
+        if ymax is None:
+            log_sigma = pm.Normal('log_sigma', mu=np.log(np.mean(yerr)), sd=5)
+        else:
+            log_sigma = pm.Bound(pm.Normal, upper=np.log(ymax))('log_sigma', mu=np.log(ymax), sd=5)
+        
+        rho = pm.Uniform('rho', lower=2*dx, upper=xtime.max()-xtime.min())        
         kernel = GPterms.Matern32Term(sigma=T.exp(log_sigma), rho=rho)
                 
         # mean

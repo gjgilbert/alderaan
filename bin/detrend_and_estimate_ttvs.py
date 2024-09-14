@@ -438,9 +438,9 @@ def main():
             
             # estimate TTV signal with a regularized Matern-3/2 GP
             if np.sum(~out) > 4:
-                holczer_model = omc.matern32_model(xtime[~out], yomc[~out], yerr[~out], hephem)
+                holczer_model = omc.matern32_model(xtime[~out], yomc[~out], yerr[~out], xt_predict=hephem)
             else:
-                holczer_model = omc.poly_model(xtime[~out], yomc[~out], yerr[~out], 1, hephem)
+                holczer_model = omc.poly_model(xtime[~out], yomc[~out], yerr[~out], 1, xt_predict=hephem)
     
             with holczer_model:
                 holczer_map = pmx.optimize(verbose=VERBOSE)
@@ -1623,10 +1623,6 @@ def main():
     # ## Determine best OMC model
     
     
-    from importlib import reload
-    reload(omc)
-    
-    
     print("...running model selection routine")
     
     quick_transit_times = []
@@ -1647,6 +1643,7 @@ def main():
         yerr_measured = indep_error[npl]
         
         yerr = np.sqrt(yerr_expected**2 + yerr_measured**2)
+        ymax = np.sqrt(astropy.stats.mad_std(yomc)**2 - np.median(yerr)**2)
     
         # flag outliers
         if len(yomc) > 16:
@@ -1675,10 +1672,15 @@ def main():
         else:
             min_polyorder = 1
             max_polyorder = 1
+            
+        # don't use a GP on very noisy data
+        if np.median(yerr) >= astropy.stats.mad_std(yomc):
+            min_polyorder = np.max([0,min_polyorder])
         
+    
         for polyorder in range(min_polyorder, max_polyorder+1):
             if polyorder == -1:
-                omc_model = omc.matern32_model(xtime[~out], yomc[~out], yerr[~out], xtime)
+                omc_model = omc.matern32_model(xtime[~out], yomc[~out], yerr[~out], ymax, xtime)
             elif polyorder == 0:
                 omc_model = omc.sin_model(xtime[~out], yomc[~out], yerr[~out], omc_pers[npl], xtime)
             elif polyorder >= 1:
@@ -1731,7 +1733,7 @@ def main():
         xt_predict = full_indep_linear_ephemeris[npl]
     
         if polyorder == -1:
-            omc_model = omc.matern32_model(xtime[~out], yomc[~out], yerr[~out], xt_predict)        
+            omc_model = omc.matern32_model(xtime[~out], yomc[~out], yerr[~out], ymax, xt_predict)        
         elif polyorder == 0:
             omc_model = omc.sin_model(xtime[~out], yomc[~out], yerr[~out], omc_pers[npl], xt_predict)
         elif polyorder >= 1:
@@ -1786,6 +1788,8 @@ def main():
         plt.yticks(fontsize=14)
         plt.legend(fontsize=14, loc='upper right')
         plt.title(TARGET, fontsize=20)
+        plt.text(xtime.min(), yomc.min()*24*60, "measured error = {0:.1f} min".format(np.median(yerr_measured[~bad])*24*60), fontsize=16, ha='left', backgroundcolor='w')
+        plt.text(xtime.max(), yomc.min()*24*60, "residual RMS = {0:.1f} min".format(astropy.stats.mad_std(residuals[~bad])*24*60), fontsize=16, ha='right', backgroundcolor='w')
         plt.savefig(os.path.join(FIGURE_DIR, TARGET + '_ttvs_quick_{0:02d}.png'.format(npl)), bbox_inches='tight')
         if IPLOT:
             plt.show()
