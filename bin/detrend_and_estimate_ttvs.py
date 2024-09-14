@@ -1707,7 +1707,7 @@ def main():
             n = len(yomc)
             
             if polyorder == -1:
-                k = 2 + np.ceil((xtime.max()-xtime.min())/np.median(omc_trace.rho))
+                k = 2 + np.ceil((xtime.max()-xtime.min())/np.median(omc_trace.rho/np.sqrt(3)))
             elif polyorder == 0:
                 k = 3
             else:

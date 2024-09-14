@@ -56,11 +56,7 @@ def matern32_model(xtime, yomc, yerr, xt_predict=None):
         rho = pm.Uniform('rho', lower=2*dx, upper=xtime.max()-xtime.min())
                 
         kernel = GPterms.Matern32Term(sigma=T.exp(log_sigma), rho=rho)
-        
-        # penalty term
-        penalty = -(T.exp(log_sigma)-T.mean(yerr))**2 / T.mean(yerr)**2 * (xtime.max()-xtime.min())/rho
-        pm.Potential('penalty', penalty)
-        
+                
         # mean
         mean = pm.Normal('mean', mu=np.mean(yomc), sd=np.std(yomc))
         
@@ -75,7 +71,8 @@ def matern32_model(xtime, yomc, yerr, xt_predict=None):
         pred  = pm.Deterministic('pred', gp.predict(yomc, xt_predict))        
         
         # add marginal likelihood to model
-        gp.marginal('gp', observed=yomc)
+        lnlike = gp.log_likelihood(yomc)        
+        pm.Potential('lnlike', lnlike)
         
         
     return model
