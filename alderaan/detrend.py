@@ -44,7 +44,7 @@ def make_transitmask(time, tts, masksize):
     -------
         transitmask : array-like, bool
             boolean array (1=near transit; 0=not)
-    """  
+    """
     transitmask = np.zeros(len(time), dtype='bool')
     
     tts_here = tts[(tts >= time.min())*(tts <= time.max())]
