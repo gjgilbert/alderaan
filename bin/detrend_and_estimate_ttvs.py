@@ -1262,13 +1262,17 @@ def main():
                     fig, ax = plt.subplots(1,2, figsize=(10,3))
     
                     if ~np.isnan(tts[i]):
-                        ax[0].plot(t_-tts[i], f_, 'ko')
-                        ax[0].plot((t_-tts[i])[m_], f_[m_], "o", c='C{0}'.format(npl))
-                        ax[0].plot(template_time, template_flux, c='C{0}'.format(npl), lw=2)
+                        tc = tts[i]
+                    else:
+                        tc = t0
+                    
+                    ax[0].plot(t_-tc, f_, 'ko')
+                    ax[0].plot((t_-tc)[m_], f_[m_], "o", c='C{0}'.format(npl))
+                    ax[0].plot(template_time, template_flux, c='C{0}'.format(npl), lw=2)
     
                     ax[1].plot(tcfit, x2fit, 'ko')
                     ax[1].plot(tcfit, quadfit, c='C{0}'.format(npl), lw=3)
-                    ax[1].axvline(tts[i], color='k', ls="--", lw=2)                
+                    ax[1].axvline(tc, color='k', ls="--", lw=2)                
     
                     if IPLOT:
                         plt.show()
@@ -1447,9 +1451,10 @@ def main():
         indep_linear_ephemeris.append(poly.polyval(transit_inds[npl], pfit))
         full_indep_linear_ephemeris.append(poly.polyval(p.index, pfit))
     
-        if np.any(replace):
-            indep_error[npl][replace] = astropy.stats.mad_std(indep_transit_times[npl][~replace] 
-                                                              - indep_linear_ephemeris[npl][~replace])
+        if np.all(replace):
+            indep_error[npl][replace] = astropy.stats.mad_std(indep_transit_times[npl] - indep_linear_ephemeris[npl])    
+        elif np.any(replace):
+            indep_error[npl][replace] = astropy.stats.mad_std(indep_transit_times[npl][~replace] - indep_linear_ephemeris[npl][~replace])
     
     
     def predict_tc_error(ror, b, T14, texp, sigma_f):
@@ -1517,8 +1522,6 @@ def main():
         yerr_expected = predict_tc_error(np.sqrt(p.depth), p.impact, p.duration, lcit, np.median(lc.error))
         yerr_measured = indep_error[npl]
         
-        yerr = np.sqrt(yerr_expected*yerr_measured)
-    
         # flag outliers
         ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode="mirror"), winsize=5)
         out  = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 5.0
@@ -1729,7 +1732,10 @@ def main():
             
             
         # choose the best model and recompute
-        polyorder = np.arange(min_polyorder, max_polyorder+1)[np.argmin(aiclist)]
+        polyorder_aic = np.arange(min_polyorder, max_polyorder+1)[np.argmin(aiclist)]
+        polyorder_bic = np.arange(min_polyorder, max_polyorder+1)[np.argmin(biclist)]
+        polyorder = np.max([polyorder_aic, polyorder_bic])
+        
         xt_predict = full_indep_linear_ephemeris[npl]
     
         if polyorder == -1:
@@ -1760,7 +1766,8 @@ def main():
     
         while np.sum(bad)/len(bad) > 0.3:
             thresh = np.max(fg_prob[bad])
-            bad = fg_prob < thresh
+            bad = fg_prob < thresh        
+        
         
         num_bad = np.sum(bad)
         frac_bad = num_bad/len(bad)
