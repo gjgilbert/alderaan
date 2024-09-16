@@ -18,22 +18,99 @@ __all__ = ['prior_transform',
 
 
 def uniform_ppf(u, a, b):
+    """
+    Prior transform from U(0,1) --> Uniform(a,b)
+    
+    Parameters
+    ----------
+        u : array-like
+            samples from standard uniform distribution U(0,1)
+        a : float
+            lower bound on transformed distribution U(a,b)
+        b : float
+            upper bound on transformed distribution U(a,b)
+    
+    Returns
+    -------
+        u_t : array-like
+            transformed samples from uniform distribution
+    """
     return u*(b-a) + a
 
 
 def loguniform_ppf(u, a, b):
+    """
+    Prior transform from U(0,1) --> LogUniform(a,b)
+    
+    Parameters
+    ----------
+        u : array-like
+            samples from standard uniform distribution U(0,1)
+        a : float
+            lower bound on transformed distribution lnU(a,b)
+        b : float
+            upper bound on transformed distribution lnU(a,b)
+    
+    Returns
+    -------
+        u_t : array-like
+            transformed samples from log-uniform distribution
+    """
     return np.exp(u*np.log(b) + (1-u)*np.log(a))
 
 
 def norm_ppf(u, mu, sig, eps=1e-12):
-    '''
-    eps provides numerical stability in the error function at edges u=[0,1]
-    '''
+    """
+    Prior transform from U(0,1) --> Normal(mu,siga)
+    
+    Parameters
+    ----------
+        u : array-like
+            samples from standard uniform distribution U(0,1)
+        mu : float
+            mean of transformed distribution N(mu,sig)
+        sig : float
+            standard deviation of transformed distribution N(mu,sig)
+        eps : float (optional)
+            provides numerical stability in the inverse error function at edges
+    
+    Returns
+    -------
+        u_t : array-like
+            transformed samples from Normal distribution
+    """
     return mu + sig*np.sqrt(2)*erfinv((2*u-1)/(1+eps))
 
 
 # functions for dynesty (hyperparameters are currently hard-coded)
 def prior_transform(uniform_hypercube, num_planets, durations):
+    """
+    Prior transform over physical ALDERAAN basis {C0, C1, r, b, T14}...{q1,q2}
+    Distributions are hard-coded to be:
+        Normal on ephemeris perturbations {C0,C1}
+        Log-uniform on radius ratio r and transit duration T14
+        Uniform on impact parameter b
+        Uniform on quadratic limb darkening coefficients {q1,q2}
+        
+    For motivation behind this prior-parameter choice see:
+        Gilbert, MacDougall, & Petigura 2022 (2022AJ....164...92G)
+        MacDougal, Gilbert, & Petigura 2023 (2023AJ....166...61M)
+        Kipping 2013 (2013MNRAS.435.2152K)
+    
+    Parameters
+    ----------
+        uniform_hypercube : array-like, length 5xN + 2
+            list of parameters N x {C0, C1, r, b, T14} + {q1,q2}
+        num_planets : int
+            number of planets in system
+        durations : array-like
+            list of transit durations for N planets (used for setting prior limits)
+    
+    Returns
+    -------
+        transformed_hypercube : array_like, length 5xN + 2
+            transformed samples
+    """
     if num_planets != len(durations):
         raise ValueError("input durations must match provided num_planets")
     

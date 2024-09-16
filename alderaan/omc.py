@@ -83,6 +83,8 @@ def poly_model(xtime, yomc, polyorder, xt_predict=None):
         time values (e.g. linear ephemeris)
     yomc : ndarray
         observed-minus-caculated TTVs
+    yerr : ndarray
+        corresponding uncertainties on yomc
     polyorder : int
         polynomial order
     xt_predict : ndarray
@@ -134,6 +136,8 @@ def sin_model(xtime, yomc, period, xt_predict=None):
         time values (e.g. linear ephemeris)
     yomc : ndarray
         observed-minus-caculated TTVs
+    yerr : ndarray
+        corresponding uncertainties on yomc
     period : float
         pre-estimated sinusoid period; the model places tight priors on this period
     xt_predict : ndarray
