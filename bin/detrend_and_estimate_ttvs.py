@@ -1665,7 +1665,7 @@ def main():
             max_polyorder = 1
             
         # don't use a GP on very noisy data
-        if np.median(yerr) >= astropy.stats.mad_std(yomc):
+        if np.median(yerr) >= 0.5*astropy.stats.mad_std(yomc):
             min_polyorder = np.max([0,min_polyorder])
         
     
