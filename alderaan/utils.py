@@ -17,6 +17,7 @@ __all__ = ['get_transit_depth',
            'get_dur_14',
            'get_dur_23',
            'get_dur_cc',
+           'predict_tc_error',
            'boxcar_smooth',
            'FFT_estimator',
            'LS_estimator',
@@ -172,6 +173,31 @@ def get_dur_cc(P, aRs, b, ecc=None, w=None):
     Tmid[grazing] = np.nan
     
     return Tmid
+
+
+def predict_tc_error(ror, b, T14, texp, sigma_f):
+    """
+    Predict uncertainty on mid-transit time
+    See Carter+2008
+    
+    Parameters
+    ----------
+    ror : planet-to-star radius ratio
+    b : impact parameter
+    T14 : first-to-fourth contact transit duration
+    texp : exposure time (in same units as T14)
+    sigma_f : photometric error on flux
+    """
+    Q = np.sqrt(T14/texp) * (ror**2/sigma_f)
+    
+    if b <= 1-ror:
+        tau_over_T14 = ror/(1-b**2)
+    else:
+        tau_over_T14 = 0.5
+        
+    sigma_tc = (T14/Q)*np.sqrt(0.5*tau_over_T14)
+    
+    return sigma_tc
 
 
 def boxcar_smooth(x, winsize, passes=1):

@@ -1442,7 +1442,7 @@ def main():
         indep_error.append(np.copy(slide_error[npl]))
         
         replace = np.isnan(slide_error[npl])
-        
+            
         if np.any(replace):
             indep_transit_times[npl][replace] = indep_map["tts_{0}".format(npl)]
     
@@ -1450,24 +1450,11 @@ def main():
     
         indep_linear_ephemeris.append(poly.polyval(transit_inds[npl], pfit))
         full_indep_linear_ephemeris.append(poly.polyval(p.index, pfit))
-    
+        
         if np.all(replace):
             indep_error[npl][replace] = astropy.stats.mad_std(indep_transit_times[npl] - indep_linear_ephemeris[npl])    
         elif np.any(replace):
             indep_error[npl][replace] = astropy.stats.mad_std(indep_transit_times[npl][~replace] - indep_linear_ephemeris[npl][~replace])
-    
-    
-    def predict_tc_error(ror, b, T14, texp, sigma_f):
-        Q = np.sqrt(T14/texp) * (ror**2/sigma_f)
-        
-        if b <= 1-ror:
-            tau_over_T14 = ror/(1-b**2)
-        else:
-            tau_over_T14 = 0.5
-            
-        sigma_tc = (T14/Q)*np.sqrt(0.5*tau_over_T14)
-        
-        return sigma_tc
     
     
     for npl, p in enumerate(planets):
@@ -1641,13 +1628,6 @@ def main():
         xtime = indep_linear_ephemeris[npl]
         yomc  = indep_transit_times[npl] - indep_linear_ephemeris[npl]
     
-        # estimate uncertainty
-        yerr_expected = predict_tc_error(np.sqrt(p.depth), p.impact, p.duration, lcit, np.median(lc.error))
-        yerr_measured = indep_error[npl]
-        
-        yerr = np.sqrt(yerr_expected**2 + yerr_measured**2)
-        ymax = np.sqrt(astropy.stats.mad_std(yomc)**2 - np.median(yerr)**2)
-    
         # flag outliers
         if len(yomc) > 16:
             ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode='mirror'), winsize=5)
@@ -1655,10 +1635,18 @@ def main():
             ymed = np.median(yomc)
         
         if len(yomc) > 4:
-            out = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 5.0
+            out = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 5.
         else:
-            out = np.zeros(len(yomc), dtype='bool')
+            out = np.zeros(len(yomc), dtype='bool')        
             
+            
+        # estimate uncertainty
+        yerr_expected = predict_tc_error(np.sqrt(p.depth), p.impact, p.duration, lcit, np.median(lc.error))
+        yerr_measured = indep_error[npl]
+        
+        yerr = np.sqrt(yerr_expected**2 + yerr_measured**2)
+        ymax = np.sqrt(astropy.stats.mad_std(yomc)**2 - np.median(yerr)**2)
+    
         # compare various models
         aiclist = []
         biclist = []
@@ -1695,10 +1683,10 @@ def main():
                 omc_trace = pmx.sample(tune=8000, draws=2000, start=omc_map, chains=2, target_accept=0.95, progressbar=VERBOSE)
     
             omc_trend = np.nanmedian(omc_trace['pred'], 0)
-            residuals = yomc - omc_trend
+            residuals = yomc - omc_trend        
             
             plt.figure(figsize=(12,3))
-            plt.errorbar(xtime, yomc*24*60, yerr=yerr*24*60, fmt='o', c='lightgrey')
+            plt.errorbar(xtime, yomc*24*60, yerr=yerr*24*60, fmt='o', c='lightgrey', zorder=-1)
             plt.plot(xtime[out], yomc[out]*24*60, 'rx')
             plt.plot(xtime, omc_trend*24*60, c='C{0}'.format(npl), lw=2)
             plt.xlabel("Time [BJKD]", fontsize=16)
@@ -1712,13 +1700,14 @@ def main():
             n = len(yomc)
             
             if polyorder == -1:
-                k = 2 + np.ceil((xtime.max()-xtime.min())/np.median(omc_trace.rho/np.sqrt(3)))
+                k = np.nanmedian(omc_trace['dof'])
+                print("keff : {0:.1f}".format(k))
             elif polyorder == 0:
                 k = 3
             else:
                 k = polyorder + 1
                 
-            chisq  = np.sum((yomc[~out]-omc_trend[~out])**2/yerr[~out]**2)
+            chisq = np.sum((yomc[~out]-omc_trend[~out])**2/yerr[~out]**2)
             lnlike = -chisq
             
             aic = 2*k - 2*lnlike

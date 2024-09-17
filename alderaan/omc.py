@@ -68,17 +68,21 @@ def matern32_model(xtime, yomc, yerr, ymax=None, xt_predict=None):
         # define the GP
         gp = GaussianProcess(kernel, t=xtime, yerr=yerr, mean=mean)
 
-        # compute the likelihood
+        # factorize the covariance matrix
         gp.compute(xtime, yerr=yerr)
         
-        # track GP prediction
-        trend = pm.Deterministic('trend', gp.predict(yomc, xtime))
-        pred  = pm.Deterministic('pred', gp.predict(yomc, xt_predict))        
+        # track GP prediction, covariance, and degrees of freedom
+        trend, cov = gp.predict(yomc, xtime, return_cov=True)
+        
+        trend = pm.Deterministic('trend', trend)
+        cov   = pm.Deterministic('cov', cov)
+        pred  = pm.Deterministic('pred', gp.predict(yomc, xt_predict))
+        
+        dof = pm.Deterministic('dof', pm.math.trace(cov/yerr**2))
         
         # add marginal likelihood to model
         lnlike = gp.log_likelihood(yomc)        
         pm.Potential('lnlike', lnlike)
-        
         
     return model
 
