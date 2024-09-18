@@ -674,7 +674,7 @@ def main():
     gp_priors = []
     
     for z in range(4):
-        print("SEASON {0}".format(x))
+        print("SEASON {0}".format(z))
         
         if season_dtype[z] == 'none':
             gp_priors.append(None)

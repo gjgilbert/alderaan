@@ -121,13 +121,6 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
             qld_flux = _quadratic_ld._quadratic_ld(ds, np.abs(theta[npl].rp), theta[npl].u[0], theta[npl].u[1], nthreads)
             qld_flux = np.mean(qld_flux.reshape(-1, supersample_factor), axis=1) # PERF can probably speed this up.
             light_curve += qld_flux - 1.0
-            
-            #print(theta[npl].rp, theta[npl].b, theta[npl].T14)
-            
-            #plt.figure()
-            #plt.plot(t_, f_, 'k.')
-            #plt.plot(t_, light_curve, 'r.')
-            #plt.show()
 
 
         USE_GP = False

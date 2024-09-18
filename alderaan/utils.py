@@ -397,7 +397,7 @@ def LS_estimator(x, y, fsamp=None, fap=0.1, return_levels=False, max_peaks=2):
         return xf_out, yf_out, freqs, faps
     
     
-def bin_data(time, data, binsize):
+def bin_data(time, data, binsize, bin_centers=None):
     """
     Parameters
     ----------
@@ -415,16 +415,15 @@ def bin_data(time, data, binsize):
     binned_data : ndarray
         data binned to selcted binsize
     """
-    bin_centers = np.hstack([np.arange(time.mean(),time.min()-binsize/2,-binsize),
-                            np.arange(time.mean(),time.max()+binsize/2,binsize)])
-    
-    bin_centers = np.sort(np.unique(bin_centers))
-    binned_data = []
-    
-    for i, t0 in enumerate(bin_centers):
-        binned_data.append(np.mean(data[np.abs(time-t0) < binsize/2]))
+    if bin_centers is None:
+        bin_centers = np.hstack([np.arange(time.mean(),time.min()-binsize/2,-binsize)[::-1],
+                                 np.arange(time.mean(),time.max()+binsize/2,binsize)[1:]])
         
-    return bin_centers, np.array(binned_data)
+    binned_data = np.zeros(len(bin_centers))
+    for i, t0 in enumerate(bin_centers):
+        binned_data[i] = np.mean(data[np.abs(time-t0) < binsize/2])
+        
+    return bin_centers, binned_data
 
 
 def autocorr_length(x):
