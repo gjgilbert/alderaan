@@ -7,13 +7,13 @@ import scipy.signal as sig
 from   scipy.interpolate import interp1d
 import warnings
 
-import pymc3 as pm
-import pymc3_ext as pmx
-import exoplanet as exo
 import aesara_theano_fallback.tensor as T
 from   aesara_theano_fallback import aesara as theano
 from   celerite2.theano import GaussianProcess
 from   celerite2.theano import terms as GPterms
+import exoplanet as exo
+import pymc3 as pm
+import pymc3_ext as pmx
 
 from .constants import *
 from .LiteCurve import LiteCurve
@@ -29,7 +29,7 @@ __all__ = ['make_transitmask',
 
 def make_transitmask(time, tts, masksize):
     """
-    Make a transit mask for a Planet
+    Make a transit mask for an alderaan.Planet() object
     
     Parameters
     ----------
@@ -38,11 +38,11 @@ def make_transitmask(time, tts, masksize):
         tts : array-like
             transit times for a single planet
         masksize : float
-            size of mask window in same units as time
+            size of mask window in units of time
     
     Returns
     -------
-        transitmask : array-like, bool
+        transitmask : ndarray, bool
             boolean array (1=near transit; 0=not)
     """
     transitmask = np.zeros(len(time), dtype='bool')
@@ -62,8 +62,8 @@ def identify_gaps(lc, break_tolerance, jump_tolerance=5.0):
     
     Parameters
     ----------
-        lc : LiteCurve
-            alderaan.LiteCurve() to be analyzed
+        lc : alderaan.LiteCurve
+            Litecurve to be analyzed
         break_tolerance : int
             number of cadences to be considered a (time) gap
         jump_tolerance : float
@@ -110,8 +110,8 @@ def flatten_with_gp(lc, break_tolerance, min_period, nominal_period=None,
     
     Parameters
     ----------
-        lc : LiteCurve
-            alderaan.LiteCurve() to be flattened
+        lc : alderaan.LiteCurve 
+            LiteCurve to be flattened
         break_tolerance : int
             number of cadences to be considered a gap in data
         min_period : float
@@ -127,8 +127,8 @@ def flatten_with_gp(lc, break_tolerance, min_period, nominal_period=None,
         
     Returns
     -------
-        lc : LiteCurve
-            alderaan.LiteCurve() with lc.flux and lc.error flattened and normalized
+        lc : alderaan.LiteCurve
+            LiteCurve with lc.flux and lc.error flattened and normalized
     """
     # identify primary oscillation period
     if nominal_period is None:
@@ -285,8 +285,8 @@ def filter_ringing(lc, break_tolerance, fring, bw):
     
     Parameters
     ----------
-        lc : LiteCurve() object
-            must have time, flux, and cadno attributes
+        lc : alderaan.LiteCurve
+            Litecurve must have time, flux, and cadno attributes
         break_tolerance : int
             number of cadences considered a large gap in time
         fring : array-like
@@ -346,6 +346,14 @@ def filter_ringing(lc, break_tolerance, fring, bw):
 def stitch(litecurves):
     """
     Combine a list of LiteCurves in a single LiteCurve
+    
+    Parameters
+    ----------
+        litecurves : list of alderaan.LiteCurve() objects
+             
+    Returns
+    -------
+        lc : a single combined alderaan.LiteCurve() object
     """
     combo = deepcopy(litecurves[0])
     

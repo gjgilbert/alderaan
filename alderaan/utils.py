@@ -31,14 +31,12 @@ __all__ = ['get_transit_depth',
 def get_transit_depth(p, b):
     """
     Calculate approximate transit depth
-    See Mandel & Agol 2002 Eq. 1
+    See Mandel & Agol 2002
     
     Parameters
     ----------
-    p : array-like
-        rp/Rstar, normalized planet-to-star radius ratio
-    b : array-like
-        impact parameter
+    p : planet-to-star radius ratio Rp/Rstar
+    b : impact parameter
     
     Returns
     -------
@@ -72,7 +70,7 @@ def get_transit_depth(p, b):
 
 def get_sma(P, Ms):
     """
-    Calculate semi-major axis in units of [Solar radii] from Kepler's law
+    Calculate semi-major axis in units of Solar radii from Kepler's law
     
     Parameters
     ----------

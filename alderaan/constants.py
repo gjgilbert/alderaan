@@ -1,5 +1,5 @@
-import numpy as np
 import astropy.constants as apc
+import numpy as np
 
 pi = np.pi
 

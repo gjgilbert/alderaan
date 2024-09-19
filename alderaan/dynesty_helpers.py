@@ -12,15 +12,18 @@ from .Ephemeris import Ephemeris
 from .constants import scit
 
 
-__all__ = ['prior_transform',
+__all__ = ['uniform_ppf',
+		   'loguniform_ppf',
+		   'norm_ppf',
+		   'prior_transform',
            'lnlike'
           ]
 
 
 def uniform_ppf(u, a, b):
     """
-    Prior transform from U(0,1) --> Uniform(a,b)
-    
+    Transform from U(0,1) --> Uniform(a,b)
+        
     Parameters
     ----------
         u : array-like
@@ -40,7 +43,7 @@ def uniform_ppf(u, a, b):
 
 def loguniform_ppf(u, a, b):
     """
-    Prior transform from U(0,1) --> LogUniform(a,b)
+    Transform from U(0,1) --> LogUniform(a,b)
     
     Parameters
     ----------
@@ -61,7 +64,7 @@ def loguniform_ppf(u, a, b):
 
 def norm_ppf(u, mu, sig, eps=1e-12):
     """
-    Prior transform from U(0,1) --> Normal(mu,siga)
+    Transform from U(0,1) --> Normal(mu,sig)
     
     Parameters
     ----------
@@ -82,10 +85,12 @@ def norm_ppf(u, mu, sig, eps=1e-12):
     return mu + sig*np.sqrt(2)*erfinv((2*u-1)/(1+eps))
 
 
-# functions for dynesty (hyperparameters are currently hard-coded)
 def prior_transform(uniform_hypercube, num_planets, durations):
     """
-    Prior transform over physical ALDERAAN basis {C0, C1, r, b, T14}...{q1,q2}
+    Prior transform to be passed to dynesty sampler
+    
+    The physical ALDERAAN basis is {C0, C1, r, b, T14}...{q1,q2}
+    
     Distributions are hard-coded to be:
         Normal on ephemeris perturbations {C0,C1}
         Log-uniform on radius ratio r and transit duration T14
@@ -93,9 +98,10 @@ def prior_transform(uniform_hypercube, num_planets, durations):
         Uniform on quadratic limb darkening coefficients {q1,q2}
         
     For motivation behind this prior-parameter choice see:
+        Carter+ 2008 (2008ApJ...689..499C)
+        Kipping 2013 (2013MNRAS.435.2152K)
         Gilbert, MacDougall, & Petigura 2022 (2022AJ....164...92G)
         MacDougal, Gilbert, & Petigura 2023 (2023AJ....166...61M)
-        Kipping 2013 (2013MNRAS.435.2152K)
     
     Parameters
     ----------
@@ -133,6 +139,33 @@ def prior_transform(uniform_hypercube, num_planets, durations):
 
 
 def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=None):
+    """
+    Log-likelihood function to be passed to dynesty sampler
+    
+    *** Much of this function is redundant and can be cleaned up ***
+        
+    Parameters
+    ----------
+        x : array-like
+            N x [C0, C1, r, b, T14] + [q1,q2]
+        num_planets : int
+            number of planets in the system
+        theta : batman.TransitParams() object
+            
+        ephem_args : dict
+            arguments related to the ephemeris
+        phot_args : dict
+            arguments related to the photometry
+        ld_priors : tuple
+        	precomputed (U1,U2) values for limb darkening; used to set priors
+        gp_kernel :
+        	
+    
+    Returns
+    -------
+        loglike : 
+            
+    """
     # extract ephemeris kwargs
     inds = ephem_args['transit_inds']
     tts  = ephem_args['transit_times']
