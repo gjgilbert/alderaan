@@ -1,5 +1,4 @@
 from   astropy.io import fits
-import astropy
 import batman
 import copy
 import corner
@@ -326,13 +325,11 @@ class Results:
         
         
     def plot_folded(self, n, max_pts=1000):
-        # grab posteriors
         time = self.lightcurve.time
         flux = self.lightcurve.flux
         tts = self.transittimes.model[n]
         T14 = self.posteriors.summary()['median']['DUR14_{0}'.format(n)]
         
-        # fold photometry
         t_folded = []
         f_folded = []
         
@@ -358,36 +355,11 @@ class Results:
         
         residuals = f_folded - f_pred
         _, res_binned = bin_data(t_folded, residuals, T14/11)
-        
-        
-        # estimate contact points to assess differential scatter
-        s = self.posteriors.summary()
 
-        T14 = s.at['DUR14_{0}'.format(n), 'median']
-        ror = s.at['ROR_{0}'.format(n), 'median']
-        b   = s.at['IMPACT_{0}'.format(n), 'median']
 
-        T23_over_T14 = np.sqrt(((1-ror)**2-b**2) / ((1+ror)**2-b**2))
-
-        T23 = T14 * T23_over_T14
-        tau = (T14-T23)/2
-        
-        t_ = t_folded
-        f_ = f_folded
-        r_ = residuals
-
-        rms = {}
-        rms['before'] = np.round(astropy.stats.mad_std(r_[(t_ > -T14-tau)*(t_ < -T14)])*1e6, 1)
-        rms['ingress'] = np.round(astropy.stats.mad_std(r_[(t_ > -T14/2)*(t_ < -T23/2)])*1e6, 1)
-        rms['mid'] = np.round(astropy.stats.mad_std(r_[(t_ > -tau/2)*(t_ < tau/2)])*1e6, 1)
-        rms['egress'] = np.round(astropy.stats.mad_std(r_[(t_ > T23/2)*(t_ < T14/2)])*1e6, 1)
-        rms['after'] = np.round(astropy.stats.mad_std(r_[(t_ > T14)*(t_ < T14+tau)])*1e6, 1)
-        
-        # select a subset of points to plot
         inds = np.arange(len(t_folded), dtype='int')
         inds = np.random.choice(inds, size=np.min([max_pts,len(inds)]), replace=False)
         
-        # make the plot
         fig = plt.figure(figsize=(12,6))
 
         ax = [plt.subplot2grid(shape=(3,1), loc=(0,0), rowspan=2, colspan=1),
@@ -399,10 +371,6 @@ class Results:
         ax[0].plot(t_mod_lc*24, f_mod_lc, 'k--', lw=2)
         ax[0].set_xlim(t_folded.min()*24, t_folded.max()*24)
         ax[0].set_ylabel("Flux", fontsize=24)
-        
-        yloc = 0.5*(f_.max()+f_.min())
-        
-        ax[0].text(-T14/2, yloc, rms['before'], color='C{0}'.format(n))
         
         ax[1].plot(t_folded[inds]*24, residuals[inds], '.', color='lightgrey')
         ax[1].plot(t_binned*24, res_binned, 's', color='w', mec='k', ms=10)    
