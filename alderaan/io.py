@@ -1,3 +1,4 @@
+
 from   astropy.io import fits
 from   copy import deepcopy
 import lightkurve as lk
@@ -60,9 +61,6 @@ def cleanup_lkfc(lk_collection, kic):
 
 
 def LightKurve_to_LiteCurve(lklc):
-	"""
-	Convert a lightkurve.LightCurveCollection into an alderaan.LiteCurve
-	"""
     return LiteCurve(time    = np.array(lklc.time.value, dtype='float'),
                      flux    = np.array(lklc.flux.value, dtype='float'),
                      error   = np.array(lklc.flux_err.value, dtype='float'),
@@ -79,11 +77,12 @@ def load_detrended_lightcurve(filename):
     
     Parameters
     ----------
-    	filename : str
+        filename : string
     
     Returns
     -------
-        litecurve : alderaan.LiteCurve
+        litecurve : LiteCurve() object
+    
     """     
     litecurve = LiteCurve() 
     
@@ -97,25 +96,13 @@ def load_detrended_lightcurve(filename):
     return litecurve
 
 
-# *** THIS FUNCTION SHOULD BE RENAMED TO SOMETHING MORE DESCRIPTIVE ***
+
 def to_fits(results, project_dir, run_id, target, npl):
-    """
-    Save a dynesty Results instance to a fits file
-    Expects DynamicNestedSampler but will probably work with NestedSampler
-    
-    Parameters
-    ----------
-    	results : dynesty.DynamicNestedSampler.Results
-    		will probably work with NestedSampler.Results too
-     	project_dir : str
-    		path to project directory where files are saved
-    	run_id : str
-    		unique identifier for this run; a directory will be created <project_dir>/<run_id> if it does not already exist
-	   	target : str
-    		name of target star, e.g. 'K00137'
-    	npl : int
-    		number of planets in system
-    """
+    '''
+    results : dynesty.DynamicNestedSampling.Results
+    target : (str) name of target, e.g. 'K00137'
+    npl : (int) number of planets
+    '''
     # package nested samples
     samples_keys = []
 
@@ -125,8 +112,10 @@ def to_fits(results, project_dir, run_id, target, npl):
     samples_keys += ['LD_Q1', 'LD_Q2']
     samples_keys += ['LN_WT', 'LN_LIKE', 'LN_Z']
 
+
     samples_data = np.vstack([results.samples.T, results.logwt, results.logl, results.logz]).T
     samples_df = pd.DataFrame(samples_data, columns=samples_keys)
+    
     
     # build HDU List
     primary_hdu = fits.PrimaryHDU()
