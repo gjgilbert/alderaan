@@ -569,8 +569,10 @@ def main():
     
     
     # identify which quarters and seasons have data
+    no_transits = (np.array(all_dtype) == 'long_no_transits') + (np.array(all_dtype) == 'short_no_transits')
     which_quarters = np.sort(np.unique(np.hstack(transit_quarter)))
-    which_seasons = np.sort(np.unique(which_quarters % 4))
+    which_quarters = which_quarters[~np.isin(which_quarters, np.squeeze(np.argwhere(no_transits)))]
+    which_seasons  = np.sort(np.unique(which_quarters % 4))
     
     # mean flux and jitter for each quarter
     nq = len(which_quarters)
