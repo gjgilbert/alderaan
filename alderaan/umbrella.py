@@ -74,7 +74,7 @@ def F_iter(z, psi_fxns, coordinates, weights=None):
 
 def z_iter(F, tol=1.E-10, max_iter=100):
     """
-    Helper function for .emus_weights
+    Helper function for emus_weights
     """
     # stationary distribution is the last column of QR factorization
     M = np.eye(len(F))-F
