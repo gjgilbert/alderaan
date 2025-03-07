@@ -13,9 +13,9 @@ from .constants import scit
 
 
 __all__ = ['uniform_ppf',
-		   'loguniform_ppf',
-		   'norm_ppf',
-		   'prior_transform',
+           'loguniform_ppf',
+           'norm_ppf',
+           'prior_transform',
            'lnlike'
           ]
 
@@ -157,9 +157,9 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
         phot_args : dict
             arguments related to the photometry
         ld_priors : tuple
-        	precomputed (U1,U2) values for limb darkening; used to set priors
-        gp_kernel :
-        	
+            precomputed (U1,U2) values for limb darkening; used to set priors
+        gp_kernel : celerite kernel
+            pre-initialized celerite Gaussian Process kernel (optional)
     
     Returns
     -------

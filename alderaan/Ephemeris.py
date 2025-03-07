@@ -3,17 +3,17 @@ import numpy as np
 __all__ = ['Ephemeris']
 
 class Ephemeris:
-	"""
-	A class for storing the emphemeris information of a single planet
-	
-	Parameters
-	----------
-	
-	Attributes
-	----------
-	
-	
-	"""
+    """
+    A class for storing the emphemeris information of a single planet
+    
+    Parameters
+    ----------
+    
+    Attributes
+    ----------
+    
+    
+    """
     def __init__(self, inds, tts):
         self.inds = inds
         self.tts  = tts
