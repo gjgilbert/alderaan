@@ -373,10 +373,11 @@ def main():
     # use Holczer+ 2016 TTVs where they exist
     HOLCZER_FILE = PROJECT_DIR + 'Catalogs/holczer_2016_kepler_ttvs.txt'
     
-    holczer_data = np.loadtxt(HOLCZER_FILE, usecols=[0,1,2,3])
+    holczer_data = np.loadtxt(HOLCZER_FILE, usecols=[0,1,2,3,4])
     
     holczer_inds = []
     holczer_tts  = []
+    holczer_errs = []
     holczer_pers = []
     
     for npl in range(NPL):
@@ -387,11 +388,13 @@ def main():
         if np.sum(use) > 0:
             holczer_inds.append(np.array(holczer_data[use,1], dtype='int'))
             holczer_tts.append(holczer_data[use,2] + holczer_data[use,3]/24/60 + 67)
+            holczer_errs.append(holczer_data[use,4]/24/60)
             holczer_pers.append(np.median(holczer_tts[npl][1:] - holczer_tts[npl][:-1]))
     
         else:
             holczer_inds.append(None)
             holczer_tts.append(None)
+            holczer_errs.append(None)
             holczer_pers.append(np.nan)
     
     holczer_pers = np.asarray(holczer_pers)
@@ -421,6 +424,7 @@ def main():
             # calculate OMC and flag outliers
             xtime = np.copy(holczer_tts[npl])
             yomc  = (holczer_tts[npl] - ephem)
+            yerr  = np.copy(holczer_errs[npl])
     
             if len(yomc) > 16:
                 ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode='mirror'), winsize=5)
@@ -434,9 +438,9 @@ def main():
             
             # estimate TTV signal with a regularized Matern-3/2 GP
             if np.sum(~out) > 4:
-                holczer_model = omc.matern32_model(xtime[~out], yomc[~out], hephem)
+                holczer_model = omc.matern32_model(xtime[~out], yomc[~out], yerr[~out], xt_predict=hephem)
             else:
-                holczer_model = omc.poly_model(xtime[~out], yomc[~out], 1, hephem)
+                holczer_model = omc.poly_model(xtime[~out], yomc[~out], yerr[~out], 1, xt_predict=hephem)
     
             with holczer_model:
                 holczer_map = pmx.optimize(verbose=VERBOSE)
@@ -1236,9 +1240,9 @@ def main():
                     qx2_min = np.polyval(quad_coeffs, qtc_min)
                     qtc_err = np.sqrt(1/quad_coeffs[0])
     
-                    # here's the fitted transit time
+                    # transit time and scaled error
                     tts[i] = np.mean([qtc_min,np.median(tcfit)])
-                    err[i] = qtc_err*1.0
+                    err[i] = qtc_err*(1 + np.std(x2fit-quadfit))
     
                     # check that the fit is well-conditioned (ie. a negative t**2 coefficient)
                     if quad_coeffs[0] <= 0.0:
@@ -1255,22 +1259,25 @@ def main():
                 # show plots
                 do_plots = False
                 if do_plots:
+                    fig, ax = plt.subplots(1,2, figsize=(10,3))
+    
                     if ~np.isnan(tts[i]):
+                        tc = tts[i]
+                    else:
+                        tc = t0
+                    
+                    ax[0].plot(t_-tc, f_, 'ko')
+                    ax[0].plot((t_-tc)[m_], f_[m_], "o", c='C{0}'.format(npl))
+                    ax[0].plot(template_time, template_flux, c='C{0}'.format(npl), lw=2)
     
-                        fig, ax = plt.subplots(1,2, figsize=(10,3))
+                    ax[1].plot(tcfit, x2fit, 'ko')
+                    ax[1].plot(tcfit, quadfit, c='C{0}'.format(npl), lw=3)
+                    ax[1].axvline(tc, color='k', ls="--", lw=2)                
     
-                        ax[0].plot(t_-tts[i], f_, 'ko')
-                        ax[0].plot((t_-tts[i])[m_], f_[m_], "o", c='C{0}'.format(npl))
-                        ax[0].plot(template_time, template_flux, c='C{0}'.format(npl), lw=2)
-    
-                        ax[1].plot(tcfit, x2fit, 'ko')
-                        ax[1].plot(tcfit, quadfit, c='C{0}'.format(npl), lw=3)
-                        ax[1].axvline(tts[i], color='k', ls="--", lw=2)
-                        
-                        if IPLOT:
-                            plt.show()
-                        else:
-                            plt.close()
+                    if IPLOT:
+                        plt.show()
+                    else:
+                        plt.close()
                         
             else:
                 #print("OVERLAPPING TRANSITS")
@@ -1435,7 +1442,7 @@ def main():
         indep_error.append(np.copy(slide_error[npl]))
         
         replace = np.isnan(slide_error[npl])
-        
+            
         if np.any(replace):
             indep_transit_times[npl][replace] = indep_map["tts_{0}".format(npl)]
     
@@ -1443,10 +1450,33 @@ def main():
     
         indep_linear_ephemeris.append(poly.polyval(transit_inds[npl], pfit))
         full_indep_linear_ephemeris.append(poly.polyval(p.index, pfit))
+        
+        if np.all(replace):
+            indep_error[npl][replace] = astropy.stats.mad_std(indep_transit_times[npl] - indep_linear_ephemeris[npl])    
+        elif np.any(replace):
+            indep_error[npl][replace] = astropy.stats.mad_std(indep_transit_times[npl][~replace] - indep_linear_ephemeris[npl][~replace])
     
-        if np.any(replace):
-            indep_error[npl][replace] = astropy.stats.mad_std(indep_transit_times[npl][~replace] 
-                                                              - indep_linear_ephemeris[npl][~replace])
+    
+    for npl, p in enumerate(planets):
+        print("\nPLANET", npl)
+        
+        # grab data
+        xtime = indep_linear_ephemeris[npl]
+        yomc  = indep_transit_times[npl] - indep_linear_ephemeris[npl]
+        
+        yerr_expected = predict_tc_error(np.sqrt(p.depth), p.impact, p.duration, lcit, np.median(lc.error))
+        yerr_measured = indep_error[npl]
+        
+        yerr = np.sqrt(yerr_expected**2 + yerr_measured**2)
+        
+        #plt.figure(figsize=(16,3))
+        #plt.errorbar(xtime, yomc*24*60, yerr=yerr*24*60, fmt='ko')
+        #plt.show()
+        
+        print("  expected uncertainty: {0:.1f} min".format(yerr_expected*24*60))
+        print("  measured uncertainty: {0:.1f} min".format(np.median(yerr_measured*24*60)))
+        print("  adopted uncertainty:  {0:.1f} min".format(np.median(yerr*24*60)))
+        print("  dispersion:           {0:.1f} min".format(astropy.stats.mad_std(yomc)*24*60))
     
     
     print("")
@@ -1474,7 +1504,12 @@ def main():
         # grab data
         xtime = indep_linear_ephemeris[npl]
         yomc  = indep_transit_times[npl] - indep_linear_ephemeris[npl]
-    
+        
+        # estimate measurement uncertainty
+        yerr_expected = predict_tc_error(np.sqrt(p.depth), p.impact, p.duration, lcit, np.median(lc.error))
+        yerr_measured = indep_error[npl]
+        
+        # flag outliers
         ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode="mirror"), winsize=5)
         out  = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 5.0
         
@@ -1592,23 +1627,29 @@ def main():
         # grab data
         xtime = indep_linear_ephemeris[npl]
         yomc  = indep_transit_times[npl] - indep_linear_ephemeris[npl]
-        
+    
+        # flag outliers
         if len(yomc) > 16:
             ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode='mirror'), winsize=5)
         else:
             ymed = np.median(yomc)
         
         if len(yomc) > 4:
-            out = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 5.0
+            out = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 5.
         else:
-            out = np.zeros(len(yomc), dtype='bool')
+            out = np.zeros(len(yomc), dtype='bool')        
             
+            
+        # estimate uncertainty
+        yerr_expected = predict_tc_error(np.sqrt(p.depth), p.impact, p.duration, lcit, np.median(lc.error))
+        yerr_measured = indep_error[npl]
+        
+        yerr = np.sqrt(yerr_expected**2 + yerr_measured**2)
+        ymax = np.sqrt(astropy.stats.mad_std(yomc)**2 - np.median(yerr)**2)
+    
         # compare various models
         aiclist = []
         biclist = []
-        fgplist = []
-        outlist = []
-        plylist = []
         
         if np.sum(~out) >= 16: 
             min_polyorder = -1
@@ -1622,14 +1663,19 @@ def main():
         else:
             min_polyorder = 1
             max_polyorder = 1
+            
+        # don't use a GP on very noisy data
+        if np.median(yerr) >= 0.5*astropy.stats.mad_std(yomc):
+            min_polyorder = np.max([0,min_polyorder])
         
+    
         for polyorder in range(min_polyorder, max_polyorder+1):
             if polyorder == -1:
-                omc_model = omc.matern32_model(xtime[~out], yomc[~out], xtime)
+                omc_model = omc.matern32_model(xtime[~out], yomc[~out], yerr[~out], ymax, xtime)
             elif polyorder == 0:
-                omc_model = omc.sin_model(xtime[~out], yomc[~out], omc_pers[npl], xtime)
+                omc_model = omc.sin_model(xtime[~out], yomc[~out], yerr[~out], omc_pers[npl], xtime)
             elif polyorder >= 1:
-                omc_model = omc.poly_model(xtime[~out], yomc[~out], polyorder, xtime)
+                omc_model = omc.poly_model(xtime[~out], yomc[~out], yerr[~out], polyorder, xtime)
     
             with omc_model:
                 omc_map = omc_model.test_point
@@ -1637,33 +1683,11 @@ def main():
                 omc_trace = pmx.sample(tune=8000, draws=2000, start=omc_map, chains=2, target_accept=0.95, progressbar=VERBOSE)
     
             omc_trend = np.nanmedian(omc_trace['pred'], 0)
-            residuals = yomc - omc_trend
-            
-            # flag outliers via mixture model of the residuals
-            mix_model = omc.mix_model(residuals)
-    
-            with mix_model:
-                mix_trace = pmx.sample(tune=8000, draws=2000, chains=1, target_accept=0.95, progressbar=VERBOSE)
-    
-            loc = np.nanmedian(mix_trace['mu'], axis=0)
-            scales = np.nanmedian(1/np.sqrt(mix_trace['tau']), axis=0)
-    
-            fg_prob, bad = omc.flag_outliers(residuals, loc, scales)
-            
-            while np.sum(bad)/len(bad) > 0.3:
-                thresh = np.max(fg_prob[bad])
-                bad = fg_prob < thresh
-                
-            fgplist.append(fg_prob)
-            outlist.append(bad)
-            plylist.append(polyorder)
-            
-            print("{0} outliers found out of {1} transit times ({2}%)".format(np.sum(bad), len(bad), 
-                                                                              np.round(100.*np.sum(bad)/len(bad),1)))
+            residuals = yomc - omc_trend        
             
             plt.figure(figsize=(12,3))
-            plt.plot(xtime, yomc*24*60, 'o', c='lightgrey')
-            plt.plot(xtime[bad], yomc[bad]*24*60, 'rx')
+            plt.errorbar(xtime, yomc*24*60, yerr=yerr*24*60, fmt='o', c='lightgrey', zorder=-1)
+            plt.plot(xtime[out], yomc[out]*24*60, 'rx')
             plt.plot(xtime, omc_trend*24*60, c='C{0}'.format(npl), lw=2)
             plt.xlabel("Time [BJKD]", fontsize=16)
             plt.ylabel("O-C [min]", fontsize=16)
@@ -1672,17 +1696,22 @@ def main():
             else:
                 plt.close()
                 
-                
             # calculate AIC & BIC
             n = len(yomc)
             
-            if polyorder <= 0:
+            if polyorder == -1:
+                k = np.nanmedian(omc_trace['dof'])
+                print("keff : {0:.1f}".format(k))
+            elif polyorder == 0:
                 k = 3
             else:
                 k = polyorder + 1
+                
+            chisq = np.sum((yomc[~out]-omc_trend[~out])**2/yerr[~out]**2)
+            lnlike = -chisq
             
-            aic = n*np.log(np.sum(residuals[~bad]**2)/np.sum(~bad)) + 2*k
-            bic = n*np.log(np.sum(residuals[~bad]**2)/np.sum(~bad)) + k*np.log(n)
+            aic = 2*k - 2*lnlike
+            bic = k*np.log(n) - 2*lnlike
             
             aiclist.append(aic)
             biclist.append(bic)
@@ -1692,23 +1721,26 @@ def main():
             
             
         # choose the best model and recompute
-        out = outlist[np.argmin(aiclist)]
-        fg_prob = fgplist[np.argmin(aiclist)]
-        polyorder = plylist[np.argmin(aiclist)]
+        polyorder_aic = np.arange(min_polyorder, max_polyorder+1)[np.argmin(aiclist)]
+        polyorder_bic = np.arange(min_polyorder, max_polyorder+1)[np.argmin(biclist)]
+        polyorder = np.max([polyorder_aic, polyorder_bic])
+        
         xt_predict = full_indep_linear_ephemeris[npl]
     
         if polyorder == -1:
-            omc_model = omc.matern32_model(xtime[~out], yomc[~out], xt_predict)
+            omc_model = omc.matern32_model(xtime[~out], yomc[~out], yerr[~out], ymax, xt_predict)        
         elif polyorder == 0:
-            omc_model = omc.sin_model(xtime[~out], yomc[~out], omc_pers[npl], xt_predict)
+            omc_model = omc.sin_model(xtime[~out], yomc[~out], yerr[~out], omc_pers[npl], xt_predict)
         elif polyorder >= 1:
-            omc_model = omc.poly_model(xtime[~out], yomc[~out], polyorder, xt_predict)
+            omc_model = omc.poly_model(xtime[~out], yomc[~out], yerr[~out], polyorder, xt_predict)
     
         with omc_model:
             omc_map = omc_model.test_point
             omc_map = pmx.optimize(start=omc_map, progress=VERBOSE)
             omc_trace = pmx.sample(tune=8000, draws=2000, start=omc_map, chains=2, target_accept=0.95, progressbar=VERBOSE)
         
+        
+        # flag outliers with K-means clustering
         omc_trend = np.nanmedian(omc_trace['pred'], 0)
         residuals = yomc - omc_trend[np.isin(xt_predict, xtime)]
         mix_model = omc.mix_model(residuals)
@@ -1723,8 +1755,15 @@ def main():
     
         while np.sum(bad)/len(bad) > 0.3:
             thresh = np.max(fg_prob[bad])
-            bad = fg_prob < thresh
+            bad = fg_prob < thresh        
         
+        
+        num_bad = np.sum(bad)
+        frac_bad = num_bad/len(bad)
+        
+        print("{0:.0f} outliers found out of {1:.0f} transit times ({2:.1f}%)".format(np.sum(bad), len(bad), 100*np.sum(bad)/len(bad)))
+        print("measured error: {0:.1f} min".format(np.median(yerr_measured[~bad])*24*60))
+        print("residual RMS: {0:.1f} min".format(astropy.stats.mad_std(residuals[~bad])*24*60))    
         
         # save the final results
         full_omc_trend = np.nanmedian(omc_trace['pred'], 0)
@@ -1745,6 +1784,8 @@ def main():
         plt.yticks(fontsize=14)
         plt.legend(fontsize=14, loc='upper right')
         plt.title(TARGET, fontsize=20)
+        plt.text(xtime.min(), yomc.min()*24*60, "measured error = {0:.1f} min".format(np.median(yerr_measured[~bad])*24*60), fontsize=16, ha='left', backgroundcolor='w')
+        plt.text(xtime.max(), yomc.min()*24*60, "residual RMS = {0:.1f} min".format(astropy.stats.mad_std(residuals[~bad])*24*60), fontsize=16, ha='right', backgroundcolor='w')
         plt.savefig(os.path.join(FIGURE_DIR, TARGET + '_ttvs_quick_{0:02d}.png'.format(npl)), bbox_inches='tight')
         if IPLOT:
             plt.show()

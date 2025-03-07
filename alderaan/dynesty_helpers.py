@@ -87,9 +87,7 @@ def norm_ppf(u, mu, sig, eps=1e-12):
 
 def prior_transform(uniform_hypercube, num_planets, durations):
     """
-    Prior transform to be passed to dynesty sampler
-    
-    The physical ALDERAAN basis is {C0, C1, r, b, T14}...{q1,q2}
+    Prior transform over physical ALDERAAN basis {C0, C1, r, b, T14}...{q1,q2}
     
     Distributions are hard-coded to be:
         Normal on ephemeris perturbations {C0,C1}
