@@ -1,17 +1,15 @@
+from   copy import deepcopy
+import warnings
+
 import astropy
 from   astropy.timeseries import LombScargle
-from   copy import deepcopy
-import matplotlib.pyplot as plt
 import numpy as np
 import scipy.signal as sig
-from   scipy.interpolate import interp1d
-import warnings
 
 import aesara_theano_fallback.tensor as T
 from   aesara_theano_fallback import aesara as theano
 from   celerite2.theano import GaussianProcess
 from   celerite2.theano import terms as GPterms
-import exoplanet as exo
 import pymc3 as pm
 import pymc3_ext as pmx
 
@@ -86,7 +84,7 @@ def identify_gaps(lc, break_tolerance, jump_tolerance=5.0):
     # identify flux jumps
     jumps = lc.flux[1:]-lc.flux[:-1]
     jumps = np.pad(jumps, (1,0), 'constant', constant_values=(0,0))
-    big_jump = np.abs(jumps - np.median(jumps))/astropy.stats.mad_std(jumps) > 5.0
+    big_jump = np.abs(jumps - np.median(jumps))/astropy.stats.mad_std(jumps) > jump_tolerance
     jump_locs = np.where(mask*big_jump)[0]
     
     gaps = np.sort(np.unique(np.hstack([break_locs, jump_locs])))
@@ -173,7 +171,7 @@ def flatten_with_gp(lc, break_tolerance, min_period, nominal_period=None,
             return mean
         
     else:
-        def mean_fxn(_t, _s, flux0, ramp_amp=None, log_tau=None):
+        def mean_fxn(_t, _s, flux0):
             mean = T.zeros(len(_t))
             
             for i in range(len(np.unique(_s))):
@@ -272,8 +270,8 @@ def flatten_with_gp(lc, break_tolerance, min_period, nominal_period=None,
     
     if return_trend:
         return lc, full_trend
-    else:
-        return lc
+    
+    return lc
 
 
 def filter_ringing(lc, break_tolerance, fring, bw):
