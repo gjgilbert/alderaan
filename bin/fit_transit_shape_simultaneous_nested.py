@@ -6,12 +6,39 @@
 
 import os
 import sys
-import glob
+import json
 import shutil
 import warnings
-from copy import deepcopy
-from datetime import datetime
-from timeit import default_timer as timer
+import multiprocessing as multipro
+from   datetime import datetime
+from   timeit import default_timer as timer
+
+import argparse
+import batman
+import dynesty
+from   dynesty import plotting as dyplot
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy.polynomial.polynomial as poly
+import numpy as np
+import pandas as pd
+
+from   aesara_theano_fallback import aesara as theano
+from   celerite2 import terms as GPterms
+
+
+# #### Flush buffer and silence extraneous warnings
+
+
+# flush buffer to avoid mixed outputs from progressbar
+sys.stdout.flush()
+
+# turn off FutureWarnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+
+# #### Initialize timer
+
 
 print("")
 print("+"*shutil.get_terminal_size().columns)
@@ -26,9 +53,6 @@ global_start_time = timer()
 
 # #### Parse inputs
 
-
-# Automatically set inputs (when running batch scripts)
-import argparse
 
 try:
     parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
@@ -72,12 +96,8 @@ print(f"   Project directory : {PROJECT_DIR}")
 print(f"   Data directory    : {DATA_DIR}")
 print(f"   Input catalog     : {CATALOG}")
 print("")
-
-
-# #### Set environment variables
-
-
-sys.path.append(PROJECT_DIR)
+print(f"   theano cache : {theano.config.compiledir}")
+print("")
 
 
 # #### Build directory structure
@@ -90,41 +110,22 @@ FIGURE_DIR  = os.path.join(PROJECT_DIR, 'Figures', RUN_ID, TARGET)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(FIGURE_DIR, exist_ok=True)
 
-
-# #### Import packages
-
-
-import json
-import multiprocessing as multipro
-
-import numpy.polynomial.polynomial as poly
-import numpy as np
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import pandas as pd
-
-import batman
-import dynesty
-from   dynesty import plotting as dyplot
-
-import aesara_theano_fallback.tensor as T
-from   aesara_theano_fallback import aesara as theano
-from   celerite2 import GaussianProcess
-from   celerite2 import terms as GPterms
-
-from   alderaan.constants import scit, lcit
-from   alderaan.detrend import make_transitmask
-import alderaan.dynesty_helpers as dynhelp
-from   alderaan.Ephemeris import Ephemeris
-import alderaan.io as io
-from   alderaan.utils import *
+sys.path.append(PROJECT_DIR)
 
 
-# flush buffer to avoid mixed outputs from progressbar
-sys.stdout.flush()
+# #### Import ALDERAAN routines
 
-# turn off FutureWarnings
-warnings.filterwarnings("ignore", category=FutureWarning)
+
+from alderaan.constants import scit, lcit
+from alderaan.detrend import make_transitmask
+from alderaan.dynesty_helpers import dynhelp
+from alderaan.Ephemeris import Ephemeris
+from alderaan import io
+from alderaan.utils import *
+
+
+# #### Set matplotlib backend
+
 
 # check for interactive matplotlib backends
 if not IPLOT:
@@ -133,9 +134,6 @@ if not IPLOT:
 if np.any(np.array(['agg', 'png', 'svg', 'pdf', 'ps']) == mpl.get_backend()):
     warnings.warn("Selected matplotlib backend does not support interactive plotting")
     IPLOT = False
-
-# print theano compiledir cache
-print(f"theano cache: {theano.config.compiledir}\n")
 
 
 # MAIN SCRIPT BEGINS HERE
@@ -677,7 +675,7 @@ def main():
             sampler.run_nested(checkpoint_file=chk_file, checkpoint_every=60, print_progress=VERBOSE)
             results = sampler.results
 
-    if not USE_MULTIPRO:
+    else:
         sampler = dynesty.DynamicNestedSampler(logl, ptform, ndim, bound='multi', sample='rwalk', logl_args=logl_args, ptform_args=ptform_args)
         sampler.run_nested(checkpoint_file=chk_file, checkpoint_every=60, print_progress=VERBOSE)
         results = sampler.results

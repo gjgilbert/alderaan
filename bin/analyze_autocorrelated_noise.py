@@ -6,12 +6,40 @@
 
 import os
 import sys
-import glob
+import json
 import shutil
 import warnings
-from copy import deepcopy
-from datetime import datetime
-from timeit import default_timer as timer
+from   datetime import datetime
+from   timeit import default_timer as timer
+
+import argparse
+import astropy.stats
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+import numpy.polynomial.polynomial as poly
+import pandas as pd
+from   scipy import stats
+
+import pymc3_ext as pmx
+from   aesara_theano_fallback import aesara as theano
+
+
+# #### Flush buffer and silence extraneous warnings
+
+
+# flush buffer to avoid mixed outputs from progressbar
+sys.stdout.flush()
+
+# turn off FutureWarnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+
+# supress UnitsWarnings (this code doesn't use astropy units)
+warnings.filterwarnings(action='ignore', category=astropy.units.UnitsWarning, module='astropy')
+
+
+# #### Initialize timer
+
 
 print("")
 print("+"*shutil.get_terminal_size().columns)
@@ -26,9 +54,6 @@ global_start_time = timer()
 
 # #### Parse inputs
 
-
-# Automatically set inputs (when running batch scripts)
-import argparse
 
 try:
     parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
@@ -72,12 +97,8 @@ print(f"   Project directory : {PROJECT_DIR}")
 print(f"   Data directory    : {DATA_DIR}")
 print(f"   Input catalog     : {CATALOG}")
 print("")
-
-
-# #### Set environment variables
-
-
-sys.path.append(PROJECT_DIR)
+print(f"   theano cache : {theano.config.compiledir}")
+print("")
 
 
 # #### Build directory structure
@@ -90,50 +111,28 @@ FIGURE_DIR  = os.path.join(PROJECT_DIR, 'Figures', RUN_ID, TARGET)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(FIGURE_DIR, exist_ok=True)
 
-
-# #### Import packages
-
-
-import json
-
-import astropy.stats
-import numpy as np
-import numpy.polynomial.polynomial as poly
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import pandas as pd
-from   scipy import stats
-
-import pymc3 as pm
-import pymc3_ext as pmx
-import aesara_theano_fallback.tensor as T
-from   aesara_theano_fallback import aesara as theano
-from   celerite2.theano import GaussianProcess
-from   celerite2.theano import terms as GPterms
-
-from   alderaan.constants import scit, lcit
-from   alderaan.utils import boxcar_smooth
-import alderaan.io as io
-import alderaan.noise as noise
-import alderaan.detrend as detrend
+sys.path.append(PROJECT_DIR)
 
 
-# flush buffer to avoid mixed outputs from progressbar
-sys.stdout.flush()
+# #### Import ALDERAAN routines
 
-# turn off FutureWarnings
-warnings.filterwarnings("ignore", category=FutureWarning)
 
-# check for interactive matplotlib backends
+from alderaan.constants import scit, lcit
+from alderaan.utils import boxcar_smooth
+from alderaan import io
+from alderaan import noise
+from alderaan import detrend
+
+
+# #### Set matplotlib backends
+
+
 if not IPLOT:
     mpl.use('agg')
 
 if np.any(np.array(['agg', 'png', 'svg', 'pdf', 'ps']) == mpl.get_backend()):
     warnings.warn("Selected matplotlib backend does not support interactive plotting")
     IPLOT = False
-
-# print theano compiledir cache
-print(f"theano cache: {theano.config.compiledir}\n")
 
 
 # MAIN SCRIPT BEGINS HERE
@@ -401,7 +400,7 @@ def main():
         ax.set_xticklabels([])
         ax.set_ylim(acf_emp.min()*1.1, acf_emp.max()*1.1)
         ax.set_ylabel('ACF', fontsize=20)
-        ax.text(xcor.max()*24-0.15, acf_emp.max(), '%s, SEASON %d' %(target_name, season), va='top', ha='right', fontsize=20)
+        ax.text(xcor.max()*24-0.15, acf_emp.max(), f'{target_name}, {season}', va='top', ha='right', fontsize=20)
 
 
         ax = plt.subplot2grid(shape=(5,10), loc=(0,7), rowspan=5, colspan=3)
@@ -415,7 +414,7 @@ def main():
         ax.set_xlabel('Frequency [mHz]', fontsize=20)
 
         for i, sf in enumerate(np.sort(freqs)[::-1]):
-            ax.text(xf.min()/24/3600*1e3+0.1, yf.max()*(1.1-0.1*i), '%.2f min' %(24*60/sf), fontsize=16)
+            ax.text(xf.min()/24/3600*1e3+0.1, yf.max()*(1.1-0.1*i), f'{0:.2f} min'.format(24*60/sf), fontsize=16)
 
 
         ax = plt.subplot2grid(shape=(5,10), loc=(3,0), rowspan=2, colspan=7)
@@ -759,7 +758,7 @@ def main():
             for k in gp_priors[z].keys():
                 gp_priors[z][k] = list(gp_priors[z][k])
 
-            fname_out = os.path.join(RESULTS_DIR, '{0}_shoterm_gp_priors_{1}.txt'.format(TARGET, z))
+            fname_out = os.path.join(RESULTS_DIR, f'{TARGET}_shoterm_gp_priors_{z}.txt')
 
             with open(fname_out, 'w') as file:
                 json.dump(gp_priors[z], file)

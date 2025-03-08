@@ -34,4 +34,5 @@ dependencies:
      - ldtk==1.7.0
      - notebook==6.4.13
      - numba==0.55.1
+     - pylint==3.3.4
      - rebound==4.4.2

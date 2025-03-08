@@ -3,15 +3,60 @@
 
 # # Detrend and Estimate TTVs
 
+# In[1]:
+
 
 import os
 import sys
 import glob
 import shutil
 import warnings
-from copy import deepcopy
-from datetime import datetime
-from timeit import default_timer as timer
+from   copy import deepcopy
+from   datetime import datetime
+from   timeit import default_timer as timer
+
+import argparse
+import astropy
+from   astropy.io import fits
+from   astropy.stats import mad_std
+from   astropy.timeseries import LombScargle
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+import numpy.polynomial.polynomial as poly
+import pandas as pd
+import lightkurve as lk
+from   scipy import stats
+from   scipy.ndimage import median_filter
+
+import pymc3 as pm
+import pymc3_ext as pmx
+import exoplanet as exo
+import aesara_theano_fallback.tensor as T
+from   aesara_theano_fallback import aesara as theano
+from   celerite2.theano import GaussianProcess
+from   celerite2.backprop import LinAlgError
+
+
+# #### Flush buffer and silence extraneous warnings
+
+# In[2]:
+
+
+# flush buffer to avoid mixed outputs from progressbar
+sys.stdout.flush()
+
+# turn off FutureWarnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+
+# supress UnitsWarnings (this code doesn't use astropy units)
+warnings.filterwarnings(action='ignore', category=astropy.units.UnitsWarning, module='astropy')
+
+
+# #### Initialize timer
+
+# In[3]:
+
 
 print("")
 print("+"*shutil.get_terminal_size().columns)
@@ -26,8 +71,11 @@ global_start_time = timer()
 
 # #### Parse inputs
 
+# In[4]:
 
-import argparse
+
+# In[5]:
+
 
 try:
     parser = argparse.ArgumentParser(description="Inputs for ALDERAAN transit fiting pipeline")
@@ -46,7 +94,7 @@ try:
     parser.add_argument("--verbose", default=False, type=bool, required=False, \
                         help="'True' to enable verbose logging")
     parser.add_argument("--iplot", default=False, type=bool, required=False, \
-                        help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
+                        help="'True' to enable interactive matplotlib backend; default 'agg'")
     parser.add_argument("--use_sc", default=False, type=bool, required=False, \
                         help="'True' to use short cadence data where available")
 
@@ -65,6 +113,9 @@ except SystemExit:
     warnings.warn("No arguments were parsed from the command line")
 
 
+# In[6]:
+
+
 print("")
 print(f"   MISSION : {MISSION}")
 print(f"   TARGET  : {TARGET}")
@@ -74,9 +125,13 @@ print(f"   Project directory : {PROJECT_DIR}")
 print(f"   Data directory    : {DATA_DIR}")
 print(f"   Input catalog     : {CATALOG}")
 print("")
+print(f"   theano cache : {theano.config.compiledir}")
+print("")
 
 
 # #### Build directory structure
+
+# In[7]:
 
 
 # directories in which to place pipeline outputs for this run
@@ -86,65 +141,31 @@ FIGURE_DIR  = os.path.join(PROJECT_DIR, 'Figures', RUN_ID, TARGET)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(FIGURE_DIR, exist_ok=True)
 
-
-# #### Set environment variables
-
-
 sys.path.append(PROJECT_DIR)
 
 
-# #### Import packages
+# #### Import ALDERAAN routines
 
 
-import numpy as np
-import numpy.polynomial.polynomial as poly
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import pandas as pd
-
-import astropy
-from   astropy.io import fits
-from   astropy.timeseries import LombScargle
-import lightkurve as lk
-from   scipy import ndimage, stats
-
-import pymc3 as pm
-import pymc3_ext as pmx
-import exoplanet as exo
-import aesara_theano_fallback.tensor as T
-from   aesara_theano_fallback import aesara as theano
-from   celerite2.theano import GaussianProcess
-from   celerite2.theano import terms as GPterms
-from   celerite2.backprop import LinAlgError
-
-from   alderaan.constants import lcit, scit
-from   alderaan.utils import boxcar_smooth, get_transit_depth, predict_tc_error, bin_data, LS_estimator
-import alderaan.detrend as detrend
-import alderaan.io as io
-import alderaan.omc as omc
-from   alderaan.LiteCurve import LiteCurve
-from   alderaan.Planet import Planet
+from alderaan.constants import lcit, scit
+from alderaan.utils import boxcar_smooth, bin_data, LS_estimator
+from alderaan.utils import get_transit_depth, predict_tc_error
+from alderaan import detrend
+from alderaan.io import io
+from alderaan import omc
+from alderaan.LiteCurve import LiteCurve
+from alderaan.Planet import Planet
 
 
-# flush buffer to avoid mixed outputs from progressbar
-sys.stdout.flush()
+# #### Set matplotlib backends
 
-# turn off FutureWarnings
-warnings.filterwarnings('ignore', category=FutureWarning)
 
-# supress UnitsWarnings (this code doesn't use astropy units)
-warnings.filterwarnings(action='ignore', category=astropy.units.UnitsWarning, module='astropy')
-
-# check for interactive matplotlib backends
 if not IPLOT:
     mpl.use('agg')
 
 if np.any(np.array(['agg', 'png', 'svg', 'pdf', 'ps']) == mpl.get_backend()):
     warnings.warn("Selected matplotlib backend does not support interactive plotting")
     IPLOT = False
-
-# print theano compiledir cache
-print(f"theano cache: {theano.config.compiledir}\n")
 
 
 # MAIN SCRIPT BEGINS HERE
@@ -159,8 +180,6 @@ def main():
 
 
     # ## Read in planet and stellar properties
-    #
-    # ##### WARNING!!! Reference epochs are not always consistent between catalogs. If using DR25, you will need to correct from BJD to BJKD with an offset of 2454833 days - the cumulative exoplanet archive catalog has already converted epochs to BJKD
 
 
     # Read in the data from csv file
@@ -185,8 +204,8 @@ def main():
 
     PERIODS = np.array(target_dict['period'], dtype='float')[use]
     EPOCHS  = np.array(target_dict['epoch'],  dtype='float')[use]
-    DEPTHS  = np.array(target_dict['depth'], dtype='float')[use]*1e-6          # [ppm] --> []
-    DURS    = np.array(target_dict['duration'], dtype='float')[use]/24         # [hrs] --> [days]
+    DEPTHS  = np.array(target_dict['depth'], dtype='float')[use]*1e-6   # ppm --> []
+    DURS    = np.array(target_dict['duration'], dtype='float')[use]/24  # hrs --> days
     IMPACTS = np.array(target_dict['impact'], dtype='float')[use]
 
     # do some consistency checks
@@ -418,12 +437,12 @@ def main():
             yerr  = np.copy(holczer_errs[npl])
 
             if len(yomc) > 16:
-                ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode='mirror'), winsize=5)
+                ymed = boxcar_smooth(median_filter(yomc, size=5, mode='mirror'), winsize=5)
             else:
                 ymed = np.median(yomc)
 
             if len(yomc) > 4:
-                out  = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 3.0
+                out  = np.abs(yomc-ymed)/mad_std(yomc-ymed) > 3.0
             else:
                 out = np.zeros(len(yomc), dtype='bool')
 
@@ -449,7 +468,10 @@ def main():
             plt.xlabel("Time [BJKD]", fontsize=20)
             plt.ylabel("O-C [min]", fontsize=20)
             plt.legend(fontsize=12)
-            #plt.savefig(os.path.join(FIGURE_DIR, TARGET + f'_ttvs_holczer_{npl:02d}.png'), bbox_inches='tight')
+
+            figpath = os.path.join(FIGURE_DIR, TARGET + f'_ttvs_holczer_{npl:02d}.png')
+            plt.savefig(figpath, bbox_inches='tight')
+
             if IPLOT:
                 plt.show()
             else:
@@ -509,12 +531,23 @@ def main():
             dur[npl] = p.duration
 
         starrystar = exo.LimbDarkLightCurve([U1,U2])
-        orbit = exo.orbits.TTVOrbit(transit_times=tts, transit_inds=inds, b=b, ror=ror, duration=dur)
+
+        orbit = exo.orbits.TTVOrbit(transit_times=tts,
+                                    transit_inds=inds,
+                                    b=b,
+                                    ror=ror,
+                                    duration=dur
+                                   )
 
         for i, lcd in enumerate(lc_data):
-            light_curve = starrystar.get_light_curve(orbit=orbit, r=ror, t=lcd.time, oversample=long_cadence_oversample, texp=lcit)
-            model_flux = pm.math.sum(light_curve, axis=-1) + T.ones(len(lcd.time))
+            light_curve = starrystar.get_light_curve(orbit=orbit,
+                                                     r=ror,
+                                                     t=lcd.time,
+                                                     oversample=long_cadence_oversample,
+                                                     texp=lcit
+                                                    )
 
+            model_flux = pm.math.sum(light_curve, axis=-1) + T.ones(len(lcd.time))
             lcd.flux /= model_flux.eval()
 
         for i, scd in enumerate(sc_data):
@@ -617,12 +650,23 @@ def main():
             dur[npl] = p.duration
 
         starrystar = exo.LimbDarkLightCurve([U1,U2])
-        orbit = exo.orbits.TTVOrbit(transit_times=tts, transit_inds=inds, b=b, ror=ror, duration=dur)
+
+        orbit = exo.orbits.TTVOrbit(transit_times=tts,
+                                    transit_inds=inds,
+                                    b=b,
+                                    ror=ror,
+                                    duration=dur
+                                   )
 
         for i, lcd in enumerate(lc_data):
-            light_curve = starrystar.get_light_curve(orbit=orbit, r=ror, t=lcd.time, oversample=long_cadence_oversample, texp=lcit)
-            model_flux = pm.math.sum(light_curve, axis=-1) + T.ones(len(lcd.time))
+            light_curve = starrystar.get_light_curve(orbit=orbit,
+                                                     r=ror,
+                                                     t=lcd.time,
+                                                     oversample=long_cadence_oversample,
+                                                     texp=lcit
+                                                    )
 
+            model_flux = pm.math.sum(light_curve, axis=-1) + T.ones(len(lcd.time))
             lcd.flux *= model_flux.eval()
 
         for i, scd in enumerate(sc_data):
@@ -706,7 +750,7 @@ def main():
 
     for i in range(4):
         oscillation_period_by_season[i,0] = np.nanmedian(oscillation_period_by_quarter[i::4])
-        oscillation_period_by_season[i,1] = astropy.stats.mad_std(oscillation_period_by_quarter[i::4], ignore_nan=True)
+        oscillation_period_by_season[i,1] = mad_std(oscillation_period_by_quarter[i::4], ignore_nan=True)
 
 
     # detrend long cadence data
@@ -721,7 +765,7 @@ def main():
         try:
             lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, nominal_period=nom_per, verbose=VERBOSE)
         except LinAlgError:
-            warnings.warn("Initial detrending model failed...attempting to refit without exponential ramp component")
+            warnings.warn("Initial detrending failed...attempting to refit without exponential ramp component")
             try:
                 lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, nominal_period=nom_per,
                                               correct_ramp=False, verbose=VERBOSE)
@@ -748,7 +792,7 @@ def main():
         try:
             scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, nominal_period=nom_per, verbose=VERBOSE)
         except LinAlgError:
-            warnings.warn("Initial detrending model failed...attempting to refit without exponential ramp component")
+            warnings.warn("Initial detrending failed...attempting to refit without exponential ramp component")
             try:
                 scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, nominal_period=nom_per,
                                               correct_ramp=False, verbose=VERBOSE)
@@ -946,7 +990,8 @@ def main():
     # ## Define Legendre polynomials
 
 
-    # use Legendre polynomials over transit times for better orthogonality; "x" is in the range (-1,1)
+    # Legendre polynomials for better orthogonality; "x" is in the range (-1,1)
+    # This is largely vestigial from earlier version of code
     Leg0 = []
     Leg1 = []
     Leg2 = []
@@ -994,8 +1039,7 @@ def main():
 
         transit_times = []
         for npl in range(NPL):
-            transit_times.append(pm.Deterministic(f"tts_{npl}",
-                                                  fixed_tts[npl] + C0[npl]*Leg0[npl] + C1[npl]*Leg1[npl]))
+            transit_times.append(pm.Deterministic(f"tts_{npl}", fixed_tts[npl] + C0[npl]*Leg0[npl] + C1[npl]*Leg1[npl]))
 
         # set up stellar model and planetary orbit
         starrystar = exo.LimbDarkLightCurve([U1,U2])
@@ -1003,8 +1047,8 @@ def main():
                                     b=b, ror=r, duration=dur)
 
         # track period and epoch
-        T0 = pm.Deterministic("T0", orbit.t0)
-        P  = pm.Deterministic("P", orbit.period)
+        pm.Deterministic("P", orbit.period)
+        pm.Deterministic("T0", orbit.t0)
 
         # nuissance parameters
         flux0 = pm.Normal("flux0", mu=np.mean(good_flux), sd=np.std(good_flux), shape=len(quarters))
@@ -1430,9 +1474,9 @@ def main():
         full_indep_linear_ephemeris.append(poly.polyval(p.index, pfit))
 
         if np.all(replace):
-            indep_error[npl][replace] = astropy.stats.mad_std(indep_transit_times[npl] - indep_linear_ephemeris[npl])
+            indep_error[npl][replace] = mad_std(indep_transit_times[npl] - indep_linear_ephemeris[npl])
         elif np.any(replace):
-            indep_error[npl][replace] = astropy.stats.mad_std(indep_transit_times[npl][~replace] - indep_linear_ephemeris[npl][~replace])
+            indep_error[npl][replace] = mad_std(indep_transit_times[npl][~replace] - indep_linear_ephemeris[npl][~replace])
 
 
     for npl, p in enumerate(planets):
@@ -1450,7 +1494,7 @@ def main():
         print("  expected uncertainty: {0:.1f} min".format(yerr_expected*24*60))
         print("  measured uncertainty: {0:.1f} min".format(np.median(yerr_measured*24*60)))
         print("  adopted uncertainty:  {0:.1f} min".format(np.median(yerr*24*60)))
-        print("  dispersion:           {0:.1f} min".format(astropy.stats.mad_std(yomc)*24*60))
+        print("  dispersion:           {0:.1f} min".format(mad_std(yomc)*24*60))
 
 
     print("")
@@ -1484,8 +1528,8 @@ def main():
         yerr_measured = indep_error[npl]
 
         # flag outliers
-        ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode="mirror"), winsize=5)
-        out  = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 5.0
+        ymed = boxcar_smooth(median_filter(yomc, size=5, mode="mirror"), winsize=5)
+        out  = np.abs(yomc-ymed)/mad_std(yomc-ymed) > 5.0
 
         # search for a periodic component
         peakfreq = np.nan
@@ -1608,12 +1652,12 @@ def main():
 
         # flag outliers
         if len(yomc) > 16:
-            ymed = boxcar_smooth(ndimage.median_filter(yomc, size=5, mode='mirror'), winsize=5)
+            ymed = boxcar_smooth(median_filter(yomc, size=5, mode='mirror'), winsize=5)
         else:
             ymed = np.median(yomc)
 
         if len(yomc) > 4:
-            out = np.abs(yomc-ymed)/astropy.stats.mad_std(yomc-ymed) > 5.
+            out = np.abs(yomc-ymed)/mad_std(yomc-ymed) > 5.
         else:
             out = np.zeros(len(yomc), dtype='bool')
 
@@ -1623,7 +1667,7 @@ def main():
         yerr_measured = indep_error[npl]
 
         yerr = np.sqrt(yerr_expected**2 + yerr_measured**2)
-        ymax = np.sqrt(astropy.stats.mad_std(yomc)**2 - np.median(yerr)**2)
+        ymax = np.sqrt(mad_std(yomc)**2 - np.median(yerr)**2)
 
         # compare various models
         aiclist = []
@@ -1643,7 +1687,7 @@ def main():
             max_polyorder = 1
 
         # don't use a GP on very noisy data
-        if np.median(yerr) >= 0.5*astropy.stats.mad_std(yomc):
+        if np.median(yerr) >= 0.5*mad_std(yomc):
             min_polyorder = np.max([0,min_polyorder])
 
 
@@ -1660,7 +1704,13 @@ def main():
             with omc_model:
                 omc_map = omc_model.test_point
                 omc_map = pmx.optimize(start=omc_map, progress=VERBOSE)
-                omc_trace = pmx.sample(tune=8000, draws=2000, start=omc_map, chains=2, target_accept=0.95, progressbar=VERBOSE)
+                omc_trace = pmx.sample(tune=8000,
+                                       draws=2000,
+                                       chains=2,
+                                       target_accept=0.95,
+                                       start=omc_map,
+                                       progressbar=VERBOSE
+                                      )
 
             omc_trend = np.nanmedian(omc_trace['pred'], 0)
             residuals = yomc - omc_trend
@@ -1717,7 +1767,13 @@ def main():
         with omc_model:
             omc_map = omc_model.test_point
             omc_map = pmx.optimize(start=omc_map, progress=VERBOSE)
-            omc_trace = pmx.sample(tune=8000, draws=2000, start=omc_map, chains=2, target_accept=0.95, progressbar=VERBOSE)
+            omc_trace = pmx.sample(tune=8000,
+                                   draws=2000,
+                                   chains=2,
+                                   target_accept=0.95,
+                                   start=omc_map,
+                                   progressbar=VERBOSE
+                                  )
 
 
         # flag outliers with K-means clustering
@@ -1726,7 +1782,12 @@ def main():
         mix_model = omc.mix_model(residuals)
 
         with mix_model:
-            mix_trace = pmx.sample(tune=8000, draws=2000, chains=1, target_accept=0.95, progressbar=VERBOSE)
+            mix_trace = pmx.sample(tune=8000,
+                                   draws=2000,
+                                   chains=1,
+                                   target_accept=0.95,
+                                   progressbar=VERBOSE
+                                  )
 
         loc = np.nanmedian(mix_trace['mu'], axis=0)
         scales = np.nanmedian(1/np.sqrt(mix_trace['tau']), axis=0)
@@ -1742,7 +1803,7 @@ def main():
         perc_bad = 100*num_bad/len(bad)
 
         err_ = np.median(yerr_measured[~bad])*24*60
-        rms_ = astropy.stats.mad_std(residuals[~bad])*24*60
+        rms_ = mad_std(residuals[~bad])*24*60
 
         print(f"{num_bad:.0f} outliers found out of {len(bad):.0f} transit times ({perc_bad:.1f}%)")
         print(f"measured error: {err_:.1f} min")
@@ -1784,7 +1845,7 @@ def main():
 
     for npl in range(NPL):
         # estimate TTV scatter
-        ttv_scatter[npl] = astropy.stats.mad_std(indep_transit_times[npl]-quick_transit_times[npl])
+        ttv_scatter[npl] = mad_std(indep_transit_times[npl]-quick_transit_times[npl])
 
         # based on scatter in independent times, set threshold so not even one outlier is expected
         N = len(transit_inds[npl])
@@ -1858,11 +1919,23 @@ def main():
             else:
                 # set up model
                 starrystar = exo.LimbDarkLightCurve([U1,U2])
-                orbit = exo.orbits.TTVOrbit(transit_times=tts, transit_inds=inds, period=list(periods[wp]),
-                                            b=impacts[wp], ror=rors[wp], duration=durs[wp])
+
+                orbit = exo.orbits.TTVOrbit(transit_times=tts,
+                                            transit_inds=inds,
+                                            period=list(periods[wp]),
+                                            b=impacts[wp],
+                                            ror=rors[wp],
+                                            duration=durs[wp]
+                                           )
 
                 # calculate light curves
-                light_curves = starrystar.get_light_curve(orbit=orbit, r=rors[wp], t=t_, oversample=oversample[q], texp=texp[q])
+                light_curves = starrystar.get_light_curve(orbit=orbit,
+                                                          r=rors[wp],
+                                                          t=t_,
+                                                          oversample=oversample[q],
+                                                          texp=texp[q]
+                                                         )
+
                 model_flux = 1.0 + pm.math.sum(light_curves, axis=-1).eval()
 
                 # flag outliers
@@ -1870,12 +1943,12 @@ def main():
                 eta = np.max([3., stats.norm.interval((N-1)/N)[1]])
 
                 res[j] = f_ - model_flux
-                bad[j] = np.abs(res[j]-np.median(res[j]))/(1.4826*astropy.stats.mad_std(res[j])) > eta
+                bad[j] = np.abs(res[j]-np.median(res[j]))/(mad_std(res[j])) > eta
 
                 loop = 0
                 count = np.sum(bad[j])
                 while loop < 5:
-                    bad[j] = np.abs(res[j]-np.median(res[j][~bad[j]]))/(1.4826*astropy.stats.mad_std(res[j][~bad[j]])) > eta
+                    bad[j] = np.abs(res[j]-np.median(res[j][~bad[j]]))/(mad_std(res[j][~bad[j]])) > eta
 
                     if np.sum(bad[j]) == count:
                         loop = 5
@@ -2055,7 +2128,7 @@ def main():
 
     for i in range(4):
         oscillation_period_by_season[i,0] = np.nanmedian(oscillation_period_by_quarter[i::4])
-        oscillation_period_by_season[i,1] = astropy.stats.mad_std(oscillation_period_by_quarter[i::4], ignore_nan=True)
+        oscillation_period_by_season[i,1] = mad_std(oscillation_period_by_quarter[i::4], ignore_nan=True)
 
 
     # detrend long cadence data
@@ -2070,7 +2143,7 @@ def main():
         try:
             lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, nominal_period=nom_per, verbose=VERBOSE)
         except LinAlgError:
-            warnings.warn("Initial detrending model failed...attempting to refit without exponential ramp component")
+            warnings.warn("Initial detrending failed...attempting to refit without exponential ramp component")
             try:
                 lcd = detrend.flatten_with_gp(lcd, break_tolerance, min_period, nominal_period=nom_per,
                                               correct_ramp=False, verbose=VERBOSE)
@@ -2097,7 +2170,7 @@ def main():
         try:
             scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, nominal_period=nom_per, verbose=VERBOSE)
         except LinAlgError:
-            warnings.warn("Initial detrending model failed...attempting to refit without exponential ramp component")
+            warnings.warn("Initial detrending failed...attempting to refit without exponential ramp component")
             try:
                 scd = detrend.flatten_with_gp(scd, break_tolerance, min_period, nominal_period=nom_per,
                                               correct_ramp=False, verbose=VERBOSE)
@@ -2158,11 +2231,23 @@ def main():
             if len(tts) > 0:
                 # set up model
                 starrystar = exo.LimbDarkLightCurve([U1,U2])
-                orbit = exo.orbits.TTVOrbit(transit_times=tts, transit_inds=inds, period=list(periods[wp]),
-                                            b=impacts[wp], ror=rors[wp], duration=durs[wp])
+
+                orbit = exo.orbits.TTVOrbit(transit_times=tts,
+                                            transit_inds=inds,
+                                            period=list(periods[wp]),
+                                            b=impacts[wp],
+                                            ror=rors[wp],
+                                            duration=durs[wp]
+                                           )
 
                 # calculate light curves
-                light_curves = starrystar.get_light_curve(orbit=orbit, r=rors[wp], t=t_, oversample=oversample[q], texp=texp[q])
+                light_curves = starrystar.get_light_curve(orbit=orbit,
+                                                          r=rors[wp],
+                                                          t=t_,
+                                                          oversample=oversample[q],
+                                                          texp=texp[q]
+                                                         )
+
                 model_flux = 1.0 + pm.math.sum(light_curves, axis=-1).eval()
 
                 # flag outliers
@@ -2170,12 +2255,12 @@ def main():
                 eta = np.max([3., stats.norm.interval((N-1)/N)[1]])
 
                 res[j] = f_ - model_flux
-                bad[j] = np.abs(res[j]-np.median(res[j]))/(1.4826*astropy.stats.mad_std(res[j])) > eta
+                bad[j] = np.abs(res[j]-np.median(res[j]))/(mad_std(res[j])) > eta
 
                 loop = 0
                 count = np.sum(bad[j])
                 while loop < 5:
-                    bad[j] = np.abs(res[j]-np.median(res[j][~bad[j]]))/(1.4826*astropy.stats.mad_std(res[j][~bad[j]])) > eta
+                    bad[j] = np.abs(res[j]-np.median(res[j][~bad[j]]))/(mad_std(res[j][~bad[j]])) > eta
 
                     if np.sum(bad[j]) == count:
                         loop = 5
@@ -2317,7 +2402,7 @@ def main():
         tts = p.tts[p.quality*~p.overlap]
 
         if len(tts) == 0:
-            print(f"No non-overlapping high quality transits found for planet {npl} (P = {p.period} d)")
+            print(f"No non-overlapping high quality transits found for planet {npl} (P = {p.period:.1f} d)")
 
         else:
             t_folded = []
