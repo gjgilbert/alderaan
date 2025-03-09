@@ -171,7 +171,7 @@ def flatten_with_gp(lc, break_tolerance, min_period, nominal_period=None,
             return mean
         
     else:
-        def mean_fxn(_t, _s, flux0):
+        def mean_fxn(_t, _s, flux0, ramp_amp=None, log_tau=None):
             mean = T.zeros(len(_t))
             
             for i in range(len(np.unique(_s))):

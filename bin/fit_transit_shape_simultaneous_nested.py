@@ -71,7 +71,7 @@ try:
     parser.add_argument("--verbose", default=False, type=bool, required=False, \
                         help="'True' to enable verbose logging")
     parser.add_argument("--iplot", default=False, type=bool, required=False, \
-                        help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
+                        help="'True' to enable interactive matplotlib backend; default 'agg'")
 
     args = parser.parse_args()
     MISSION      = args.mission
@@ -116,12 +116,12 @@ sys.path.append(PROJECT_DIR)
 # #### Import ALDERAAN routines
 
 
-from alderaan.constants import scit, lcit
-from alderaan.detrend import make_transitmask
-from alderaan.dynesty_helpers import dynhelp
-from alderaan.Ephemeris import Ephemeris
-from alderaan import io
-from alderaan.utils import *
+from   alderaan.constants import scit, lcit
+from   alderaan.detrend import make_transitmask
+import alderaan.dynesty_helpers as dynhelp
+from   alderaan.Ephemeris import Ephemeris
+import alderaan.io as io
+from   alderaan.utils import *
 
 
 # #### Set matplotlib backend

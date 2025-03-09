@@ -72,7 +72,7 @@ try:
     parser.add_argument("--verbose", default=False, type=bool, required=False, \
                         help="'True' to enable verbose logging")
     parser.add_argument("--iplot", default=False, type=bool, required=False, \
-                        help="'True' to enable interactive plotting; by default matplotlib backend will be set to 'Agg'")
+                        help="'True' to enable interactive matplotlib backend; default 'agg'")
 
     args = parser.parse_args()
     MISSION      = args.mission
@@ -119,9 +119,9 @@ sys.path.append(PROJECT_DIR)
 
 from alderaan.constants import scit, lcit
 from alderaan.utils import boxcar_smooth
-from alderaan import io
-from alderaan import noise
-from alderaan import detrend
+import alderaan.io as io
+import alderaan.noise as noise
+import alderaan.detrend as detrend
 
 
 # #### Set matplotlib backends

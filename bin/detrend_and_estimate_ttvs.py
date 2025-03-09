@@ -3,8 +3,6 @@
 
 # # Detrend and Estimate TTVs
 
-# In[1]:
-
 
 import os
 import sys
@@ -34,13 +32,10 @@ import pymc3_ext as pmx
 import exoplanet as exo
 import aesara_theano_fallback.tensor as T
 from   aesara_theano_fallback import aesara as theano
-from   celerite2.theano import GaussianProcess
 from   celerite2.backprop import LinAlgError
 
 
 # #### Flush buffer and silence extraneous warnings
-
-# In[2]:
 
 
 # flush buffer to avoid mixed outputs from progressbar
@@ -55,8 +50,6 @@ warnings.filterwarnings(action='ignore', category=astropy.units.UnitsWarning, mo
 
 # #### Initialize timer
 
-# In[3]:
-
 
 print("")
 print("+"*shutil.get_terminal_size().columns)
@@ -70,11 +63,6 @@ global_start_time = timer()
 
 
 # #### Parse inputs
-
-# In[4]:
-
-
-# In[5]:
 
 
 try:
@@ -113,9 +101,6 @@ except SystemExit:
     warnings.warn("No arguments were parsed from the command line")
 
 
-# In[6]:
-
-
 print("")
 print(f"   MISSION : {MISSION}")
 print(f"   TARGET  : {TARGET}")
@@ -131,8 +116,6 @@ print("")
 
 # #### Build directory structure
 
-# In[7]:
-
 
 # directories in which to place pipeline outputs for this run
 RESULTS_DIR = os.path.join(PROJECT_DIR, 'Results', RUN_ID, TARGET)
@@ -147,14 +130,13 @@ sys.path.append(PROJECT_DIR)
 # #### Import ALDERAAN routines
 
 
-from alderaan.constants import lcit, scit
-from alderaan.utils import boxcar_smooth, bin_data, LS_estimator
-from alderaan.utils import get_transit_depth, predict_tc_error
-from alderaan import detrend
-from alderaan.io import io
-from alderaan import omc
-from alderaan.LiteCurve import LiteCurve
-from alderaan.Planet import Planet
+import alderaan.detrend as detrend
+import alderaan.io as io
+import alderaan.omc as omc
+from   alderaan.Planet import Planet
+from   alderaan.constants import lcit, scit
+from   alderaan.utils import boxcar_smooth, bin_data, LS_estimator
+from   alderaan.utils import get_transit_depth, predict_tc_error
 
 
 # #### Set matplotlib backends
