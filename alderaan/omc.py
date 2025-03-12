@@ -1,16 +1,157 @@
-__all__ = ["matern32_model", "poly_model", "sin_model", "mix_model", "flag_outliers"]
+__all__ = [
+    "load_holczer_ttvs",
+    "clean_holczer_ttvs",
+    "match_holczer_ttv",
+    "matern32_model",
+    "poly_model",
+    "sin_model",
+    "mix_model",
+    "flag_outliers",
+]
 
-
-import numpy as np
-from scipy import stats
-from sklearn.cluster import KMeans
-
-import pymc3 as pm
 import aesara_theano_fallback.tensor as T
+from astropy.stats import mad_std
 from celerite2.theano import GaussianProcess
 from celerite2.theano import terms as GPterms
+import pymc3 as pm
+import pymc3_ext as pmx
+import numpy as np
+import numpy.polynomial.polynomial as poly
+from scipy import stats
+from scipy.ndimage import median_filter
+from sklearn.cluster import KMeans
+
 
 from .constants import *
+from .utils import boxcar_smooth
+
+
+def load_holczer_ttvs(file, npl, koi_id):
+    """
+    Docstring
+    """
+    data = np.loadtxt(file, usecols=[0, 1, 2, 3, 4])
+
+    output = {}
+    output["inds"] = [None] * npl
+    output["tts"] = [None] * npl
+    output["err"] = [None] * npl
+
+    for n in range(npl):
+        koi = int(koi_id[1:]) + 0.01 * (1 + n)
+        use = np.isclose(data[:, 0], koi, rtol=1e-10, atol=1e-10)
+
+        # Holczer uses BJD - 2454900; BJKD = BJD - 2454833
+        if np.sum(use) > 0:
+            output["inds"][n] = np.array(data[use, 1], dtype="int")
+            output["tts"][n] = data[use, 2] + data[use, 3] / 24 / 60 + 67
+            output["err"][n] = data[use, 4] / 24 / 60
+
+    return output
+
+
+def clean_holczer_ttvs(data, time_start, time_end, verbose=False):
+    """
+    Docstring
+    """
+    npl = len(data["tts"])
+
+    data["period"] = np.nan * np.ones(npl)
+    data["epoch"] = np.nan * np.ones(npl)
+    data["full_inds"] = [None] * npl
+    data["full_tts"] = [None] * npl
+    data["out"] = [None] * npl
+
+    for n in range(npl):
+        if data["tts"][n] is not None:
+            # fit a linear ephemeris
+            pfit = poly.polyfit(data["inds"][n], data["tts"][n], 1)
+            ephem = poly.polyval(data["inds"][n], pfit)
+
+            # put fitted epoch in range (TIME_START, TIME_START + PERIOD)
+            epoch, period = pfit
+
+            if epoch < time_start:
+                adj = 1 + (time_start - epoch) // period
+                epoch += adj * period
+
+            if epoch > (time_start + period):
+                adj = (epoch - time_start) // period
+                epoch -= adj * period
+
+            data["period"][n] = np.copy(period)
+            data["epoch"][n] = np.copy(epoch)
+
+            full_ephem = np.arange(epoch, time_end, period)
+            full_inds = np.array(np.round((full_ephem - epoch) / period), dtype="int")
+
+            # calculate OMC and flag outliers
+            xtime = np.copy(data["tts"][n])
+            yomc = np.copy(data["tts"][n] - ephem)
+            yerr = np.copy(data["err"][n])
+
+            if len(yomc) > 16:
+                ymed = boxcar_smooth(
+                    median_filter(yomc, size=5, mode="mirror"), winsize=5
+                )
+            else:
+                ymed = np.median(yomc)
+
+            if len(yomc) > 4:
+                out = np.abs(yomc - ymed) / mad_std(yomc - ymed) > 3.0
+            else:
+                out = np.zeros(len(yomc), dtype="bool")
+
+            data["out"][n] = np.copy(out)
+
+            # estimate TTV signal with a regularized Matern-3/2 GP
+            if np.sum(~out) > 4:
+                model = matern32_model(
+                    xtime[~out], yomc[~out], yerr[~out], xt_predict=full_ephem
+                )
+            else:
+                model = poly_model(
+                    xtime[~out], yomc[~out], yerr[~out], 1, xt_predict=full_ephem
+                )
+
+            with model:
+                map_soln = pmx.optimize(verbose=verbose)
+
+            full_tts = full_ephem + map_soln["pred"]
+
+            # track model prediction
+            data["full_tts"][n] = np.copy(full_tts)
+            data["full_inds"][n] = np.copy(full_inds)
+
+    return data
+
+
+def match_holczer_ttvs(planets, data):
+    durs = np.zeros(len(planets))
+
+    for n, p in enumerate(planets):
+        durs[n] = p.duration
+
+    for n, p in enumerate(planets):
+        match = np.isclose(data["period"], p.period, rtol=0.1, atol=durs.max())
+
+        if not ((np.sum(match) == 0) or (np.sum(match) == 1)):
+            raise ValueError(
+                "Something has gone wrong matching periods between DR25 and Holczer+2016"
+            )
+
+        if np.sum(match) == 1:
+            loc = np.squeeze(np.where(match))
+
+            hinds = data["inds"][loc]
+            htts = data["tts"][loc]
+
+            p.epoch = np.copy(data["epoch"][loc])
+            p.period = np.copy(data["period"][loc])
+            p.tts = np.copy(data["full_tts"][loc])
+            p.index = np.copy(data["full_inds"][loc])
+
+    return planets
 
 
 def matern32_model(xtime, yomc, yerr, ymax=None, xt_predict=None):

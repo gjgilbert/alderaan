@@ -32,7 +32,6 @@ import pymc3_ext as pmx
 import exoplanet as exo
 import aesara_theano_fallback.tensor as T
 from aesara_theano_fallback import aesara as theano
-from celerite2.backprop import LinAlgError
 
 
 # #### Flush buffer and silence extraneous warnings
@@ -178,7 +177,12 @@ sys.path.append(PROJECT_DIR)
 import alderaan.io as io
 import alderaan.detrend as detrend
 import alderaan.omc as omc
-from alderaan.astro import get_transit_depth, predict_tc_error, make_transit_mask
+from alderaan.astro import (
+    get_transit_depth,
+    predict_tc_error,
+    make_transit_mask,
+    set_oversample_factor,
+)
 from alderaan.constants import lcit, scit
 from alderaan.utils import boxcar_smooth, bin_data, LS_estimator
 from alderaan.validate import remove_known_transits, inject_synthetic_transits
@@ -227,49 +231,32 @@ def main():
     if np.any(np.diff(PERIODS) <= 0):
         raise ValueError("Planets should be ordered by ascending period")
 
-    # ## Read in pre-downloaded (or pre-simulated) lightcurve data
+    # ## Read in pre-downloaded lightcurve data
 
     mast_files = glob.glob(DATA_DIR + f"kplr{KIC_ID:09d}*.fits")
     mast_files.sort()
 
     # short cadence data
-    sc_rawdata_list = []
     if USE_SC:
-        for i, mf in enumerate(mast_files):
-            with fits.open(mf) as hdu_list:
-                if hdu_list[0].header["OBSMODE"] == "short cadence":
-                    sc_rawdata_list.append(lk.read(mf))
+        sc_raw_data = io.read_mast_files(mast_files, KIC_ID, "short cadence")
+        sc_quarters = sc_raw_data.quarter
+    else:
+        sc_raw_data = []
+        sc_quarters = []
 
-    sc_raw_collection = lk.LightCurveCollection(sc_rawdata_list)
-    sc_data = io.cleanup_lkfc(sc_raw_collection, KIC_ID)
+    sc_data = []
+    for i, scrd in enumerate(sc_raw_data):
+        sc_data.append(io.LightKurve_to_LiteCurve(scrd))
 
-    sc_quarters = []
-    sc_lite = []
-    for i, scd in enumerate(sc_data):
-        sc_quarters.append(scd.quarter)
-        sc_lite.append(io.LightKurve_to_LiteCurve(scd))
+    # long cadence data
+    lc_raw_data = io.read_mast_files(
+        mast_files, KIC_ID, "long cadence", exclude=sc_quarters
+    )
+    lc_quarters = lc_raw_data.quarter
 
-    sc_data = sc_lite
-
-    # long cadence data (only use quarters w/o short cadence available)
-    lc_rawdata_list = []
-    for i, mf in enumerate(mast_files):
-        with fits.open(mf) as hdu_list:
-            if (hdu_list[0].header["OBSMODE"] == "long cadence") and ~np.isin(
-                hdu_list[0].header["QUARTER"], sc_quarters
-            ):
-                lc_rawdata_list.append(lk.read(mf))
-
-    lc_raw_collection = lk.LightCurveCollection(lc_rawdata_list)
-    lc_data = io.cleanup_lkfc(lc_raw_collection, KIC_ID)
-
-    lc_quarters = []
-    lc_lite = []
-    for i, lcd in enumerate(lc_data):
-        lc_quarters.append(lcd.quarter)
-        lc_lite.append(io.LightKurve_to_LiteCurve(lcd))
-
-    lc_data = lc_lite
+    lc_data = []
+    for i, lcrd in enumerate(lc_raw_data):
+        lc_data.append(io.LightKurve_to_LiteCurve(lcrd))
 
     # # ####################
     # # --- PRELIMINARIES ---
@@ -333,26 +320,16 @@ def main():
         # add to list
         planets.append(p)
 
-    # ## Set oversampling factor
+    # ## Set oversample factor
 
-    long_cadence_oversample = [None] * NPL
+    oversample = set_oversample_factor(
+        PERIODS, DEPTHS, DURS, lc_data[0].flux, lc_data[0].error
+    )
 
-    for npl in range(NPL):
-        # rough ingress/egress timescale estimate following Winn 2010
-        ror = np.sqrt(DEPTHS[npl])
-        tau = 13 * (PERIODS[npl] / 365.25) ** (1 / 3) * ror / 24
+    if oversample >= 30:
+        raise ValueError("attempting to set oversample factor greater than 30")
 
-        # set sigma so binning error is < 0.1% of photometric uncertainty
-        sigma = np.mean(lc_data[0].error / lc_data[0].flux) * 0.04
-
-        N = int(np.ceil(np.sqrt((DEPTHS[npl] / tau) * (lcit / 8 / sigma))))
-        N = N + (N % 2 + 1)
-
-        long_cadence_oversample[npl] = np.min([np.max([N, 7]), 29])
-
-    long_cadence_oversample = np.max(long_cadence_oversample)
-
-    print(f"Oversampling factor = {long_cadence_oversample}")
+    print(f"Setting oversample = {oversample}")
 
     # # ############################
     # # ----- TRANSIT TIME SETUP -----
@@ -360,97 +337,32 @@ def main():
 
     print("\nBuilding initial TTV model...\n")
 
-    # use Holczer+ 2016 TTVs where they exist
-    holczer_file = os.path.join(PROJECT_DIR, "Catalogs/holczer_2016_kepler_ttvs.txt")
-    holczer_data = np.loadtxt(holczer_file, usecols=[0, 1, 2, 3, 4])
+    h16file = os.path.join(PROJECT_DIR, "Catalogs/holczer_2016_kepler_ttvs.txt")
+    holczer = omc.load_holczer_ttvs(h16file, NPL, KOI_ID)
+    holczer = omc.clean_holczer_ttvs(holczer, TIME_START, TIME_END)
+    planets = omc.match_holczer_ttvs(planets, holczer)
 
-    holczer_inds = []
-    holczer_tts = []
-    holczer_errs = []
-    holczer_pers = []
-
-    for npl in range(NPL):
-        koi = int(KOI_ID[1:]) + 0.01 * (1 + npl)
-        use = np.isclose(holczer_data[:, 0], koi, rtol=1e-10, atol=1e-10)
-
-        # Holczer uses BJD - 2454900; BJKD = BJD - 2454833
-        if np.sum(use) > 0:
-            holczer_inds.append(np.array(holczer_data[use, 1], dtype="int"))
-            holczer_tts.append(
-                holczer_data[use, 2] + holczer_data[use, 3] / 24 / 60 + 67
+    for n, p in enumerate(planets):
+        if np.isfinite(holczer["period"][n]):
+            xtime = holczer["tts"][n]
+            yomc = (
+                holczer["tts"][n]
+                - holczer["epoch"][n]
+                - holczer["period"][n] * holczer["inds"][n]
             )
-            holczer_errs.append(holczer_data[use, 4] / 24 / 60)
-            holczer_pers.append(np.median(holczer_tts[npl][1:] - holczer_tts[npl][:-1]))
+            out = holczer["out"][n]
 
-        else:
-            holczer_inds.append(None)
-            holczer_tts.append(None)
-            holczer_errs.append(None)
-            holczer_pers.append(np.nan)
+            xtime_interp = holczer["full_tts"][n]
+            yomc_interp = (
+                holczer["full_tts"][n]
+                - holczer["epoch"][n]
+                - holczer["period"][n] * holczer["full_inds"][n]
+            )
 
-    holczer_pers = np.asarray(holczer_pers)
-
-    # smooth and interpolate Holczer+ 2016 TTVs where they exist
-    for npl in range(NPL):
-        if np.isfinite(holczer_pers[npl]):
-            # fit a linear ephemeris
-            pfit = poly.polyfit(holczer_inds[npl], holczer_tts[npl], 1)
-            ephem = poly.polyval(holczer_inds[npl], pfit)
-
-            # put fitted epoch in range (TIME_START, TIME_START + PERIOD)
-            hepoch, hper = pfit
-
-            if hepoch < TIME_START:
-                adj = 1 + (TIME_START - hepoch) // hper
-                hepoch += adj * hper
-
-            if hepoch > (TIME_START + hper):
-                adj = (hepoch - TIME_START) // hper
-                hepoch -= adj * hper
-
-            hephem = np.arange(hepoch, TIME_END, hper)
-            hinds = np.array(np.round((hephem - hepoch) / hper), dtype="int")
-
-            # calculate OMC and flag outliers
-            xtime = np.copy(holczer_tts[npl])
-            yomc = np.copy(holczer_tts[npl] - ephem)
-            yerr = np.copy(holczer_errs[npl])
-
-            if len(yomc) > 16:
-                ymed = boxcar_smooth(
-                    median_filter(yomc, size=5, mode="mirror"), winsize=5
-                )
-            else:
-                ymed = np.median(yomc)
-
-            if len(yomc) > 4:
-                out = np.abs(yomc - ymed) / mad_std(yomc - ymed) > 3.0
-            else:
-                out = np.zeros(len(yomc), dtype="bool")
-
-            # estimate TTV signal with a regularized Matern-3/2 GP
-            if np.sum(~out) > 4:
-                holczer_model = omc.matern32_model(
-                    xtime[~out], yomc[~out], yerr[~out], xt_predict=hephem
-                )
-            else:
-                holczer_model = omc.poly_model(
-                    xtime[~out], yomc[~out], yerr[~out], 1, xt_predict=hephem
-                )
-
-            with holczer_model:
-                holczer_map = pmx.optimize(verbose=VERBOSE)
-
-            htts = hephem + holczer_map["pred"]
-
-            holczer_inds[npl] = np.copy(hinds)
-            holczer_tts[npl] = np.copy(htts)
-
-            # plot the results
             plt.figure(figsize=(12, 4))
             plt.plot(xtime[~out], yomc[~out] * 24 * 60, "o", c="grey", label="Holczer")
             plt.plot(xtime[out], yomc[out] * 24 * 60, "rx")
-            plt.plot(hephem, (htts - hephem) * 24 * 60, "k+", label="Interpolation")
+            plt.plot(xtime_interp, yomc_interp * 24 * 60, "k+", label="Interpolation")
             plt.xlabel("Time [BJKD]", fontsize=20)
             plt.ylabel("O-C [min]", fontsize=20)
             plt.legend(fontsize=12)
@@ -463,37 +375,6 @@ def main():
             else:
                 plt.close()
 
-    # check if Holczer TTVs exist, and if so, replace the linear ephemeris
-    for npl, p in enumerate(planets):
-        match = np.isclose(holczer_pers, p.period, rtol=0.1, atol=DURS.max())
-
-        if np.sum(match) > 1:
-            raise ValueError(
-                "Something has gone wrong matching periods between DR25 and Holczer+2016"
-            )
-
-        if np.sum(match) == 1:
-            loc = np.squeeze(np.where(match))
-
-            hinds = holczer_inds[loc]
-            htts = holczer_tts[loc]
-
-            # first update to Holczer ephemeris
-            epoch, period = poly.polyfit(hinds, htts, 1)
-
-            p.epoch = np.copy(epoch)
-            p.period = np.copy(period)
-            p.tts = np.arange(p.epoch, TIME_END, p.period)
-            p.index = np.array(np.round((p.tts - p.epoch) / p.period), dtype="int")
-
-            for i, t0 in enumerate(p.tts):
-                for j, th in enumerate(htts):
-                    if np.abs(t0 - th) / p.period < 0.25:
-                        p.tts[i] = th
-
-        else:
-            pass
-
     # # ##################################
     # # ----- INJECTION-AND-RECOVERY -----
     # # ##################################
@@ -502,7 +383,7 @@ def main():
         # remove known transits of real planets
         if len(lc_data) > 0:
             lc_data = remove_known_transits(
-                planets, lc_data, [U1, U2], lcit, long_cadence_oversample
+                planets, lc_data, [U1, U2], lcit, oversample
             )
 
         if len(sc_data) > 0:
@@ -565,7 +446,7 @@ def main():
         # inject synthetic transits
         if len(lc_data) > 0:
             lc_data = inject_synthetic_transits(
-                planets, lc_data, [U1, U2], lcit, long_cadence_oversample
+                planets, lc_data, [U1, U2], lcit, oversample
             )
 
         if len(sc_data) > 0:
@@ -573,9 +454,6 @@ def main():
 
         lc_raw_sim_data = deepcopy(lc_data)
         sc_raw_sim_data = deepcopy(sc_data)
-
-    for i, lcd in enumerate(lc_data):
-        lcd.plot()
 
     # # #########################
     # # ----- 1ST DETRENDING -----
@@ -585,72 +463,30 @@ def main():
 
     # ## Detrend the lightcurves
 
-    # array to hold dominant oscillation period for each quarter
-    oscillation_period_by_quarter = np.ones(18) * np.nan
-
-    # long cadence data
-    min_period = 1.0
-
+    # remove bad cadences
     for i, lcd in enumerate(lc_data):
-        qmask = lk.KeplerQualityFlags.create_quality_mask(
-            lcd.quality, bitmask="default"
+        lcd = detrend.remove_bad_cadences(
+            lcd, planets, rel_masksize=1.5, min_masksize=1.0 / 24
         )
-        lcd.remove_flagged_cadences(qmask)
-
-        # make transit mask
-        lcd.mask = np.zeros(len(lcd.time), dtype="bool")
-        for npl, p in enumerate(planets):
-            lcd.mask += make_transit_mask(
-                lcd.time, p.tts, np.max([1 / 24, 1.5 * p.duration])
-            )
-
-        lcd.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=5, mask=lcd.mask)
-        lcd.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=1000, mask=None)
-
-        # identify primary oscillation period
-        ls_estimate = LombScargle(lcd.time, lcd.flux)
-        xf, yf = ls_estimate.autopower(
-            minimum_frequency=1 / (lcd.time.max() - lcd.time.min()),
-            maximum_frequency=1 / min_period,
-        )
-
-        peak_freq = xf[np.argmax(yf)]
-        peak_per = np.max([1.0 / peak_freq, 1.001 * min_period])
-
-        oscillation_period_by_quarter[lcd.quarter[0]] = peak_per
-
-    # short cadence data
-    min_period = 1.0
 
     for i, scd in enumerate(sc_data):
-        qmask = lk.KeplerQualityFlags.create_quality_mask(
-            scd.quality, bitmask="default"
-        )
-        scd.remove_flagged_cadences(qmask)
-
-        # make transit mask
-        scd.mask = np.zeros(len(scd.time), dtype="bool")
-        for npl, p in enumerate(planets):
-            scd.mask += make_transit_mask(
-                scd.time, p.tts, np.max([1 / 24, 1.5 * p.duration])
-            )
-
-        scd.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=5, mask=scd.mask)
-        scd.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=1000, mask=None)
-
-        # identify primary oscillation period
-        ls_estimate = LombScargle(scd.time, scd.flux)
-        xf, yf = ls_estimate.autopower(
-            minimum_frequency=1 / (scd.time.max() - scd.time.min()),
-            maximum_frequency=1 / min_period,
+        scd = detrend.remove_bad_cadences(
+            scd, planets, rel_masksize=1.5, min_masksize=1.0 / 24
         )
 
-        peak_freq = xf[np.argmax(yf)]
-        peak_per = np.max([1.0 / peak_freq, 1.001 * min_period])
+    # track stellar and instrumental oscillations
+    oscillation_period_by_quarter = np.ones(18) * np.nan
 
-        oscillation_period_by_quarter[scd.quarter[0]] = peak_per
+    for i, lcd in enumerate(lc_data):
+        oscillation_period_by_quarter[
+            lcd.quarter[0]
+        ] = detrend.estimate_oscillation_period(lcd, min_period=1.0)
 
-    # seasonal approach assumes both stellar and instrumental effects are present
+    for i, scd in enumerate(sc_data):
+        oscillation_period_by_quarter[
+            scd.quarter[0]
+        ] = detrend.estimate_oscillation_period(scd, min_period=1.0)
+
     oscillation_period_by_season = np.zeros((4, 2))
 
     for i in range(4):
@@ -663,47 +499,16 @@ def main():
 
     # detrend long cadence data
     break_tolerance = np.max([int(DURS.min() / lcit * 5 / 2), 13])
-    min_period = 1.0
+    min_per = 1.0
 
     for i, lcd in enumerate(lc_data):
         print(f"QUARTER {lcd.quarter[0]}")
 
         nom_per = oscillation_period_by_season[lcd.quarter[0] % 4][0]
 
-        try:
-            lcd = detrend.flatten_with_gp(
-                lcd,
-                break_tolerance,
-                min_period,
-                nominal_period=nom_per,
-                verbose=VERBOSE,
-            )
-        except LinAlgError:
-            warnings.warn(
-                "Initial detrending failed...attempting to refit without exponential ramp component"
-            )
-            try:
-                lcd = detrend.flatten_with_gp(
-                    lcd,
-                    break_tolerance,
-                    min_period,
-                    nominal_period=nom_per,
-                    correct_ramp=False,
-                    verbose=VERBOSE,
-                )
-            except LinAlgError:
-                warnings.warn(
-                    "Detrending with RotationTerm failed...attempting to detrend with SHOTerm"
-                )
-                lcd = detrend.flatten_with_gp(
-                    lcd,
-                    break_tolerance,
-                    min_period,
-                    nominal_period=nom_per,
-                    kterm="SHOTerm",
-                    correct_ramp=False,
-                    verbose=VERBOSE,
-                )
+        lcd = detrend.flatten_litecurve(
+            lcd, break_tolerance, min_per, nominal_period=nom_per, verbose=VERBOSE
+        )
 
     if len(lc_data) > 0:
         lc = detrend.stitch(lc_data)
@@ -712,47 +517,16 @@ def main():
 
     # detrend short cadence data
     break_tolerance = np.max([int(DURS.min() / scit * 5 / 2), 91])
-    min_period = 1.0
+    min_per = 1.0
 
     for i, scd in enumerate(sc_data):
         print(f"QUARTER {scd.quarter[0]}")
 
         nom_per = oscillation_period_by_season[scd.quarter[0] % 4][0]
 
-        try:
-            scd = detrend.flatten_with_gp(
-                scd,
-                break_tolerance,
-                min_period,
-                nominal_period=nom_per,
-                verbose=VERBOSE,
-            )
-        except LinAlgError:
-            warnings.warn(
-                "Initial detrending failed...attempting to refit without exponential ramp component"
-            )
-            try:
-                scd = detrend.flatten_with_gp(
-                    scd,
-                    break_tolerance,
-                    min_period,
-                    nominal_period=nom_per,
-                    correct_ramp=False,
-                    verbose=VERBOSE,
-                )
-            except LinAlgError:
-                warnings.warn(
-                    "Detrending with RotationTerm failed...attempting to detrend with SHOTerm"
-                )
-                scd = detrend.flatten_with_gp(
-                    scd,
-                    break_tolerance,
-                    min_period,
-                    nominal_period=nom_per,
-                    kterm="SHOTerm",
-                    correct_ramp=False,
-                    verbose=VERBOSE,
-                )
+        scd = detrend.flatten_litecurve(
+            scd, break_tolerance, min_per, nominal_period=nom_per, verbose=VERBOSE
+        )
 
     if len(sc_data) > 0:
         sc = detrend.stitch(sc_data)
@@ -764,8 +538,8 @@ def main():
 
     if sc is not None:
         sc_mask = np.zeros((NPL, len(sc.time)), dtype="bool")
-        for npl, p in enumerate(planets):
-            sc_mask[npl] = make_transit_mask(
+        for n, p in enumerate(planets):
+            sc_mask[n] = make_transit_mask(
                 sc.time, p.tts, np.max([2 / 24, 2.5 * p.duration])
             )
 
@@ -776,8 +550,8 @@ def main():
 
     if lc is not None:
         lc_mask = np.zeros((NPL, len(lc.time)), dtype="bool")
-        for npl, p in enumerate(planets):
-            lc_mask[npl] = make_transit_mask(
+        for n, p in enumerate(planets):
+            lc_mask[n] = make_transit_mask(
                 lc.time, p.tts, np.max([2 / 24, 2.5 * p.duration])
             )
 
@@ -789,10 +563,13 @@ def main():
     # ## Flag high quality transits (quality = 1)
     # #### Good transits must have  at least 50% photometry coverage in/near transit
 
-    for npl, p in enumerate(planets):
-        count_expect_lc = np.max([1, int(np.floor(p.duration / lcit))])
-        count_expect_sc = np.max([15, int(np.floor(p.duration / scit))])
+    # number of photometric points expected in transit
+    count_expect_lc = np.zeros(NPL, dtype="int")
+    count_expect_sc = np.zeros(NPL, dtype="int")
 
+    for n, p in enumerate(planets):
+        count_expect_lc[n] = np.max([1, int(np.floor(p.duration / lcit))])
+        count_expect_sc[n] = np.max([1, int(np.floor(p.duration / scit))])
         quality = np.zeros(len(p.tts), dtype="bool")
 
         for i, t0 in enumerate(p.tts):
@@ -800,8 +577,8 @@ def main():
                 in_sc = np.abs(sc.time - t0) / p.duration < 0.5
                 near_sc = np.abs(sc.time - t0) / p.duration < 1.5
 
-                qual_in = np.sum(in_sc) > 0.5 * count_expect_sc
-                qual_near = np.sum(near_sc) > 1.5 * count_expect_sc
+                qual_in = np.sum(in_sc) > 0.5 * count_expect_sc[n]
+                qual_near = np.sum(near_sc) > 1.5 * count_expect_sc[n]
 
                 quality[i] += qual_in * qual_near
 
@@ -809,16 +586,15 @@ def main():
                 in_lc = np.abs(lc.time - t0) / p.duration < 0.5
                 near_lc = np.abs(lc.time - t0) / p.duration < 1.5
 
-                qual_in = np.sum(in_lc) > 0.5 * count_expect_lc
-                qual_near = np.sum(near_lc) > 1.5 * count_expect_lc
+                qual_in = np.sum(in_lc) > 0.5 * count_expect_lc[n]
+                qual_near = np.sum(near_lc) > 1.5 * count_expect_lc[n]
 
                 quality[i] += qual_in * qual_near
 
         p.quality = np.copy(quality)
 
-    # ## Flag transits that overlap
+    # ## Flag overlapping transits
 
-    # identify overlapping transits
     dur_max = np.max(DURS)
     overlap = []
 
@@ -834,7 +610,7 @@ def main():
 
     # ## Count up transits and calculate initial fixed transit times
 
-    num_transits = np.zeros(NPL)
+    num_transits = np.zeros(NPL, dtype="int")
     transit_inds = []
     fixed_tts = []
 
@@ -853,21 +629,16 @@ def main():
     all_error = [None] * 18
     all_dtype = ["none"] * 18
 
-    lc_flux = []
-    sc_flux = []
-
     for q in range(18):
         if sc is not None:
             if np.isin(q, sc.quarter):
                 use = (sc.mask) * (sc.quarter == q)
 
-                if np.sum(use) > 45:
+                if np.sum(use) > np.min(count_expect_sc):
                     all_time[q] = sc.time[use]
                     all_flux[q] = sc.flux[use]
                     all_error[q] = sc.error[use]
                     all_dtype[q] = "short"
-
-                    sc_flux.append(sc.flux[use])
 
                 else:
                     all_dtype[q] = "short_no_transits"
@@ -876,44 +647,46 @@ def main():
             if np.isin(q, lc.quarter):
                 use = (lc.mask) * (lc.quarter == q)
 
-                if np.sum(use) > 5:
+                if np.sum(use) > np.min(count_expect_lc):
                     all_time[q] = lc.time[use]
                     all_flux[q] = lc.flux[use]
                     all_error[q] = lc.error[use]
                     all_dtype[q] = "long"
 
-                    lc_flux.append(lc.flux[use])
-
                 else:
                     all_dtype[q] = "long_no_transits"
 
-    # check which quarters have coverage
-    good = (np.array(all_dtype) == "short") + (np.array(all_dtype) == "long")
-    quarters = np.arange(18)[good]
-    nq = len(quarters)
+    all_dtype = np.array(all_dtype)
 
-    # make some linear flux arrays (for convenience use laster)
-    if len(sc_flux) > 0:
-        sc_flux_lin = np.hstack(sc_flux)
-    else:
-        sc_flux_lin = np.array([])
+    # track which quarters have coverage
+    quarters = np.arange(18)[(all_dtype == "short") + (all_dtype == "long")]
 
-    if len(lc_flux) > 0:
-        lc_flux_lin = np.hstack(lc_flux)
-    else:
-        lc_flux_lin = np.array([])
+    # track mean and variance of each quarter
+    mean_by_quarter = np.ones(18) * np.nan
+    var_by_quarter = np.ones(18) * np.nan
 
-    good_flux = np.hstack([sc_flux_lin, lc_flux_lin])
+    for q in range(18):
+        if sc is not None:
+            if np.isin(q, sc.quarter):
+                mean_by_quarter[q] = np.mean(sc.flux[sc.quarter == q])
+                var_by_quarter[q] = np.var(sc.flux[sc.quarter == q])
 
-    # set oversampling factors and expoure times
+        if lc is not None:
+            if np.isin(q, lc.quarter):
+                mean_by_quarter[q] = np.mean(lc.flux[lc.quarter == q])
+                var_by_quarter[q] = np.var(lc.flux[lc.quarter == q])
+
+    # broadcast oversample factor
+    long_cadence_oversample = np.copy(oversample)
+
     oversample = np.zeros(18, dtype="int")
+    oversample[all_dtype == "short"] = 1
+    oversample[all_dtype == "long"] = long_cadence_oversample
+
+    # broadcast exposure times
     texp = np.zeros(18)
-
-    oversample[np.array(all_dtype) == "short"] = 1
-    oversample[np.array(all_dtype) == "long"] = long_cadence_oversample
-
-    texp[np.array(all_dtype) == "short"] = scit
-    texp[np.array(all_dtype) == "long"] = lcit
+    texp[all_dtype == "short"] = scit
+    texp[all_dtype == "long"] = lcit
 
     # ## Pull basic transit parameters
 
@@ -933,17 +706,18 @@ def main():
     # ## Define Legendre polynomials
 
     # Legendre polynomials for better orthogonality; "x" is in the range (-1,1)
-    Leg0 = []
-    Leg1 = []
-    t = []
+    t = [None] * NPL
+    x = [None] * NPL
+    Leg0 = [None] * NPL
+    Leg1 = [None] * NPL
 
     # this assumes a baseline in the range (TIME_START,TIME_END)
-    for npl, p in enumerate(planets):
-        t.append(p.epoch + transit_inds[npl] * p.period)
-        x = 2 * (t[npl] - TIME_START) / (TIME_END - TIME_START) - 1
+    for n, p in enumerate(planets):
+        t[n] = p.epoch + transit_inds[n] * p.period
+        x[n] = 2 * (t[n] - TIME_START) / (TIME_END - TIME_START) - 1
 
-        Leg0.append(np.ones_like(x))
-        Leg1.append(x.copy())
+        Leg0[n] = np.ones_like(x[n])
+        Leg1[n] = x[n].copy()
 
     print("")
     print("cumulative runtime = ", int(timer() - global_start_time), "s")
@@ -1000,18 +774,17 @@ def main():
         pm.Deterministic("T0", orbit.t0)
 
         # nuissance parameters
-        flux0 = pm.Normal(
-            "flux0", mu=np.mean(good_flux), sd=np.std(good_flux), shape=len(quarters)
-        )
-        log_jit = pm.Normal(
-            "log_jit", mu=np.log(np.var(good_flux) / 10), sd=10, shape=len(quarters)
-        )
+        mbq = mean_by_quarter[(all_dtype == "short") + (all_dtype == "long")]
+        vbq = var_by_quarter[(all_dtype == "short") + (all_dtype == "long")]
+
+        flux0 = pm.Normal("flux0", mu=mbq, sd=mbq / 10, shape=len(quarters))
+        log_jit = pm.Normal("log_jit", mu=np.log(vbq), sd=10, shape=len(quarters))
 
         # now evaluate the model for each quarter
-        light_curves = [None] * nq
-        model_flux = [None] * nq
-        flux_err = [None] * nq
-        obs = [None] * nq
+        light_curves = [None] * len(quarters)
+        model_flux = [None] * len(quarters)
+        flux_err = [None] * len(quarters)
+        obs = [None] * len(quarters)
 
         for j, q in enumerate(quarters):
             # calculate light curves

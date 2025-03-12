@@ -1,6 +1,7 @@
 __all__ = [
     "parse_catalog",
-    "cleanup_lkfc",
+    "read_mast_files",
+    "cleanup_lkc",
     "LightKurve_to_LiteCurve",
     "load_detrended_lightcurve",
     "results_to_fits",
@@ -69,7 +70,27 @@ def parse_catalog(file, mission, target):
     return catalog
 
 
-def cleanup_lkfc(lk_collection, kic):
+def read_mast_files(mast_files, kic_id, obsmode, exclude=None):
+    """
+    Docstring
+    """
+    if exclude is None:
+        exclude = []
+
+    rawdata_list = []
+    for i, mf in enumerate(mast_files):
+        with fits.open(mf) as hdu_list:
+            if hdu_list[0].header["OBSMODE"] == obsmode and ~np.isin(
+                hdu_list[0].header["QUARTER"], exclude
+            ):
+                rawdata_list.append(lk.read(mf))
+
+    lkcol = cleanup_lkc(lk.LightCurveCollection(rawdata_list), kic_id)
+
+    return lkcol
+
+
+def cleanup_lkc(lk_collection, kic):
     """
     Join each quarter in a lk.LightCurveCollection into a single lk.LightCurve
     Performs only the minimal detrending step remove_nans()

@@ -1,19 +1,74 @@
-__all__ = ["identify_gaps", "flatten_with_gp", "stitch", "filter_ringing"]
+__all__ = [
+    "remove_bad_cadences",
+    "estimate_oscillation_period",
+    "identify_gaps",
+    "flatten_litecurve",
+    "flatten_with_gp",
+    "stitch",
+    "filter_ringing",
+]
 
 
 from copy import deepcopy
+import warnings
 
 import aesara_theano_fallback.tensor as T
 import astropy
 from astropy.timeseries import LombScargle
+from celerite2.backprop import LinAlgError
 from celerite2.theano import GaussianProcess
 from celerite2.theano import terms as GPterms
+import lightkurve as lk
 import numpy as np
 import pymc3 as pm
 import pymc3_ext as pmx
 import scipy.signal as sig
 
+from .astro import make_transit_mask
 from .constants import *
+
+
+def remove_bad_cadences(litecurve, planets, rel_masksize, min_masksize):
+    """
+    Docstring
+    """
+    # remove flagged cadences
+    qmask = lk.KeplerQualityFlags.create_quality_mask(
+        litecurve.quality, bitmask="default"
+    )
+    litecurve.remove_flagged_cadences(qmask)
+
+    # make transit mask
+    litecurve.mask = np.zeros(len(litecurve.time), dtype="bool")
+    for n, p in enumerate(planets):
+        masksize = np.max([min_masksize, rel_masksize * p.duration])
+        litecurve.mask += make_transit_mask(litecurve.time, p.tts, masksize)
+
+    litecurve.clip_outliers(
+        kernel_size=13, sigma_upper=5, sigma_lower=5, mask=litecurve.mask
+    )
+    litecurve.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=1000, mask=None)
+
+    return litecurve
+
+
+def estimate_oscillation_period(litecurve, min_period):
+    """
+    Docstring
+    """
+    ls_estimate = LombScargle(litecurve.time, litecurve.flux)
+
+    min_freq = 1 / (litecurve.time.max() - litecurve.time.min())
+    max_freq = 1 / min_period
+
+    xf, yf = ls_estimate.autopower(
+        minimum_frequency=min_freq, maximum_frequency=max_freq
+    )
+
+    peak_freq = xf[np.argmax(yf)]
+    peak_per = np.max([1.0 / peak_freq, 1.001 * min_period])
+
+    return peak_per
 
 
 def identify_gaps(lc, break_tolerance, jump_tolerance=5.0):
@@ -65,6 +120,56 @@ def identify_gaps(lc, break_tolerance, jump_tolerance=5.0):
     gaps = gaps[~bad]
 
     return gaps
+
+
+def flatten_litecurve(
+    litecurve, break_tolerance, min_period, nominal_period, verbose=False
+):
+    """
+    Remove trends from a LiteCurve using celerite Gaussian Process
+    Calls flatten_with_gp() using successively simpler models as fallbacks
+    """
+    try:
+        litecurve = flatten_with_gp(
+            litecurve,
+            break_tolerance,
+            min_period,
+            nominal_period=nominal_period,
+            kterm="RotationTerm",
+            correct_ramp=True,
+            verbose=verbose,
+        )
+    except LinAlgError:
+        warnings.warn(
+            "Initial detrending failed...attempting to refit without exponential ramp component"
+        )
+
+        try:
+            litecurve = flatten_with_gp(
+                litecurve,
+                break_tolerance,
+                min_period,
+                nominal_period=nominal_period,
+                kterm="RotationTerm",
+                correct_ramp=False,
+                verbose=verbose,
+            )
+        except LinAlgError:
+            warnings.warn(
+                "Detrending with RotationTerm failed...attempting to detrend with SHOTerm"
+            )
+
+            litecurve = detrend.flatten_with_gp(
+                litecurve,
+                break_tolerance,
+                min_period,
+                nominal_period=nominal_period,
+                kterm="SHOTerm",
+                correct_ramp=False,
+                verbose=verbose,
+            )
+
+    return litecurve
 
 
 def flatten_with_gp(

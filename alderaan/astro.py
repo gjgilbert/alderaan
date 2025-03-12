@@ -6,6 +6,7 @@ __all__ = [
     "get_dur_cc",
     "predict_tc_error",
     "make_transit_mask",
+    "set_oversample_factor",
 ]
 
 
@@ -208,3 +209,27 @@ def make_transit_mask(time, tts, masksize):
         transitmask += neartransit
 
     return transitmask
+
+
+def set_oversample_factor(periods, depths, durs, flux, error):
+    """
+    Docstring
+    """
+    if (len(periods) != len(depths)) or (len(periods) != len(durs)):
+        raise ValueError("Input array shape mismatch")
+
+    npl = len(periods)
+
+    # ingress/egress timescale estimate following Winn 2010
+    ror = np.sqrt(depths)
+    tau = 13 * (periods / 365.25) ** (1 / 3) * ror / 24
+
+    # set sigma so binning error is < 0.1% of photometric uncertainty
+    sigma = np.mean(error / flux) * 0.04
+
+    npts = np.array(np.ceil(np.sqrt((depths / tau) * (lcit / 8 / sigma))), dtype="int")
+    npts = npts + (npts % 2 + 1)
+
+    npts = np.max(np.hstack([npts, 7]))
+
+    return npts
