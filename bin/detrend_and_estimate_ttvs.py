@@ -9,21 +9,18 @@ import sys
 import glob
 import shutil
 import warnings
+import argparse
 from copy import deepcopy
 from datetime import datetime
 from timeit import default_timer as timer
 
-import argparse
 import astropy
-from astropy.io import fits
 from astropy.stats import mad_std
 from astropy.timeseries import LombScargle
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.polynomial.polynomial as poly
-import pandas as pd
-import lightkurve as lk
 from scipy import stats
 from scipy.ndimage import median_filter
 
@@ -252,7 +249,6 @@ def main():
     lc_raw_data = io.read_mast_files(
         mast_files, KIC_ID, "long cadence", exclude=sc_quarters
     )
-    lc_quarters = lc_raw_data.quarter
 
     lc_data = []
     for i, lcrd in enumerate(lc_raw_data):
@@ -284,29 +280,29 @@ def main():
         raise ValueError("START TIME is negative...this will cause problems")
 
     # put epochs in range (TIME_START, TIME_START + PERIOD)
-    for npl in range(NPL):
-        if EPOCHS[npl] < TIME_START:
-            adj = 1 + (TIME_START - EPOCHS[npl]) // PERIODS[npl]
-            EPOCHS[npl] += adj * PERIODS[npl]
+    for n in range(NPL):
+        if EPOCHS[n] < TIME_START:
+            adj = 1 + (TIME_START - EPOCHS[n]) // PERIODS[n]
+            EPOCHS[n] += adj * PERIODS[n]
 
-        if EPOCHS[npl] > (TIME_START + PERIODS[npl]):
-            adj = (EPOCHS[npl] - TIME_START) // PERIODS[npl]
-            EPOCHS[npl] -= adj * PERIODS[npl]
+        if EPOCHS[n] > (TIME_START + PERIODS[n]):
+            adj = (EPOCHS[n] - TIME_START) // PERIODS[n]
+            EPOCHS[n] -= adj * PERIODS[n]
 
     # ## Initialize Planet objects
 
     print(f"Initializing {NPL} Planet objects")
 
     planets = []
-    for npl in range(NPL):
+    for n in range(NPL):
         p = Planet()
 
         # put in some basic transit parameters
-        p.period = PERIODS[npl]
-        p.epoch = EPOCHS[npl]
-        p.depth = DEPTHS[npl]
-        p.duration = DURS[npl]
-        p.impact = IMPACTS[npl]
+        p.period = PERIODS[n]
+        p.epoch = EPOCHS[n]
+        p.depth = DEPTHS[n]
+        p.duration = DURS[n]
+        p.impact = IMPACTS[n]
 
         if p.impact > 1 - np.sqrt(p.depth):
             p.impact = (1 - np.sqrt(p.depth)) ** 2
@@ -322,14 +318,15 @@ def main():
 
     # ## Set oversample factor
 
-    oversample = set_oversample_factor(
-        PERIODS, DEPTHS, DURS, lc_data[0].flux, lc_data[0].error
+    oversample_lc = set_oversample_factor(
+        PERIODS, DEPTHS, DURS, lc_data[0].flux, lc_data[0].error, lcit
     )
+    oversample_sc = 1
 
-    if oversample >= 30:
-        raise ValueError("attempting to set oversample factor greater than 30")
+    if oversample_lc >= 60:
+        raise ValueError("attempting to set oversample factor greater than 60")
 
-    print(f"Setting oversample = {oversample}")
+    print(f"Setting oversample = {oversample_lc}")
 
     # # ############################
     # # ----- TRANSIT TIME SETUP -----
@@ -367,7 +364,7 @@ def main():
             plt.ylabel("O-C [min]", fontsize=20)
             plt.legend(fontsize=12)
 
-            figpath = os.path.join(FIGURE_DIR, TARGET + f"_ttvs_holczer_{npl:02d}.png")
+            figpath = os.path.join(FIGURE_DIR, TARGET + f"_ttvs_holczer_{n:02d}.png")
             plt.savefig(figpath, bbox_inches="tight")
 
             if IPLOT:
@@ -383,11 +380,13 @@ def main():
         # remove known transits of real planets
         if len(lc_data) > 0:
             lc_data = remove_known_transits(
-                planets, lc_data, [U1, U2], lcit, oversample
+                planets, lc_data, [U1, U2], lcit, oversample_lc
             )
 
         if len(sc_data) > 0:
-            sc_data = remove_known_transits(planets, sc_data, [U1, U2], scit, 1)
+            sc_data = remove_known_transits(
+                planets, sc_data, [U1, U2], scit, oversample_sc
+            )
 
         # load synthetic catalog
         path = os.path.join(PROJECT_DIR, f"Simulations/{RUN_ID}/{RUN_ID}.csv")
@@ -411,30 +410,30 @@ def main():
             raise ValueError("Planets should be ordered by ascending period")
 
         # put epochs in range (TIME_START, TIME_START + PERIOD)
-        for npl in range(NPL):
-            if EPOCHS[npl] < TIME_START:
-                adj = 1 + (TIME_START - EPOCHS[npl]) // PERIODS[npl]
-                EPOCHS[npl] += adj * PERIODS[npl]
+        for n in range(NPL):
+            if EPOCHS[n] < TIME_START:
+                adj = 1 + (TIME_START - EPOCHS[n]) // PERIODS[n]
+                EPOCHS[n] += adj * PERIODS[n]
 
-            if EPOCHS[npl] > (TIME_START + PERIODS[npl]):
-                adj = (EPOCHS[npl] - TIME_START) // PERIODS[npl]
-                EPOCHS[npl] -= adj * PERIODS[npl]
+            if EPOCHS[n] > (TIME_START + PERIODS[n]):
+                adj = (EPOCHS[n] - TIME_START) // PERIODS[n]
+                EPOCHS[n] -= adj * PERIODS[n]
 
         # initalize synthetic planet objects
         planets = []
-        for npl in range(NPL):
+        for n in range(NPL):
             p = Planet()
 
             # put in some basic transit parameters
-            p.period = PERIODS[npl]
-            p.epoch = EPOCHS[npl]
-            p.depth = DEPTHS[npl] * 1e6
-            p.duration = DURS[npl] * 24
-            p.impact = IMPACTS[npl]
+            p.period = PERIODS[n]
+            p.epoch = EPOCHS[n]
+            p.depth = DEPTHS[n] * 1e6
+            p.duration = DURS[n] * 24
+            p.impact = IMPACTS[n]
 
             # load true transit times
             tts_file = os.path.join(
-                PROJECT_DIR, f"Simulations/{RUN_ID}/S{TARGET[1:]}_{npl}.tts"
+                PROJECT_DIR, f"Simulations/{RUN_ID}/S{TARGET[1:]}_{n}.tts"
             )
             true_tts = np.loadtxt(tts_file).swapaxes(0, 1)
 
@@ -446,11 +445,13 @@ def main():
         # inject synthetic transits
         if len(lc_data) > 0:
             lc_data = inject_synthetic_transits(
-                planets, lc_data, [U1, U2], lcit, oversample
+                planets, lc_data, [U1, U2], lcit, oversample_lc
             )
 
         if len(sc_data) > 0:
-            sc_data = inject_synthetic_transits(planets, sc_data, [U1, U2], scit, 1)
+            sc_data = inject_synthetic_transits(
+                planets, sc_data, [U1, U2], scit, oversample_sc
+            )
 
         lc_raw_sim_data = deepcopy(lc_data)
         sc_raw_sim_data = deepcopy(sc_data)
@@ -462,6 +463,27 @@ def main():
     print("\nDetrending lightcurves (1st pass)...\n")
 
     # ## Detrend the lightcurves
+
+    # make transit masks
+    for i, lcd in enumerate(lc_data):
+        mask = np.zeros((NPL, len(lcd.time)), dtype="bool")
+
+        for n, p in enumerate(planets):
+            mask[n] = make_transit_mask(
+                lcd.time, p.tts, np.max([1 / 24, 1.5 * p.duration])
+            )
+
+        lcd.mask = mask.sum(axis=0) > 0
+
+    for i, scd in enumerate(sc_data):
+        mask = np.zeros((NPL, len(scd.time)), dtype="bool")
+
+        for n, p in enumerate(planets):
+            mask[n] = make_transit_mask(
+                scd.time, p.tts, np.max([1 / 24, 1.5 * p.duration])
+            )
+
+        scd.mask = mask.sum(axis=0) > 0
 
     # remove bad cadences
     for i, lcd in enumerate(lc_data):
@@ -533,32 +555,30 @@ def main():
     else:
         sc = None
 
+    # # ##########################
+    # # ----- QUALITY CONTROL -----
+    # # ##########################
+
     # ## Make wide masks that track each planet individually
     # #### These masks have width 2.5 transit durations, which is probably wider than the masks used for detrending
 
     if sc is not None:
-        sc_mask = np.zeros((NPL, len(sc.time)), dtype="bool")
+        mask = np.zeros((NPL, len(sc.time)), dtype="bool")
         for n, p in enumerate(planets):
-            sc_mask[n] = make_transit_mask(
+            mask[n] = make_transit_mask(
                 sc.time, p.tts, np.max([2 / 24, 2.5 * p.duration])
             )
 
-        sc.mask = sc_mask.sum(axis=0) > 0
-
-    else:
-        sc_mask = None
+        sc.mask = mask.sum(axis=0) > 0
 
     if lc is not None:
-        lc_mask = np.zeros((NPL, len(lc.time)), dtype="bool")
+        mask = np.zeros((NPL, len(lc.time)), dtype="bool")
         for n, p in enumerate(planets):
-            lc_mask[n] = make_transit_mask(
+            mask[n] = make_transit_mask(
                 lc.time, p.tts, np.max([2 / 24, 2.5 * p.duration])
             )
 
-        lc.mask = lc_mask.sum(axis=0) > 0
-
-    else:
-        lc_mask = None
+        lc.mask = mask.sum(axis=0) > 0
 
     # ## Flag high quality transits (quality = 1)
     # #### Good transits must have  at least 50% photometry coverage in/near transit
@@ -596,17 +616,15 @@ def main():
     # ## Flag overlapping transits
 
     dur_max = np.max(DURS)
-    overlap = []
+    overlap = [None] * NPL
 
     for i in range(NPL):
-        overlap.append(np.zeros(len(planets[i].tts), dtype="bool"))
+        overlap[i] = np.zeros(len(planets[i].tts), dtype="bool")
 
         for j in range(NPL):
             if i != j:
                 for ttj in planets[j].tts:
                     overlap[i] += np.abs(planets[i].tts - ttj) / dur_max < 1.5
-
-        planets[i].overlap = np.copy(overlap[i])
 
     # ## Count up transits and calculate initial fixed transit times
 
@@ -614,12 +632,12 @@ def main():
     transit_inds = []
     fixed_tts = []
 
-    for npl, p in enumerate(planets):
+    for n, p in enumerate(planets):
         transit_inds.append(np.array((p.index - p.index.min())[p.quality], dtype="int"))
         fixed_tts.append(np.copy(p.tts)[p.quality])
 
-        num_transits[npl] = len(transit_inds[npl])
-        transit_inds[npl] -= transit_inds[npl].min()
+        num_transits[n] = len(transit_inds[n])
+        transit_inds[n] -= transit_inds[n].min()
 
     # ## Grab data near transits
 
@@ -677,11 +695,9 @@ def main():
                 var_by_quarter[q] = np.var(lc.flux[lc.quarter == q])
 
     # broadcast oversample factor
-    long_cadence_oversample = np.copy(oversample)
-
     oversample = np.zeros(18, dtype="int")
-    oversample[all_dtype == "short"] = 1
-    oversample[all_dtype == "long"] = long_cadence_oversample
+    oversample[all_dtype == "short"] = oversample_sc
+    oversample[all_dtype == "long"] = oversample_lc
 
     # broadcast exposure times
     texp = np.zeros(18)
@@ -696,12 +712,12 @@ def main():
     durs = np.zeros(NPL)
     impacts = np.zeros(NPL)
 
-    for npl, p in enumerate(planets):
-        periods[npl] = p.period
-        epochs[npl] = p.epoch
-        depths[npl] = p.depth
-        durs[npl] = p.duration
-        impacts[npl] = p.impact
+    for n, p in enumerate(planets):
+        periods[n] = p.period
+        epochs[n] = p.epoch
+        depths[n] = p.depth
+        durs[n] = p.duration
+        impacts[n] = p.impact
 
     # ## Define Legendre polynomials
 
@@ -751,11 +767,10 @@ def main():
         C1 = pm.Normal("C1", mu=0.0, sd=durs / 2, shape=NPL)
 
         transit_times = []
-        for npl in range(NPL):
+        for n in range(NPL):
             transit_times.append(
                 pm.Deterministic(
-                    f"tts_{npl}",
-                    fixed_tts[npl] + C0[npl] * Leg0[npl] + C1[npl] * Leg1[npl],
+                    f"tts_{n}", fixed_tts[n] + C0[n] * Leg0[n] + C1[n] * Leg1[n]
                 )
             )
 
@@ -816,10 +831,10 @@ def main():
     shape_transit_times = []
     shape_linear_ephemeris = []
 
-    for npl, p in enumerate(planets):
-        shape_transit_times.append(shape_map[f"tts_{npl}"])
+    for n, p in enumerate(planets):
+        shape_transit_times.append(shape_map[f"tts_{n}"])
         shape_linear_ephemeris.append(
-            shape_map["P"][npl] * transit_inds[npl] + shape_map["T0"][npl]
+            shape_map["P"][n] * transit_inds[n] + shape_map["T0"][n]
         )
 
     # update parameter values
@@ -830,12 +845,13 @@ def main():
     impacts = np.atleast_1d(shape_map["b"])
     rors = np.atleast_1d(shape_map["r"])
 
-    for npl, p in enumerate(planets):
-        p.period = periods[npl]
-        p.epoch = epochs[npl]
-        p.depth = depths[npl]
-        p.duration = durs[npl]
-        p.impact = impacts[npl]
+    for n, p in enumerate(planets):
+        p.period = periods[n]
+        p.epoch = epochs[n]
+        p.depth = depths[n]
+        p.duration = durs[n]
+        p.impact = impacts[n]
+        p.ror = rors[n]
 
     print("")
     print("cumulative runtime = ", int(timer() - global_start_time), "s")
@@ -845,56 +861,44 @@ def main():
 
     print("\nFitting TTVs..\n")
 
-    # get list of quarters with observations
-    if lc is not None:
-        lc_quarters = np.unique(lc.quarter)
-    else:
-        lc_quarters = np.array([], dtype="int")
-
-    if sc is not None:
-        sc_quarters = np.unique(sc.quarter)
-    else:
-        sc_quarters = np.array([], dtype="int")
-
-    quarters = np.sort(np.hstack([lc_quarters, sc_quarters]))
-    seasons = np.sort(np.unique(quarters % 4))
-
     # get list of threshold times between quarters
-    thresh = np.zeros(len(quarters) + 1)
-    thresh[0] = TIME_START
+    qthresh = np.zeros(len(quarters) + 1)
+    qthresh[0] = TIME_START - 0.5
 
     for j, q in enumerate(quarters):
-        if np.isin(q, sc_quarters):
-            thresh[j + 1] = sc.time[sc.quarter == q].max()
-        if np.isin(q, lc_quarters):
-            thresh[j + 1] = lc.time[lc.quarter == q].max()
+        if lc is not None:
+            if np.isin(q, np.unique(lc.quarter)):
+                qthresh[j + 1] = lc.time[lc.quarter == q].max() + lcit
 
-    thresh[0] -= 1.0
-    thresh[-1] += 1.0
+        if sc is not None:
+            if np.isin(q, np.unique(sc.quarter)):
+                qthresh[j + 1] = sc.time[sc.quarter == q].max() + scit
 
-    # track individual transits
+    qthresh[-1] = TIME_END + 0.5
+
+    # track which quarter each transit falls in
     transit_quarter = [None] * NPL
 
-    for npl in range(NPL):
-        tts = shape_transit_times[npl]
-        transit_quarter[npl] = np.zeros(len(tts), dtype="int")
+    for n in range(NPL):
+        tts = shape_transit_times[n]
+        transit_quarter[n] = np.zeros(len(tts), dtype="int")
 
         for j, q in enumerate(quarters):
-            transit_quarter[npl][(tts >= thresh[j]) * (tts < thresh[j + 1])] = q
+            transit_quarter[n][(tts >= qthresh[j]) * (tts < qthresh[j + 1])] = q
 
     slide_transit_times = []
-    slide_error = []
+    slide_uncertainty = []
 
-    for npl, p in enumerate(planets):
-        print("\nPLANET", npl)
+    for n, p in enumerate(planets):
+        print("\nPLANET", n)
 
         slide_transit_times.append([])
-        slide_error.append([])
+        slide_uncertainty.append([])
 
         # create template transit
         starrystar = exo.LimbDarkLightCurve([U1, U2])
         orbit = exo.orbits.KeplerianOrbit(
-            t0=0, period=p.period, b=p.impact, ror=rors[npl], duration=p.duration
+            t0=0, period=p.period, b=p.impact, ror=p.ror, duration=p.duration
         )
 
         slide_offset = 1.0
@@ -903,21 +907,21 @@ def main():
         template_flux = (
             1.0
             + starrystar.get_light_curve(
-                orbit=orbit, r=rors[npl], t=template_time, oversample=1
+                orbit=orbit, r=p.ror, t=template_time, oversample=1
             )
             .sum(axis=-1)
             .eval()
         )
 
         # empty lists to hold new transit time and uncertainties
-        tts = -99 * np.ones_like(shape_transit_times[npl])
-        err = -99 * np.ones_like(shape_transit_times[npl])
+        tts = -99 * np.ones_like(shape_transit_times[n])
+        err = -99 * np.ones_like(shape_transit_times[n])
 
-        for i, t0 in enumerate(shape_transit_times[npl]):
+        for i, t0 in enumerate(shape_transit_times[n]):
             # print(i, np.round(t0,2))
-            if ~p.overlap[p.quality][i]:
+            if ~overlap[n][p.quality][i]:
                 # identify quarter
-                q = transit_quarter[npl][i]
+                q = transit_quarter[n][i]
 
                 # set exposure time and oversample factor
                 if all_dtype[q] == "long":
@@ -993,7 +997,7 @@ def main():
 
                 # fit a parabola around the minimum (need at least 3 pts)
                 if len(tcfit) < 3:
-                    # print("TOO FEW POINTS")
+                    # print("too few points")
                     tts[i] = np.nan
                     err[i] = np.nan
 
@@ -1010,33 +1014,43 @@ def main():
 
                     # check that the fit is well-conditioned (ie. a negative t**2 coefficient)
                     if quad_coeffs[0] <= 0.0:
-                        # print("INVERTED PARABOLA")
+                        # print("inverted parabola")
                         tts[i] = np.nan
                         err[i] = np.nan
 
                     # check that the recovered transit time is within the expected range
                     if (tts[i] < tcfit.min()) or (tts[i] > tcfit.max()):
-                        # print("T0 OUT OF BOUNDS")
+                        # print("tc out of bounds")
                         tts[i] = np.nan
                         err[i] = np.nan
 
                 # show plots
                 do_plots = False
                 if do_plots:
-                    fig, ax = plt.subplots(1, 2, figsize=(10, 3))
+                    fig, ax = plt.subplots(1, 2, figsize=(8, 3))
 
                     if ~np.isnan(tts[i]):
                         tc = tts[i]
                     else:
                         tc = t0
 
-                    ax[0].plot(t_ - tc, f_, "ko")
-                    ax[0].plot((t_ - tc)[m_], f_[m_], "o", c=f"C{npl}")
-                    ax[0].plot(template_time, template_flux, c=f"C{npl}", lw=2)
+                    ax[0].plot((t_ - tc) * 24, (f_ - 1) * 1e6, "ko")
+                    ax[0].plot((t_ - tc)[m_] * 24, (f_[m_] - 1) * 1e6, "o", c=f"C{n}")
+                    ax[0].plot(
+                        template_time * 24, (template_flux - 1) * 1e6, c=f"C{n}", lw=2
+                    )
+                    ax[0].set_xlabel(r"$\Delta t$ (hours)", fontsize=14)
+                    ax[0].set_ylabel(r"$\Delta F$ (ppm)", fontsize=14)
 
-                    ax[1].plot(tcfit, x2fit, "ko")
-                    ax[1].plot(tcfit, quadfit, c=f"C{npl}", lw=3)
-                    ax[1].axvline(tc, color="k", ls="--", lw=2)
+                    ax[1].plot((tcfit - tc) * 24, x2fit - x2fit.min(), "ko")
+                    ax[1].plot(
+                        (tcfit - tc) * 24, quadfit - x2fit.min(), c=f"C{n}", lw=3
+                    )
+                    ax[1].axvline(0, color="k", ls=":", lw=2)
+                    ax[1].set_xlabel(r"$\Delta t$ (hours)", fontsize=14)
+                    ax[1].set_ylabel(r"$\Delta \chi^2$", fontsize=14)
+
+                    plt.tight_layout()
 
                     if IPLOT:
                         plt.show()
@@ -1044,30 +1058,29 @@ def main():
                         plt.close()
 
             else:
-                # print("OVERLAPPING TRANSITS")
+                # print("overlapping transits")
                 tts[i] = np.nan
                 err[i] = np.nan
 
-        slide_transit_times[npl] = np.copy(tts)
-        slide_error[npl] = np.copy(err)
+        slide_transit_times[n] = np.copy(tts)
+        slide_uncertainty[n] = np.copy(err)
 
     # flag transits for which the slide method failed
-    for npl, p in enumerate(planets):
-        bad = np.isnan(slide_transit_times[npl]) + np.isnan(slide_error[npl])
-        bad += slide_error[npl] > 8 * np.nanmedian(slide_error[npl])
+    for n, p in enumerate(planets):
+        bad = np.isnan(slide_transit_times[n]) + np.isnan(slide_uncertainty[n])
+        bad += slide_uncertainty[n] > 8 * np.nanmedian(slide_uncertainty[n])
 
-        slide_transit_times[npl][bad] = shape_transit_times[npl][bad]
-        slide_error[npl][bad] = np.nan
+        slide_transit_times[n][bad] = shape_transit_times[n][bad]
+        slide_uncertainty[n][bad] = np.nan
 
-    refit = []
-
-    for npl in range(NPL):
-        refit.append(np.isnan(slide_error[npl]))
+    refit = [None] * NPL
+    for n in range(NPL):
+        refit[n] = np.isnan(slide_uncertainty[n])
 
         # if every slide fit worked, randomly select a pair of transits for refitting
         # this is easier than tracking the edge cases -- we'll use the slide ttvs in the final vector anyway
-        if np.all(~refit[npl]):
-            refit[npl][np.random.randint(len(refit[npl]), size=2)] = True
+        if np.all(~refit[n]):
+            refit[n][np.random.randint(len(refit[n]), size=2)] = True
 
     print("")
     print("cumulative runtime = ", int(timer() - global_start_time), "s")
@@ -1078,95 +1091,93 @@ def main():
     # #### Only refit transit times for which the slide method failed
 
     if sc is not None:
-        sc_map_mask = np.zeros((NPL, len(sc.time)), dtype="bool")
-        for npl, p in enumerate(planets):
-            tts = slide_transit_times[npl][refit[npl]]
-            sc_map_mask[npl] = make_transit_mask(
+        refit_mask_sc = np.zeros((NPL, len(sc.time)), dtype="bool")
+        for n, p in enumerate(planets):
+            tts = slide_transit_times[n][refit[n]]
+            refit_mask_sc[n] = make_transit_mask(
                 sc.time, tts, np.max([2 / 24, 2.5 * p.duration])
             )
 
-        sc_map_mask = sc_map_mask.sum(axis=0) > 0
+        refit_mask_sc = refit_mask_sc.sum(axis=0) > 0
 
     else:
-        sc_map_mask = None
+        refit_mask_sc = None
 
     if lc is not None:
-        lc_map_mask = np.zeros((NPL, len(lc.time)), dtype="bool")
-        for npl, p in enumerate(planets):
-            tts = slide_transit_times[npl][refit[npl]]
-            lc_map_mask[npl] = make_transit_mask(
+        refit_mask_lc = np.zeros((NPL, len(lc.time)), dtype="bool")
+        for n, p in enumerate(planets):
+            tts = slide_transit_times[n][refit[n]]
+            refit_mask_lc[n] = make_transit_mask(
                 lc.time, tts, np.max([2 / 24, 2.5 * p.duration])
             )
 
-        lc_map_mask = lc_map_mask.sum(axis=0) > 0
+        refit_mask_lc = refit_mask_lc.sum(axis=0) > 0
 
     else:
-        lc_map_mask = None
+        refit_mask_lc = None
 
-    # grab data near transits for each quarter
-    map_time = [None] * 18
-    map_flux = [None] * 18
-    map_error = [None] * 18
-    map_dtype = ["none"] * 18
+    # go quarter-by-quarter
+    refit_time = [None] * 18
+    refit_flux = [None] * 18
+    refit_error = [None] * 18
+    refit_dtype = ["none"] * 18
 
     for q in range(18):
         if sc is not None:
             if np.isin(q, sc.quarter):
-                use = (sc_map_mask) * (sc.quarter == q)
+                use = (refit_mask_sc) * (sc.quarter == q)
 
-                if np.sum(use) > 45:
-                    map_time[q] = sc.time[use]
-                    map_flux[q] = sc.flux[use]
-                    map_error[q] = sc.error[use]
-                    map_dtype[q] = "short"
+                if np.sum(use) > np.min(count_expect_sc):
+                    refit_time[q] = sc.time[use]
+                    refit_flux[q] = sc.flux[use]
+                    refit_error[q] = sc.error[use]
+                    refit_dtype[q] = "short"
 
                 else:
-                    map_dtype[q] = "short_no_transits"
+                    refit_dtype[q] = "short_no_transits"
 
         if lc is not None:
             if np.isin(q, lc.quarter):
-                use = (lc_map_mask) * (lc.quarter == q)
+                use = (refit_mask_lc) * (lc.quarter == q)
 
-                if np.sum(use) > 5:
-                    map_time[q] = lc.time[use]
-                    map_flux[q] = lc.flux[use]
-                    map_error[q] = lc.error[use]
-                    map_dtype[q] = "long"
+                if np.sum(use) > np.min(count_expect_lc):
+                    refit_time[q] = lc.time[use]
+                    refit_flux[q] = lc.flux[use]
+                    refit_error[q] = lc.error[use]
+                    refit_dtype[q] = "long"
 
                 else:
-                    map_dtype[q] = "long_no_transits"
+                    refit_dtype[q] = "long_no_transits"
 
-    map_quarters = np.arange(18)[
-        (np.array(map_dtype) == "short") + (np.array(map_dtype) == "long")
-    ]
+    refit_dtype = np.array(refit_dtype)
+
+    # track which quarters have coverage
+    refit_quarters = np.arange(18)[(refit_dtype == "short") + (refit_dtype == "long")]
 
     with pm.Model() as indep_model:
         # transit times
         tt_offset = []
-        map_tts = []
-        map_inds = []
+        refit_tts = []
+        refit_inds = []
 
-        for npl in range(NPL):
-            use = np.copy(refit[npl])
+        for n in range(NPL):
+            use = np.copy(refit[n])
 
-            tt_offset.append(
-                pm.Normal(f"tt_offset_{npl}", mu=0, sd=1, shape=np.sum(use))
-            )
+            tt_offset.append(pm.Normal(f"tt_offset_{n}", mu=0, sd=1, shape=np.sum(use)))
 
-            map_tts.append(
+            refit_tts.append(
                 pm.Deterministic(
-                    f"tts_{npl}",
-                    shape_transit_times[npl][use] + tt_offset[npl] * durs[npl] / 3,
+                    f"tts_{n}", shape_transit_times[n][use] + tt_offset[n] * durs[n] / 3
                 )
             )
 
-            map_inds.append(transit_inds[npl][use])
+            refit_inds.append(transit_inds[n][use])
 
         # set up stellar model and planetary orbit
         starrystar = exo.LimbDarkLightCurve([U1, U2])
         orbit = exo.orbits.TTVOrbit(
-            transit_times=map_tts,
-            transit_inds=map_inds,
+            transit_times=refit_tts,
+            transit_inds=refit_inds,
             period=periods,
             b=impacts,
             ror=rors,
@@ -1174,41 +1185,37 @@ def main():
         )
 
         # nuissance parameters
-        flux0 = pm.Normal(
-            "flux0",
-            mu=np.mean(good_flux),
-            sd=np.std(good_flux),
-            shape=len(map_quarters),
-        )
-        log_jit = pm.Normal(
-            "log_jit", mu=np.log(np.var(good_flux) / 10), sd=10, shape=len(map_quarters)
-        )
+        mbq = mean_by_quarter[(refit_dtype == "short") + (refit_dtype == "long")]
+        vbq = var_by_quarter[(refit_dtype == "short") + (refit_dtype == "long")]
+
+        flux0 = pm.Normal("flux0", mu=mbq, sd=mbq / 10, shape=len(refit_quarters))
+        log_jit = pm.Normal("log_jit", mu=np.log(vbq), sd=10, shape=len(refit_quarters))
 
         # now evaluate the model for each quarter
-        light_curves = [None] * len(map_quarters)
-        model_flux = [None] * len(map_quarters)
-        flux_err = [None] * len(map_quarters)
-        obs = [None] * len(map_quarters)
+        light_curves = [None] * len(refit_quarters)
+        model_flux = [None] * len(refit_quarters)
+        flux_err = [None] * len(refit_quarters)
+        obs = [None] * len(refit_quarters)
 
-        for j, q in enumerate(map_quarters):
+        for j, q in enumerate(refit_quarters):
             # calculate light curves
             light_curves[j] = starrystar.get_light_curve(
                 orbit=orbit,
                 r=rors,
-                t=map_time[q],
+                t=refit_time[q],
                 oversample=oversample[q],
                 texp=texp[q],
             )
 
             model_flux[j] = pm.math.sum(light_curves[j], axis=-1) + flux0[j] * T.ones(
-                len(map_time[q])
+                len(refit_time[q])
             )
             flux_err[j] = T.sqrt(
-                np.mean(map_error[q]) ** 2 + T.exp(log_jit[j])
+                np.mean(refit_error[q]) ** 2 + T.exp(log_jit[j])
             ) / np.sqrt(2)
 
             obs[j] = pm.Normal(
-                f"obs_{j}", mu=model_flux[j], sd=flux_err[j], observed=map_flux[q]
+                f"obs_{j}", mu=model_flux[j], sd=flux_err[j], observed=refit_flux[q]
             )
 
     with indep_model:
@@ -1217,63 +1224,61 @@ def main():
             start=indep_map, vars=[flux0, log_jit], progress=VERBOSE
         )
 
-        for npl in range(NPL):
+        for n in range(NPL):
             indep_map = pmx.optimize(
-                start=indep_map, vars=[tt_offset[npl]], progress=VERBOSE
+                start=indep_map, vars=[tt_offset[n]], progress=VERBOSE
             )
 
         indep_map = pmx.optimize(start=indep_map, progress=VERBOSE)
 
     indep_transit_times = []
-    indep_error = []
+    indep_uncertainty = []
     indep_linear_ephemeris = []
     full_indep_linear_ephemeris = []
 
-    for npl, p in enumerate(planets):
-        indep_transit_times.append(np.copy(slide_transit_times[npl]))
-        indep_error.append(np.copy(slide_error[npl]))
+    for n, p in enumerate(planets):
+        indep_transit_times.append(np.copy(slide_transit_times[n]))
+        indep_uncertainty.append(np.copy(slide_uncertainty[n]))
 
-        replace = np.isnan(slide_error[npl])
+        replace = np.isnan(slide_uncertainty[n])
 
         if np.any(replace):
-            indep_transit_times[npl][replace] = indep_map[f"tts_{npl}"]
+            indep_transit_times[n][replace] = indep_map[f"tts_{n}"]
 
-        pfit = poly.polyfit(transit_inds[npl], indep_transit_times[npl], 1)
+        pfit = poly.polyfit(transit_inds[n], indep_transit_times[n], 1)
 
-        indep_linear_ephemeris.append(poly.polyval(transit_inds[npl], pfit))
+        indep_linear_ephemeris.append(poly.polyval(transit_inds[n], pfit))
         full_indep_linear_ephemeris.append(poly.polyval(p.index, pfit))
 
         if np.all(replace):
-            indep_error[npl][replace] = mad_std(
-                indep_transit_times[npl] - indep_linear_ephemeris[npl]
+            indep_uncertainty[n][replace] = mad_std(
+                indep_transit_times[n] - indep_linear_ephemeris[n]
             )
         elif np.any(replace):
-            indep_error[npl][replace] = mad_std(
-                indep_transit_times[npl][~replace]
-                - indep_linear_ephemeris[npl][~replace]
+            indep_uncertainty[n][replace] = mad_std(
+                indep_transit_times[n][~replace] - indep_linear_ephemeris[n][~replace]
             )
 
-    for npl, p in enumerate(planets):
-        print(f"\nPLANET {npl}")
+    for n, p in enumerate(planets):
+        print(f"\nPLANET {n}")
 
-        # grab data
-        xtime = indep_linear_ephemeris[npl]
-        yomc = indep_transit_times[npl] - indep_linear_ephemeris[npl]
+        xtime = indep_linear_ephemeris[n]
+        yomc = indep_transit_times[n] - indep_linear_ephemeris[n]
 
         yerr_expected = predict_tc_error(
             np.sqrt(p.depth), p.impact, p.duration, lcit, np.median(lc.error)
         )
-        yerr_measured = indep_error[npl]
+        yerr_measured = indep_uncertainty[n]
 
         yerr = np.sqrt(yerr_expected**2 + yerr_measured**2)
 
         print("  expected uncertainty: {0:.1f} min".format(yerr_expected * 24 * 60))
         print(
             "  measured uncertainty: {0:.1f} min".format(
-                np.median(yerr_measured * 24 * 60)
+                np.median(yerr_measured) * 24 * 60
             )
         )
-        print("  adopted uncertainty:  {0:.1f} min".format(np.median(yerr * 24 * 60)))
+        print("  adopted uncertainty:  {0:.1f} min".format(np.median(yerr) * 24 * 60))
         print("  dispersion:           {0:.1f} min".format(mad_std(yomc) * 24 * 60))
 
     print("")
@@ -1293,16 +1298,10 @@ def main():
     indep_freqs = []
     indep_faps = []
 
-    for npl, p in enumerate(planets):
+    for n, p in enumerate(planets):
         # grab data
-        xtime = indep_linear_ephemeris[npl]
-        yomc = indep_transit_times[npl] - indep_linear_ephemeris[npl]
-
-        # estimate measurement uncertainty
-        yerr_expected = predict_tc_error(
-            np.sqrt(p.depth), p.impact, p.duration, lcit, np.median(lc.error)
-        )
-        yerr_measured = indep_error[npl]
+        xtime = indep_linear_ephemeris[n]
+        yomc = indep_transit_times[n] - indep_linear_ephemeris[n]
 
         # flag outliers
         ymed = boxcar_smooth(median_filter(yomc, size=5, mode="mirror"), winsize=5)
@@ -1316,8 +1315,6 @@ def main():
             fap = 0.1
         elif NPL > 1:
             fap = 0.99
-        else:
-            raise ValueError("NPL must be >= 1")
 
         if np.sum(~out) > 8:
             try:
@@ -1379,57 +1376,51 @@ def main():
 
     omc_pers = []
 
-    for npl in range(NPL):
-        print("\nPLANET", npl)
+    for n in range(NPL):
+        print("\nPLANET", n)
 
         # roughly model OMC based on single frequency sinusoid (if found)
-        if omc_freqs[npl] is not None:
-            print("periodic signal found at P =", int(1 / omc_freqs[npl]), "d")
+        if omc_freqs[n] is not None:
+            print("  periodic signal found at P =", int(1 / omc_freqs[n]), "d")
 
             # store frequency
-            omc_pers.append(1 / omc_freqs[npl])
+            omc_pers.append(1 / omc_freqs[n])
 
             # grab data and plot
-            xtime = indep_linear_ephemeris[npl]
-            yomc = indep_transit_times[npl] - indep_linear_ephemeris[npl]
+            xtime = indep_linear_ephemeris[n]
+            yomc = indep_transit_times[n] - indep_linear_ephemeris[n]
             LS = LombScargle(xtime, yomc)
 
             plt.figure(figsize=(12, 3))
             plt.plot(xtime, yomc * 24 * 60, "o", c="lightgrey")
-            plt.plot(
-                xtime, LS.model(xtime, omc_freqs[npl]) * 24 * 60, c=f"C{npl}", lw=3
-            )
+            plt.plot(xtime, LS.model(xtime, omc_freqs[n]) * 24 * 60, c=f"C{n}", lw=3)
             if IPLOT:
                 plt.show()
             else:
                 plt.close()
 
         else:
-            print("no sigificant periodic component found")
+            print("  no sigificant periodic component found")
             omc_pers.append(
-                2
-                * (
-                    indep_linear_ephemeris[npl].max()
-                    - indep_linear_ephemeris[npl].min()
-                )
+                2 * (indep_linear_ephemeris[n].max() - indep_linear_ephemeris[n].min())
             )
 
     # ## Determine best OMC model
 
     print("...running model selection routine")
 
-    quick_transit_times = []
-    full_quick_transit_times = []
+    regular_transit_times = []
+    full_regular_transit_times = []
 
     outlier_prob = []
     outlier_class = []
 
-    for npl, p in enumerate(planets):
-        print(f"\nPLANET {npl}")
+    for n, p in enumerate(planets):
+        print(f"\nPLANET {n}")
 
         # grab data
-        xtime = indep_linear_ephemeris[npl]
-        yomc = indep_transit_times[npl] - indep_linear_ephemeris[npl]
+        xtime = indep_linear_ephemeris[n]
+        yomc = indep_transit_times[n] - indep_linear_ephemeris[n]
 
         # flag outliers
         if len(yomc) > 16:
@@ -1446,7 +1437,7 @@ def main():
         yerr_expected = predict_tc_error(
             np.sqrt(p.depth), p.impact, p.duration, lcit, np.median(lc.error)
         )
-        yerr_measured = indep_error[npl]
+        yerr_measured = indep_uncertainty[n]
 
         yerr = np.sqrt(yerr_expected**2 + yerr_measured**2)
         ymax = np.sqrt(mad_std(yomc) ** 2 - np.median(yerr) ** 2)
@@ -1479,7 +1470,7 @@ def main():
                 )
             elif polyorder == 0:
                 omc_model = omc.sin_model(
-                    xtime[~out], yomc[~out], yerr[~out], omc_pers[npl], xtime
+                    xtime[~out], yomc[~out], yerr[~out], omc_pers[n], xtime
                 )
             elif polyorder >= 1:
                 omc_model = omc.poly_model(
@@ -1513,7 +1504,7 @@ def main():
                 zorder=-1,
             )
             plt.plot(xtime[out], yomc[out] * 24 * 60, "rx")
-            plt.plot(xtime, omc_trend * 24 * 60, c=f"C{npl}", lw=2)
+            plt.plot(xtime, omc_trend * 24 * 60, c=f"C{n}", lw=2)
             plt.xlabel("Time [BJKD]", fontsize=16)
             plt.ylabel("O-C [min]", fontsize=16)
             if IPLOT:
@@ -1522,7 +1513,7 @@ def main():
                 plt.close()
 
             # calculate AIC & BIC
-            n = len(yomc)
+            npts = len(yomc)
 
             if polyorder == -1:
                 k = np.nanmedian(omc_trace["dof"])
@@ -1536,7 +1527,7 @@ def main():
             lnlike = -chisq
 
             aic = 2 * k - 2 * lnlike
-            bic = k * np.log(n) - 2 * lnlike
+            bic = k * np.log(npts) - 2 * lnlike
 
             aiclist.append(aic)
             biclist.append(bic)
@@ -1549,7 +1540,7 @@ def main():
         polyorder_bic = np.arange(min_polyorder, max_polyorder + 1)[np.argmin(biclist)]
         polyorder = np.max([polyorder_aic, polyorder_bic])
 
-        xt_predict = full_indep_linear_ephemeris[npl]
+        xt_predict = full_indep_linear_ephemeris[n]
 
         if polyorder == -1:
             omc_model = omc.matern32_model(
@@ -1557,7 +1548,7 @@ def main():
             )
         elif polyorder == 0:
             omc_model = omc.sin_model(
-                xtime[~out], yomc[~out], yerr[~out], omc_pers[npl], xt_predict
+                xtime[~out], yomc[~out], yerr[~out], omc_pers[n], xt_predict
             )
         elif polyorder >= 1:
             omc_model = omc.poly_model(
@@ -1610,10 +1601,10 @@ def main():
         # save the final results
         full_omc_trend = np.nanmedian(omc_trace["pred"], 0)
 
-        full_quick_transit_times.append(
-            full_indep_linear_ephemeris[npl] + full_omc_trend
+        full_regular_transit_times.append(
+            full_indep_linear_ephemeris[n] + full_omc_trend
         )
-        quick_transit_times.append(full_quick_transit_times[npl][transit_inds[npl]])
+        regular_transit_times.append(full_regular_transit_times[n][transit_inds[n]])
 
         outlier_prob.append(1 - fg_prob)
         outlier_class.append(bad)
@@ -1624,10 +1615,10 @@ def main():
         )
         plt.plot(xtime[bad], yomc[bad] * 24 * 60, "rx")
         plt.plot(
-            full_indep_linear_ephemeris[npl],
+            full_indep_linear_ephemeris[n],
             full_omc_trend * 24 * 60,
             "k",
-            label="Quick model",
+            label="Regularized model",
         )
         plt.xlabel("Time [BJKD]", fontsize=20)
         plt.ylabel("O-C [min]", fontsize=20)
@@ -1652,7 +1643,7 @@ def main():
             backgroundcolor="w",
         )
         plt.savefig(
-            os.path.join(FIGURE_DIR, TARGET + f"_ttvs_quick_{npl:02d}.png"),
+            os.path.join(FIGURE_DIR, TARGET + f"_ttvs_quick_{n:02d}.png"),
             bbox_inches="tight",
         )
         if IPLOT:
@@ -1665,29 +1656,33 @@ def main():
     ttv_scatter = np.zeros(NPL)
     ttv_buffer = np.zeros(NPL)
 
-    for npl in range(NPL):
+    for n in range(NPL):
         # estimate TTV scatter
-        ttv_scatter[npl] = mad_std(indep_transit_times[npl] - quick_transit_times[npl])
+        ttv_scatter[n] = mad_std(indep_transit_times[n] - regular_transit_times[n])
 
         # based on scatter in independent times, set threshold so not even one outlier is expected
-        N = len(transit_inds[npl])
+        N = len(transit_inds[n])
         eta = np.max([3.0, stats.norm.interval((N - 1) / N)[1]])
 
-        ttv_buffer[npl] = eta * ttv_scatter[npl] + lcit
+        ttv_buffer[n] = eta * ttv_scatter[n] + lcit
 
     # ## Update TTVs
 
-    for npl, p in enumerate(planets):
+    for n, p in enumerate(planets):
         # update transit time info in Planet objects
-        epoch, period = poly.polyfit(p.index, full_quick_transit_times[npl], 1)
+        epoch, period = poly.polyfit(p.index, full_regular_transit_times[n], 1)
 
         p.epoch = np.copy(epoch)
         p.period = np.copy(period)
-        p.tts = np.copy(full_quick_transit_times[npl])
+        p.tts = np.copy(full_regular_transit_times[n])
 
     print("")
     print("cumulative runtime = ", int(timer() - global_start_time), "s")
     print("")
+
+    # # ###############################
+    # # ----- FLAG OUTLIERS & RESET -----
+    # # ###############################
 
     # ## Flag outliers based on transit model
 
@@ -1719,14 +1714,14 @@ def main():
             tts = []
             inds = []
 
-            for npl in range(NPL):
-                qtt = quick_transit_times[npl]
-                use = (qtt > t_.min()) * (qtt < t_.max())
+            for n in range(NPL):
+                rtt = regular_transit_times[n]
+                use = (rtt > t_.min()) * (rtt < t_.max())
 
                 if np.sum(use) > 0:
-                    wp.append(npl)
-                    tts.append(qtt[use])
-                    inds.append(transit_inds[npl][use] - transit_inds[npl][use][0])
+                    wp.append(n)
+                    tts.append(rtt[use])
+                    inds.append(transit_inds[n][use] - transit_inds[n][use][0])
 
             if len(tts) == 0:
                 all_dtype[q] = all_dtype[q] + "_no_transits"
@@ -1780,12 +1775,8 @@ def main():
 
                 plt.figure(figsize=(20, 3))
                 plt.plot(t_, res[j], "k.")
-                plt.plot(t_[bad[j]], res[j][bad[j]], "x", c="C1", ms=20)
+                plt.plot(t_[bad[j]], res[j][bad[j]], "x", c="r", ms=20)
 
-                for n in range(len(tts)):
-                    plt.plot(tts[n], np.zeros_like(tts[n]), "|", c="C0", ms=100, mew=3)
-
-                plt.ylim(np.percentile(res[j], 0.15), np.percentile(res[j], 99.85))
                 if IPLOT:
                     plt.show()
                 else:
@@ -1809,139 +1800,102 @@ def main():
     if len(good_cadno_sc) > 0:
         good_cadno_sc = np.hstack(good_cadno_sc)
 
-    # # #########################
-    # # ----- 2ND DETRENDING -----
-    # # #########################
-
-    print("\nResetting to raw MAST data and performing 2nd DETRENDING...\n")
-
     # ## Reset to raw input data
+
+    print("\nResetting data...\n")
 
     if MISSION == "Kepler":
         # reset LONG CADENCE data
-        if lc is not None:
-            lc_data = io.cleanup_lkfc(lc_raw_collection, KIC)
+        lc_data = []
+        for i, lcrd in enumerate(lc_raw_data):
+            lc_data.append(io.LightKurve_to_LiteCurve(lcrd))
 
         # make sure there is at least one transit in the long cadence data
         # this shouldn't be an issue for real KOIs, but can happen for simulated data
         if np.sum(np.array(all_dtype) == "long") == 0:
             lc_data = []
 
-        lc_quarters = []
-        for i, lcd in enumerate(lc_data):
-            lc_quarters.append(lcd.quarter)
-
         # reset SHORT CADENCE data
-        if sc is not None:
-            sc_data = io.cleanup_lkfc(sc_raw_collection, KIC)
+        sc_data = []
+        for i, scrd in enumerate(sc_raw_data):
+            sc_data.append(io.LightKurve_to_LiteCurve(scrd))
 
         # make sure there is at least one transit in the short cadence data
         # this shouldn't be an issue for real KOIs, but can happen for simulated data
         if np.sum(np.array(all_dtype) == "short") == 0:
             sc_data = []
 
-        sc_quarters = []
-        for i, scd in enumerate(sc_data):
-            sc_quarters.append(scd.quarter)
-
-        # convert LightKurves to LiteCurves
-        sc_lite = []
-        lc_lite = []
-
-        for i, scd in enumerate(sc_data):
-            sc_lite.append(io.LightKurve_to_LiteCurve(scd))
-
-        for i, lcd in enumerate(lc_data):
-            lc_lite.append(io.LightKurve_to_LiteCurve(lcd))
-
-    elif MISSION == "Simulated":
-        sc_lite = deepcopy(sc_raw_sim_data)
-        lc_lite = deepcopy(lc_raw_sim_data)
+    elif MISSION == "Kepler-Validation":
+        sc_data = deepcopy(sc_raw_sim_data)
+        lc_data = deepcopy(lc_raw_sim_data)
 
     # ## Remove flagged cadences
 
-    sc_data = []
-    for i, scl in enumerate(sc_lite):
-        qmask = np.isin(scl.cadno, good_cadno_sc)
+    for i, scd in enumerate(sc_data):
+        mask = np.isin(scd.cadno, good_cadno_sc)
 
-        if np.sum(qmask) / len(qmask) > 0.1:
-            sc_data.append(scl.remove_flagged_cadences(qmask))
+        if np.sum(mask) / len(mask) > 0.1:
+            sc_data[i] = scd.remove_flagged_cadences(mask)
 
-    lc_data = []
-    for i, lcl in enumerate(lc_lite):
-        qmask = np.isin(lcl.cadno, good_cadno_lc)
+    for i, lcd in enumerate(lc_data):
+        mask = np.isin(lcd.cadno, good_cadno_lc)
 
-        if np.sum(qmask) / len(qmask) > 0.1:
-            lc_data.append(lcl.remove_flagged_cadences(qmask))
+        if np.sum(mask) / len(mask) > 0.1:
+            lc_data[i] = lcd.remove_flagged_cadences(mask)
+
+    # # #########################
+    # # ----- 2ND DETRENDING -----
+    # # #########################
+
+    print("\nDetrending lightcurves (2st pass)...\n")
 
     # ## Detrend the lightcurves
 
-    # array to hold dominant oscillation period for each quarter
-    oscillation_period_by_quarter = np.ones(18) * np.nan
-
-    # long cadence data
-    min_period = 1.0
-
+    # make transit masks
     for i, lcd in enumerate(lc_data):
-        qmask = lk.KeplerQualityFlags.create_quality_mask(
-            lcd.quality, bitmask="default"
-        )
-        lcd.remove_flagged_cadences(qmask)
+        mask = np.zeros((NPL, len(lcd.time)), dtype="bool")
 
-        # make transit mask
-        lcd.mask = np.zeros(len(lcd.time), dtype="bool")
-        for npl, p in enumerate(planets):
-            lcd.mask += make_transit_mask(
-                lcd.time, p.tts, np.max([1 / 24, 0.5 * p.duration + ttv_buffer[npl]])
+        for n, p in enumerate(planets):
+            mask[n] = make_transit_mask(
+                lcd.time, p.tts, np.max([1 / 24, 1.5 * p.duration])
             )
 
-        lcd.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=5, mask=lcd.mask)
-        lcd.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=1000, mask=None)
-
-        # identify primary oscillation period
-        ls_estimate = LombScargle(lcd.time, lcd.flux)
-        xf, yf = ls_estimate.autopower(
-            minimum_frequency=1 / (lcd.time.max() - lcd.time.min()),
-            maximum_frequency=1 / min_period,
-        )
-
-        peak_freq = xf[np.argmax(yf)]
-        peak_per = np.max([1.0 / peak_freq, 1.001 * min_period])
-
-        oscillation_period_by_quarter[lcd.quarter[0]] = peak_per
-
-    # short cadence data
-    min_period = 1.0
+        lcd.mask = mask.sum(axis=0) > 0
 
     for i, scd in enumerate(sc_data):
-        qmask = lk.KeplerQualityFlags.create_quality_mask(
-            scd.quality, bitmask="default"
-        )
-        scd.remove_flagged_cadences(qmask)
+        mask = np.zeros((NPL, len(scd.time)), dtype="bool")
 
-        # make transit mask
-        scd.mask = np.zeros(len(scd.time), dtype="bool")
-        for npl, p in enumerate(planets):
-            scd.mask += make_transit_mask(
-                scd.time, p.tts, np.max([1 / 24, 0.5 * p.duration + ttv_buffer[npl]])
+        for n, p in enumerate(planets):
+            mask[n] = make_transit_mask(
+                scd.time, p.tts, np.max([1 / 24, 1.5 * p.duration])
             )
 
-        scd.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=5, mask=scd.mask)
-        scd.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=1000, mask=None)
+        scd.mask = mask.sum(axis=0) > 0
 
-        # identify primary oscillation period
-        ls_estimate = LombScargle(scd.time, scd.flux)
-        xf, yf = ls_estimate.autopower(
-            minimum_frequency=1 / (scd.time.max() - scd.time.min()),
-            maximum_frequency=1 / min_period,
+    # remove bad cadences
+    for i, lcd in enumerate(lc_data):
+        lcd = detrend.remove_bad_cadences(
+            lcd, planets, rel_masksize=1.5, min_masksize=1.0 / 24
         )
 
-        peak_freq = xf[np.argmax(yf)]
-        peak_per = np.max([1.0 / peak_freq, 1.001 * min_period])
+    for i, scd in enumerate(sc_data):
+        scd = detrend.remove_bad_cadences(
+            scd, planets, rel_masksize=1.5, min_masksize=1.0 / 24
+        )
 
-        oscillation_period_by_quarter[scd.quarter[0]] = peak_per
+    # track stellar and instrumental oscillations
+    oscillation_period_by_quarter = np.ones(18) * np.nan
 
-    # seasonal approach assumes both stellar and instrumental effects are present
+    for i, lcd in enumerate(lc_data):
+        oscillation_period_by_quarter[
+            lcd.quarter[0]
+        ] = detrend.estimate_oscillation_period(lcd, min_period=1.0)
+
+    for i, scd in enumerate(sc_data):
+        oscillation_period_by_quarter[
+            scd.quarter[0]
+        ] = detrend.estimate_oscillation_period(scd, min_period=1.0)
+
     oscillation_period_by_season = np.zeros((4, 2))
 
     for i in range(4):
@@ -1954,47 +1908,16 @@ def main():
 
     # detrend long cadence data
     break_tolerance = np.max([int(DURS.min() / lcit * 5 / 2), 13])
-    min_period = 1.0
+    min_per = 1.0
 
     for i, lcd in enumerate(lc_data):
         print(f"QUARTER {lcd.quarter[0]}")
 
         nom_per = oscillation_period_by_season[lcd.quarter[0] % 4][0]
 
-        try:
-            lcd = detrend.flatten_with_gp(
-                lcd,
-                break_tolerance,
-                min_period,
-                nominal_period=nom_per,
-                verbose=VERBOSE,
-            )
-        except LinAlgError:
-            warnings.warn(
-                "Initial detrending failed...attempting to refit without exponential ramp component"
-            )
-            try:
-                lcd = detrend.flatten_with_gp(
-                    lcd,
-                    break_tolerance,
-                    min_period,
-                    nominal_period=nom_per,
-                    correct_ramp=False,
-                    verbose=VERBOSE,
-                )
-            except LinAlgError:
-                warnings.warn(
-                    "Detrending with RotationTerm failed...attempting to detrend with SHOTerm"
-                )
-                lcd = detrend.flatten_with_gp(
-                    lcd,
-                    break_tolerance,
-                    min_period,
-                    nominal_period=nom_per,
-                    kterm="SHOTerm",
-                    correct_ramp=False,
-                    verbose=VERBOSE,
-                )
+        lcd = detrend.flatten_litecurve(
+            lcd, break_tolerance, min_per, nominal_period=nom_per, verbose=VERBOSE
+        )
 
     if len(lc_data) > 0:
         lc = detrend.stitch(lc_data)
@@ -2003,217 +1926,55 @@ def main():
 
     # detrend short cadence data
     break_tolerance = np.max([int(DURS.min() / scit * 5 / 2), 91])
-    min_period = 1.0
+    min_per = 1.0
 
     for i, scd in enumerate(sc_data):
         print(f"QUARTER {scd.quarter[0]}")
 
         nom_per = oscillation_period_by_season[scd.quarter[0] % 4][0]
 
-        try:
-            scd = detrend.flatten_with_gp(
-                scd,
-                break_tolerance,
-                min_period,
-                nominal_period=nom_per,
-                verbose=VERBOSE,
-            )
-        except LinAlgError:
-            warnings.warn(
-                "Initial detrending failed...attempting to refit without exponential ramp component"
-            )
-            try:
-                scd = detrend.flatten_with_gp(
-                    scd,
-                    break_tolerance,
-                    min_period,
-                    nominal_period=nom_per,
-                    correct_ramp=False,
-                    verbose=VERBOSE,
-                )
-            except LinAlgError:
-                warnings.warn(
-                    "Detrending with RotationTerm failed...attempting to detrend with SHOTerm"
-                )
-                scd = detrend.flatten_with_gp(
-                    scd,
-                    break_tolerance,
-                    min_period,
-                    nominal_period=nom_per,
-                    kterm="SHOTerm",
-                    correct_ramp=False,
-                    verbose=VERBOSE,
-                )
+        scd = detrend.flatten_litecurve(
+            scd, break_tolerance, min_per, nominal_period=nom_per, verbose=VERBOSE
+        )
 
     if len(sc_data) > 0:
         sc = detrend.stitch(sc_data)
     else:
         sc = None
 
-    # ## Do a final round of outliers rejection
-
-    print("\nFlagging remaining outliers...\n")
-
-    res = [None] * len(quarters)
-    bad = [None] * len(quarters)
-
-    for j, q in enumerate(quarters):
-        print(f"QUARTER {q}")
-
-        if (all_dtype[q] != "long") and (all_dtype[q] != "short"):
-            pass
-
-        else:
-            if all_dtype[q] == "long":
-                use = lc.quarter == q
-                t_ = lc.time[use]
-                f_ = lc.flux[use]
-            elif all_dtype[q] == "short":
-                use = sc.quarter == q
-                t_ = sc.time[use]
-                f_ = sc.flux[use]
-            else:
-                raise ValueError("cadence data type must be 'short' or 'long'")
-
-            # grab transit times for each planet
-            wp = []
-            tts = []
-            inds = []
-
-            for npl in range(NPL):
-                qtt = quick_transit_times[npl]
-                use = (qtt > t_.min()) * (qtt < t_.max())
-
-                if np.sum(use) > 0:
-                    wp.append(npl)
-                    tts.append(qtt[use])
-                    inds.append(transit_inds[npl][use] - transit_inds[npl][use][0])
-
-            if len(tts) > 0:
-                # set up model
-                starrystar = exo.LimbDarkLightCurve([U1, U2])
-
-                orbit = exo.orbits.TTVOrbit(
-                    transit_times=tts,
-                    transit_inds=inds,
-                    period=list(periods[wp]),
-                    b=impacts[wp],
-                    ror=rors[wp],
-                    duration=durs[wp],
-                )
-
-                # calculate light curves
-                light_curves = starrystar.get_light_curve(
-                    orbit=orbit,
-                    r=rors[wp],
-                    t=t_,
-                    oversample=oversample[q],
-                    texp=texp[q],
-                )
-
-                model_flux = 1.0 + pm.math.sum(light_curves, axis=-1).eval()
-
-                # flag outliers
-                N = len(f_)
-                eta = np.max([3.0, stats.norm.interval((N - 1) / N)[1]])
-
-                res[j] = f_ - model_flux
-                bad[j] = np.abs(res[j] - np.median(res[j])) / (mad_std(res[j])) > eta
-
-                loop = 0
-                count = np.sum(bad[j])
-                while loop < 5:
-                    bad[j] = (
-                        np.abs(res[j] - np.median(res[j][~bad[j]]))
-                        / (mad_std(res[j][~bad[j]]))
-                        > eta
-                    )
-
-                    if np.sum(bad[j]) == count:
-                        loop = 5
-                    else:
-                        loop += 1
-
-            if res[j] is not None:
-                print(" outliers rejected:", np.sum(bad[j]))
-
-                plt.figure(figsize=(20, 3))
-                plt.plot(t_, res[j], "k.")
-                plt.plot(t_[bad[j]], res[j][bad[j]], "x", c="C1", ms=20)
-
-                for n in range(len(tts)):
-                    plt.plot(tts[n], np.zeros_like(tts[n]), "|", c="C0", ms=100, mew=3)
-
-                plt.ylim(np.percentile(res[j], 0.15), np.percentile(res[j], 99.85))
-                if IPLOT:
-                    plt.show()
-                else:
-                    plt.close()
-
-    good_cadno_lc = []
-    good_cadno_sc = []
-
-    for j, q in enumerate(quarters):
-        if all_dtype[q] == "long":
-            use = lc.quarter == q
-            good_cadno_lc.append(lc.cadno[use][~bad[j]])
-
-        if all_dtype[q] == "short":
-            use = sc.quarter == q
-            good_cadno_sc.append(sc.cadno[use][~bad[j]])
-
-    if len(good_cadno_lc) > 0:
-        good_cadno_lc = np.hstack(good_cadno_lc)
-
-    if len(good_cadno_sc) > 0:
-        good_cadno_sc = np.hstack(good_cadno_sc)
-
-    if lc is not None:
-        qmask = np.isin(lc.cadno, good_cadno_lc)
-        lc = lc.remove_flagged_cadences(qmask)
-
-    if sc is not None:
-        qmask = np.isin(sc.cadno, good_cadno_sc)
-        sc = sc.remove_flagged_cadences(qmask)
-
-    # # ##############################################
-    # # ----- MAKE PLOTS, OUTPUT DATA, & CLEAN UP -----
-    # # ##############################################
+    # # ###################
+    # # -----SAVE & EXIT -----
+    # # ###################
 
     # ## Make individual mask for where each planet transits
-    # #### These masks have width 1.5 transit durations, which may be wider than the masks used for detrending
 
     if sc is not None:
-        sc_mask = np.zeros((NPL, len(sc.time)), dtype="bool")
-        for npl, p in enumerate(planets):
-            sc_mask[npl] = make_transit_mask(
+        mask = np.zeros((NPL, len(sc.time)), dtype="bool")
+        for n, p in enumerate(planets):
+            mask[n] = make_transit_mask(
                 sc.time, p.tts, np.max([3 / 24, 1.5 * p.duration])
             )
 
-        sc.mask = sc_mask.sum(axis=0) > 0
-
-    else:
-        sc_mask = None
+        sc.mask = mask.sum(axis=0) > 0
 
     if lc is not None:
-        lc_mask = np.zeros((NPL, len(lc.time)), dtype="bool")
-        for npl, p in enumerate(planets):
-            lc_mask[npl] = make_transit_mask(
+        mask = np.zeros((NPL, len(lc.time)), dtype="bool")
+        for n, p in enumerate(planets):
+            mask[n] = make_transit_mask(
                 lc.time, p.tts, np.max([3 / 24, 1.5 * p.duration])
             )
 
-        lc.mask = lc_mask.sum(axis=0) > 0
-
-    else:
-        lc_mask = None
+        lc.mask = mask.sum(axis=0) > 0
 
     # ## Flag high quality transits (quality = 1)
-    # #### Good transits must have  at least 50% photometry coverage in/near transit
 
-    for npl, p in enumerate(planets):
-        count_expect_lc = np.max([1, int(np.floor(p.duration / lcit))])
-        count_expect_sc = np.max([15, int(np.floor(p.duration / scit))])
+    # number of photometric points expected in transit
+    count_expect_lc = np.zeros(NPL, dtype="int")
+    count_expect_sc = np.zeros(NPL, dtype="int")
 
+    for n, p in enumerate(planets):
+        count_expect_lc[n] = np.max([1, int(np.floor(p.duration / lcit))])
+        count_expect_sc[n] = np.max([1, int(np.floor(p.duration / scit))])
         quality = np.zeros(len(p.tts), dtype="bool")
 
         for i, t0 in enumerate(p.tts):
@@ -2221,8 +1982,8 @@ def main():
                 in_sc = np.abs(sc.time - t0) / p.duration < 0.5
                 near_sc = np.abs(sc.time - t0) / p.duration < 1.5
 
-                qual_in = np.sum(in_sc) > 0.5 * count_expect_sc
-                qual_near = np.sum(near_sc) > 1.5 * count_expect_sc
+                qual_in = np.sum(in_sc) > 0.5 * count_expect_sc[n]
+                qual_near = np.sum(near_sc) > 1.5 * count_expect_sc[n]
 
                 quality[i] += qual_in * qual_near
 
@@ -2230,121 +1991,31 @@ def main():
                 in_lc = np.abs(lc.time - t0) / p.duration < 0.5
                 near_lc = np.abs(lc.time - t0) / p.duration < 1.5
 
-                qual_in = np.sum(in_lc) > 0.5 * count_expect_lc
-                qual_near = np.sum(near_lc) > 1.5 * count_expect_lc
+                qual_in = np.sum(in_lc) > 0.5 * count_expect_lc[n]
+                qual_near = np.sum(near_lc) > 1.5 * count_expect_lc[n]
 
                 quality[i] += qual_in * qual_near
 
         p.quality = np.copy(quality)
 
-    # ## Flag which transits overlap (overlap = 1)
-
-    # identify overlapping transits
-    overlap = []
-
-    for i in range(NPL):
-        overlap.append(np.zeros(len(planets[i].tts), dtype="bool"))
-
-        for j in range(NPL):
-            if i != j:
-                for ttj in planets[j].tts:
-                    overlap[i] += np.abs(planets[i].tts - ttj) / durs.max() < 1.5
-
-        planets[i].overlap = np.copy(overlap[i])
-
-    # ## Make phase-folded transit plots
-
-    print("\nMaking phase-folded transit plots...\n")
-
-    for npl, p in enumerate(planets):
-        tts = p.tts[p.quality * ~p.overlap]
-
-        if len(tts) == 0:
-            print(
-                f"No non-overlapping high quality transits found for planet {npl} (P = {p.period:.1f} d)"
-            )
-
-        else:
-            t_folded = []
-            f_folded = []
-
-            # grab the data
-            for t0 in tts:
-                if sc is not None:
-                    use = np.abs(sc.time - t0) / p.duration < 1.5
-
-                    if np.sum(use) > 0:
-                        t_folded.append(sc.time[use] - t0)
-                        f_folded.append(sc.flux[use])
-
-                if lc is not None:
-                    use = np.abs(lc.time - t0) / p.duration < 1.5
-
-                    if np.sum(use) > 0:
-                        t_folded.append(lc.time[use] - t0)
-                        f_folded.append(lc.flux[use])
-
-            # sort the data
-            t_folded = np.hstack(t_folded)
-            f_folded = np.hstack(f_folded)
-
-            order = np.argsort(t_folded)
-            t_folded = t_folded[order]
-            f_folded = f_folded[order]
-
-            # bin the data
-            t_binned, f_binned = bin_data(t_folded, f_folded, p.duration / 11)
-
-            # set undersampling factor and plotting limits
-            inds = np.arange(len(t_folded), dtype="int")
-            inds = np.random.choice(inds, size=np.min([3000, len(inds)]), replace=False)
-
-            ymin = 1 - 3 * np.std(f_folded) - p.depth
-            ymax = 1 + 3 * np.std(f_folded)
-
-            # plot the data
-            plt.figure(figsize=(12, 4))
-            plt.plot(t_folded[inds] * 24, f_folded[inds], ".", c="lightgrey")
-            plt.plot(
-                t_binned * 24,
-                f_binned,
-                "o",
-                ms=8,
-                color=f"C{npl}",
-                label=f"{TARGET}-{npl}",
-            )
-            plt.xlim(t_folded.min() * 24, t_folded.max() * 24)
-            plt.ylim(ymin, ymax)
-            plt.xticks(fontsize=14)
-            plt.yticks(fontsize=14)
-            plt.xlabel("Time from mid-transit [hrs]", fontsize=20)
-            plt.ylabel("Flux", fontsize=20)
-            plt.legend(fontsize=20, loc="upper right", framealpha=1)
-            plt.savefig(
-                os.path.join(FIGURE_DIR, TARGET + f"_folded_transit_{npl:02d}.png"),
-                bbox_inches="tight",
-            )
-            if IPLOT:
-                plt.show()
-            else:
-                plt.close()
-
     # ## Save transit times
 
-    for npl, p in enumerate(planets):
-        keep = np.isin(quick_transit_times[npl], p.tts[p.quality])
+    print("\nSaving transit times...\n")
+
+    for n, p in enumerate(planets):
+        keep = np.isin(regular_transit_times[n], p.tts[p.quality])
 
         data_out = np.vstack(
             [
-                transit_inds[npl][keep],
-                indep_transit_times[npl][keep],
-                quick_transit_times[npl][keep],
-                outlier_prob[npl][keep],
-                outlier_class[npl][keep],
+                transit_inds[n][keep],
+                indep_transit_times[n][keep],
+                regular_transit_times[n][keep],
+                outlier_prob[n][keep],
+                outlier_class[n][keep],
             ]
         ).swapaxes(0, 1)
 
-        fname_out = os.path.join(RESULTS_DIR, f"{TARGET}_{npl:02d}_quick.ttvs")
+        fname_out = os.path.join(RESULTS_DIR, f"{TARGET}_{n:02d}_quick.ttvs")
         np.savetxt(
             fname_out,
             data_out,
@@ -2360,13 +2031,13 @@ def main():
         filename = os.path.join(RESULTS_DIR, f"{TARGET}_lc_detrended.fits")
         lc.to_fits(TARGET, filename, cadence="LONG")
     else:
-        print("No long cadence data")
+        print("  No long cadence data")
 
     if sc is not None:
         filename = os.path.join(RESULTS_DIR, f"{TARGET}_sc_detrended.fits")
         sc.to_fits(TARGET, filename, cadence="SHORT")
     else:
-        print("No short cadence data")
+        print("  No short cadence data")
 
     # ## Exit program
 
@@ -2375,7 +2046,7 @@ def main():
     print(
         f"Automated lightcurve detrending complete {datetime.now().strftime('%d-%b-%Y at %H:%M:%S')}"
     )
-    print("Total runtime = %.1f min" % ((timer() - global_start_time) / 60))
+    print(f"Total runtime = {(timer()-global_start_time)/60:.1f} min")
     print("+" * shutil.get_terminal_size().columns)
 
 

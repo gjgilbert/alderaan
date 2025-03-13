@@ -211,7 +211,7 @@ def make_transit_mask(time, tts, masksize):
     return transitmask
 
 
-def set_oversample_factor(periods, depths, durs, flux, error):
+def set_oversample_factor(periods, depths, durs, flux, error, texp):
     """
     Docstring
     """
@@ -227,7 +227,7 @@ def set_oversample_factor(periods, depths, durs, flux, error):
     # set sigma so binning error is < 0.1% of photometric uncertainty
     sigma = np.mean(error / flux) * 0.04
 
-    npts = np.array(np.ceil(np.sqrt((depths / tau) * (lcit / 8 / sigma))), dtype="int")
+    npts = np.array(np.ceil(np.sqrt((depths / tau) * (texp / 8 / sigma))), dtype="int")
     npts = npts + (npts % 2 + 1)
 
     npts = np.max(np.hstack([npts, 7]))

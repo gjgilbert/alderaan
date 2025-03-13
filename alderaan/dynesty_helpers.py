@@ -151,7 +151,8 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
 
     Returns
     -------
-        loglike :
+        loglike : float
+            log-likelihood
 
     """
     # extract ephemeris kwargs
@@ -168,16 +169,6 @@ def lnlike(x, num_planets, theta, ephem_args, phot_args, ld_priors, gp_kernel=No
     for npl in range(num_planets):
         C0, C1, rp, b, T14 = np.array(x[5 * npl : 5 * (npl + 1)])
 
-        # update ephemeris
-        # A = np.ones((len(inds[npl]),2))
-        # A[:,0] = inds[npl]
-
-        # P, t0 = np.linalg.lstsq(A, tts[npl] + C0 + C1*legx[npl], rcond=None)[0]
-        P = theta[npl].per
-
-        # update transit parameters
-        theta[npl].per = P
-        theta[npl].t0 = 0.0  # t0 must be set to zero b/c we are warping TTVs
         theta[npl].rp = rp
         theta[npl].b = b
         theta[npl].T14 = T14
