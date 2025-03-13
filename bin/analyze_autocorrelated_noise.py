@@ -9,18 +9,17 @@ import sys
 import json
 import shutil
 import warnings
+import argparse
 from datetime import datetime
 from timeit import default_timer as timer
 
 from aesara_theano_fallback import aesara as theano
-import argparse
 from astropy.stats import mad_std
 from astropy.units import UnitsWarning
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.polynomial.polynomial as poly
-import pandas as pd
 import pymc3_ext as pmx
 from scipy import stats
 
@@ -176,6 +175,7 @@ if np.any(np.array(["agg", "png", "svg", "pdf", "ps"]) == mpl.get_backend()):
 
 # MAIN SCRIPT BEGINS HERE
 def main():
+
     # # ################
     # # ----- DATA I/O -----
     # # ################
@@ -721,6 +721,7 @@ def main():
             freqs = np.copy(acf_freqs[z])
 
             if freqs is not None:
+
                 low_freqs = freqs[freqs <= fcut]
                 high_freqs = freqs[freqs > fcut]
 

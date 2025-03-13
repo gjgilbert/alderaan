@@ -199,6 +199,7 @@ if np.any(np.array(["agg", "png", "svg", "pdf", "ps"]) == mpl.get_backend()):
 
 # MAIN SCRIPT BEGINS HERE
 def main():
+
     # # ################
     # # --- DATA I/O ---
     # # ################
@@ -500,14 +501,14 @@ def main():
     oscillation_period_by_quarter = np.ones(18) * np.nan
 
     for i, lcd in enumerate(lc_data):
-        oscillation_period_by_quarter[
-            lcd.quarter[0]
-        ] = detrend.estimate_oscillation_period(lcd, min_period=1.0)
+        oscillation_period_by_quarter[lcd.quarter[0]] = (
+            detrend.estimate_oscillation_period(lcd, min_period=1.0)
+        )
 
     for i, scd in enumerate(sc_data):
-        oscillation_period_by_quarter[
-            scd.quarter[0]
-        ] = detrend.estimate_oscillation_period(scd, min_period=1.0)
+        oscillation_period_by_quarter[scd.quarter[0]] = (
+            detrend.estimate_oscillation_period(scd, min_period=1.0)
+        )
 
     oscillation_period_by_season = np.zeros((4, 2))
 
@@ -593,6 +594,7 @@ def main():
         quality = np.zeros(len(p.tts), dtype="bool")
 
         for i, t0 in enumerate(p.tts):
+
             if sc is not None:
                 in_sc = np.abs(sc.time - t0) / p.duration < 0.5
                 near_sc = np.abs(sc.time - t0) / p.duration < 1.5
@@ -612,6 +614,11 @@ def main():
                 quality[i] += qual_in * qual_near
 
         p.quality = np.copy(quality)
+
+        if np.sum(p.quality) < 0.5 * len(p.quality):
+            raise ValueError(
+                f"Over 50% of transits for Planet {n} have been flagged as low quality"
+            )
 
     # ## Flag overlapping transits
 
@@ -1887,14 +1894,14 @@ def main():
     oscillation_period_by_quarter = np.ones(18) * np.nan
 
     for i, lcd in enumerate(lc_data):
-        oscillation_period_by_quarter[
-            lcd.quarter[0]
-        ] = detrend.estimate_oscillation_period(lcd, min_period=1.0)
+        oscillation_period_by_quarter[lcd.quarter[0]] = (
+            detrend.estimate_oscillation_period(lcd, min_period=1.0)
+        )
 
     for i, scd in enumerate(sc_data):
-        oscillation_period_by_quarter[
-            scd.quarter[0]
-        ] = detrend.estimate_oscillation_period(scd, min_period=1.0)
+        oscillation_period_by_quarter[scd.quarter[0]] = (
+            detrend.estimate_oscillation_period(scd, min_period=1.0)
+        )
 
     oscillation_period_by_season = np.zeros((4, 2))
 
@@ -1978,6 +1985,7 @@ def main():
         quality = np.zeros(len(p.tts), dtype="bool")
 
         for i, t0 in enumerate(p.tts):
+
             if sc is not None:
                 in_sc = np.abs(sc.time - t0) / p.duration < 0.5
                 near_sc = np.abs(sc.time - t0) / p.duration < 1.5
@@ -1997,6 +2005,11 @@ def main():
                 quality[i] += qual_in * qual_near
 
         p.quality = np.copy(quality)
+
+        if np.sum(p.quality) < 0.5 * len(p.quality):
+            raise ValueError(
+                f"Over 50% of transits for Planet {n} have been flagged as low quality"
+            )
 
     # ## Save transit times
 

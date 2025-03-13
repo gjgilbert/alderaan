@@ -16,12 +16,10 @@ from timeit import default_timer as timer
 import argparse
 import batman
 import dynesty
-from dynesty import plotting as dyplot
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy.polynomial.polynomial as poly
 import numpy as np
-import pandas as pd
 
 from aesara_theano_fallback import aesara as theano
 from celerite2 import terms as GPterms
@@ -175,6 +173,7 @@ if np.any(np.array(["agg", "png", "svg", "pdf", "ps"]) == mpl.get_backend()):
 
 # MAIN SCRIPT BEGINS HERE
 def main():
+
     # # ################
     # # ----- DATA I/O -----
     # # ################
@@ -402,11 +401,13 @@ def main():
     qthresh[0] = TIME_START - 0.5
 
     for j, q in enumerate(quarters):
-        if np.isin(q, quarters[(all_dtype == "long")]):
-            qthresh[j + 1] = lc.time[lc.quarter == q].max() + lcit
+        if lc is not None:
+            if np.isin(q, np.unique(lc.quarter)):
+                qthresh[j + 1] = lc.time[lc.quarter == q].max() + lcit
 
-        if np.isin(q, quarters[(all_dtype == "short")]):
-            qthresh[j + 1] = sc.time[sc.quarter == q].max() + scit
+        if sc is not None:
+            if np.isin(q, np.unique(sc.quarter)):
+                qthresh[j + 1] = sc.time[sc.quarter == q].max() + scit
 
     qthresh[-1] = TIME_END + 0.5
 
@@ -458,6 +459,7 @@ def main():
     # precompute exposure integration time offsets
     texp_offsets = [None] * 18
     for j, q in enumerate(quarters):
+
         if all_dtype[q] == "short":
             texp_offsets[q] = np.array([0.0])
         elif all_dtype[q] == "long":
@@ -669,7 +671,7 @@ def main():
 
     # # Save results as fits file
 
-    hdu_list = io.resutls_to_fits(results, PROJECT_DIR, RUN_ID, TARGET, NPL)
+    hdu_list = io.results_to_fits(results, PROJECT_DIR, RUN_ID, TARGET, NPL)
 
     path = os.path.join(PROJECT_DIR, "Results", RUN_ID, TARGET)
     os.makedirs(path, exist_ok=True)
