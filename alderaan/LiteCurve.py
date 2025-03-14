@@ -119,16 +119,15 @@ class LiteCurve:
         """
         Plot the photometry
         """
-        plt.figure(figsize=(20, 4))
+        fig = plt.figure(figsize=(20, 4))
         plt.plot(self.time, self.flux, "k", lw=0.5)
         plt.xticks(fontsize=12)
         plt.yticks(fontsize=12)
         plt.xlabel("Time [BKJD]", fontsize=24)
         plt.ylabel("Flux", fontsize=24)
         plt.xlim(self.time.min(), self.time.max())
-        plt.show()
 
-        return None
+        return fig
 
     def to_fits(self, target, filename, cadence):
         """

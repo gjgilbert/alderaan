@@ -16,6 +16,7 @@ from timeit import default_timer as timer
 import argparse
 import batman
 import dynesty
+from dynesty import plotting as dyplot
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy.polynomial.polynomial as poly
@@ -157,6 +158,7 @@ import alderaan.dynesty_helpers as dynhelp
 from alderaan.astro import make_transit_mask, set_oversample_factor
 from alderaan.constants import scit, lcit
 from alderaan.Ephemeris import Ephemeris
+from alderaan.plotting import plot_omc
 
 
 # #### Set matplotlib backend
@@ -259,21 +261,13 @@ def main():
     for n in range(NPL):
         centered_transit_inds[n] = transit_inds[n] - transit_inds[n][-1] // 2
 
+    # make OMC plot
+    fig, ax = plot_omc(linear_ephemeris, indep_transit_times, regular_transit_times)
+    fig.savefig(os.path.join(FIGURE_DIR, TARGET + f"_omc.png"), bbox_inches="tight")
     if IPLOT:
-        fig, axes = plt.subplots(NPL, figsize=(12, 3 * NPL))
-        if NPL == 1:
-            axes = [axes]
-
-        for n in range(NPL):
-            xtime = linear_ephemeris[n]
-            yomc_i = (indep_transit_times[n] - linear_ephemeris[n]) * 24 * 60
-            yomc_q = (regular_transit_times[n] - linear_ephemeris[n]) * 24 * 60
-
-            axes[n].plot(xtime, yomc_i, "o", c="lightgrey")
-            axes[n].plot(xtime, yomc_q, lw=2, c=f"C{n}")
-            axes[n].set_ylabel("O-C [min]", fontsize=20)
-        axes[NPL - 1].set_xlabel("Time [BJKD]", fontsize=20)
         plt.show()
+    else:
+        plt.close()
 
     # # ####################
     # # --- PRELIMINARIES ---
@@ -663,13 +657,57 @@ def main():
         )
         results = sampler.results
 
+    # ## Make diagnostic plots
+
     labels = []
     for npl in range(NPL):
         labels = labels + "C0_{0} C1_{0} r_{0} b_{0} T14_{0}".format(npl).split()
 
     labels = labels + "q1 q2".split()
 
-    # # Save results as fits file
+    # run plot
+    fig, ax = dyplot.runplot(results, logplot=True)
+    plt.savefig(
+        os.path.join(FIGURE_DIR, f"{TARGET}_dynesty_runplot.png"), bbox_inches="tight"
+    )
+
+    # trace plot
+    for n in range(NPL):
+        fig, ax = dyplot.traceplot(
+            results,
+            labels=labels[5 * n : 5 * (n + 1)],
+            dims=np.arange(5 * n, 5 * (n + 1)),
+        )
+        plt.savefig(
+            os.path.join(FIGURE_DIR, f"{TARGET}_dynesty_trace_{n:02d}.png"),
+            bbox_inches="tight",
+        )
+
+    fig, ax = dyplot.traceplot(results, labels=labels[-2:], dims=np.array([-2, -1]))
+    plt.savefig(
+        os.path.join(FIGURE_DIR, f"{TARGET}_dynesty_trace_q1q2.png"),
+        bbox_inches="tight",
+    )
+
+    # corner plot
+    for n in range(NPL):
+        fig, ax = dyplot.cornerplot(
+            results,
+            labels=labels[5 * n : 5 * (n + 1)],
+            dims=np.arange(5 * n, 5 * (n + 1)),
+        )
+        plt.savefig(
+            os.path.join(FIGURE_DIR, f"{TARGET}_dynesty_corner_{n:02d}.png"),
+            bbox_inches="tight",
+        )
+
+    fig, ax = dyplot.cornerplot(results, labels=labels[-2:], dims=np.array([-2, -1]))
+    plt.savefig(
+        os.path.join(FIGURE_DIR, f"{TARGET}_dynesty_trace_q1q2.png"),
+        bbox_inches="tight",
+    )
+
+    # ## Save sampling results
 
     hdu_list = io.results_to_fits(results, PROJECT_DIR, RUN_ID, TARGET, NPL)
 

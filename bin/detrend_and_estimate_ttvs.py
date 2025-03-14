@@ -181,6 +181,13 @@ from alderaan.astro import (
     set_oversample_factor,
 )
 from alderaan.constants import lcit, scit
+from alderaan.plotting import (
+    plot_holczer,
+    plot_tc_vs_chisq,
+    plot_omc,
+    plot_omc_model_selection,
+    plot_folded_transit,
+)
 from alderaan.utils import boxcar_smooth, bin_data, LS_estimator
 from alderaan.validate import remove_known_transits, inject_synthetic_transits
 from alderaan.Planet import Planet
@@ -329,45 +336,25 @@ def main():
 
     print(f"Setting oversample = {oversample_lc}")
 
-    # # ############################
-    # # ----- TRANSIT TIME SETUP -----
-    # # ############################
+    # ## Build initial TTV model
 
     print("\nBuilding initial TTV model...\n")
 
+    # load, clean and match Holczer+2016 data
     h16file = os.path.join(PROJECT_DIR, "Catalogs/holczer_2016_kepler_ttvs.txt")
     holczer = omc.load_holczer_ttvs(h16file, NPL, KOI_ID)
     holczer = omc.clean_holczer_ttvs(holczer, TIME_START, TIME_END)
     planets = omc.match_holczer_ttvs(planets, holczer)
 
-    for n, p in enumerate(planets):
+    # make some plots
+    for n in range(NPL):
         if np.isfinite(holczer["period"][n]):
-            xtime = holczer["tts"][n]
-            yomc = (
-                holczer["tts"][n]
-                - holczer["epoch"][n]
-                - holczer["period"][n] * holczer["inds"][n]
+            fig = plot_holczer(holczer, n)
+
+            figpath = os.path.join(
+                FIGURE_DIR, TARGET + f"_ttvs_holczer_{holczer['period'][n]:.1f}.png"
             )
-            out = holczer["out"][n]
-
-            xtime_interp = holczer["full_tts"][n]
-            yomc_interp = (
-                holczer["full_tts"][n]
-                - holczer["epoch"][n]
-                - holczer["period"][n] * holczer["full_inds"][n]
-            )
-
-            plt.figure(figsize=(12, 4))
-            plt.plot(xtime[~out], yomc[~out] * 24 * 60, "o", c="grey", label="Holczer")
-            plt.plot(xtime[out], yomc[out] * 24 * 60, "rx")
-            plt.plot(xtime_interp, yomc_interp * 24 * 60, "k+", label="Interpolation")
-            plt.xlabel("Time [BJKD]", fontsize=20)
-            plt.ylabel("O-C [min]", fontsize=20)
-            plt.legend(fontsize=12)
-
-            figpath = os.path.join(FIGURE_DIR, TARGET + f"_ttvs_holczer_{n:02d}.png")
             plt.savefig(figpath, bbox_inches="tight")
-
             if IPLOT:
                 plt.show()
             else:
@@ -538,6 +525,16 @@ def main():
     else:
         lc = None
 
+    if lc is not None:
+        fig = lc.plot()
+
+        figpath = os.path.join(FIGURE_DIR, TARGET + f"_lightcurve_detrended_lc.png")
+        plt.savefig(figpath, bbox_inches="tight")
+        if IPLOT:
+            plt.show()
+        else:
+            plt.close()
+
     # detrend short cadence data
     break_tolerance = np.max([int(DURS.min() / scit * 5 / 2), 91])
     min_per = 1.0
@@ -555,6 +552,16 @@ def main():
         sc = detrend.stitch(sc_data)
     else:
         sc = None
+
+    if sc is not None:
+        fig = sc.plot()
+
+        figpath = os.path.join(FIGURE_DIR, TARGET + f"_lightcurve_detrended_sc.png")
+        plt.savefig(figpath, bbox_inches="tight")
+        if IPLOT:
+            plt.show()
+        else:
+            plt.close()
 
     # # ##########################
     # # ----- QUALITY CONTROL -----
@@ -1010,14 +1017,14 @@ def main():
 
                 else:
                     quad_coeffs = np.polyfit(tcfit, x2fit, 2)
-                    quadfit = np.polyval(quad_coeffs, tcfit)
+                    quad_mod = np.polyval(quad_coeffs, tcfit)
                     qtc_min = -quad_coeffs[1] / (2 * quad_coeffs[0])
                     qx2_min = np.polyval(quad_coeffs, qtc_min)
                     qtc_err = np.sqrt(1 / quad_coeffs[0])
 
                     # transit time and scaled error
                     tts[i] = np.mean([qtc_min, np.median(tcfit)])
-                    err[i] = qtc_err * (1 + np.std(x2fit - quadfit))
+                    err[i] = qtc_err * (1 + np.std(x2fit - quad_mod))
 
                     # check that the fit is well-conditioned (ie. a negative t**2 coefficient)
                     if quad_coeffs[0] <= 0.0:
@@ -1034,30 +1041,22 @@ def main():
                 # show plots
                 do_plots = False
                 if do_plots:
-                    fig, ax = plt.subplots(1, 2, figsize=(8, 3))
-
                     if ~np.isnan(tts[i]):
                         tc = tts[i]
                     else:
                         tc = t0
 
-                    ax[0].plot((t_ - tc) * 24, (f_ - 1) * 1e6, "ko")
-                    ax[0].plot((t_ - tc)[m_] * 24, (f_[m_] - 1) * 1e6, "o", c=f"C{n}")
-                    ax[0].plot(
-                        template_time * 24, (template_flux - 1) * 1e6, c=f"C{n}", lw=2
+                    fig, ax = plot_tc_vs_chisq(
+                        t_,
+                        f_,
+                        template_time,
+                        template_flux,
+                        tcfit,
+                        x2fit,
+                        quad_mod,
+                        tc,
+                        f"C{n}",
                     )
-                    ax[0].set_xlabel(r"$\Delta t$ (hours)", fontsize=14)
-                    ax[0].set_ylabel(r"$\Delta F$ (ppm)", fontsize=14)
-
-                    ax[1].plot((tcfit - tc) * 24, x2fit - x2fit.min(), "ko")
-                    ax[1].plot(
-                        (tcfit - tc) * 24, quadfit - x2fit.min(), c=f"C{n}", lw=3
-                    )
-                    ax[1].axvline(0, color="k", ls=":", lw=2)
-                    ax[1].set_xlabel(r"$\Delta t$ (hours)", fontsize=14)
-                    ax[1].set_ylabel(r"$\Delta \chi^2$", fontsize=14)
-
-                    plt.tight_layout()
 
                     if IPLOT:
                         plt.show()
@@ -1390,21 +1389,7 @@ def main():
         if omc_freqs[n] is not None:
             print("  periodic signal found at P =", int(1 / omc_freqs[n]), "d")
 
-            # store frequency
             omc_pers.append(1 / omc_freqs[n])
-
-            # grab data and plot
-            xtime = indep_linear_ephemeris[n]
-            yomc = indep_transit_times[n] - indep_linear_ephemeris[n]
-            LS = LombScargle(xtime, yomc)
-
-            plt.figure(figsize=(12, 3))
-            plt.plot(xtime, yomc * 24 * 60, "o", c="lightgrey")
-            plt.plot(xtime, LS.model(xtime, omc_freqs[n]) * 24 * 60, c=f"C{n}", lw=3)
-            if IPLOT:
-                plt.show()
-            else:
-                plt.close()
 
         else:
             print("  no sigificant periodic component found")
@@ -1501,19 +1486,13 @@ def main():
             omc_trend = np.nanmedian(omc_trace["pred"], 0)
             residuals = yomc - omc_trend
 
-            plt.figure(figsize=(12, 3))
-            plt.errorbar(
-                xtime,
-                yomc * 24 * 60,
-                yerr=yerr * 24 * 60,
-                fmt="o",
-                c="lightgrey",
-                zorder=-1,
+            fig, ax = plot_omc(
+                [xtime],
+                [xtime + yomc],
+                [xtime + omc_trend],
+                out=[out],
+                colors=[f"C{n}"],
             )
-            plt.plot(xtime[out], yomc[out] * 24 * 60, "rx")
-            plt.plot(xtime, omc_trend * 24 * 60, c=f"C{n}", lw=2)
-            plt.xlabel("Time [BJKD]", fontsize=16)
-            plt.ylabel("O-C [min]", fontsize=16)
             if IPLOT:
                 plt.show()
             else:
@@ -1616,43 +1595,24 @@ def main():
         outlier_prob.append(1 - fg_prob)
         outlier_class.append(bad)
 
-        plt.figure(figsize=(12, 4))
-        plt.scatter(
-            xtime, yomc * 24 * 60, c=1 - fg_prob, cmap="viridis", label="MAP TTVs"
-        )
-        plt.plot(xtime[bad], yomc[bad] * 24 * 60, "rx")
-        plt.plot(
+        # output a figure
+        fig = plot_omc_model_selection(
+            xtime,
+            yomc,
+            fg_prob,
+            bad,
             full_indep_linear_ephemeris[n],
-            full_omc_trend * 24 * 60,
-            "k",
-            label="Regularized model",
+            full_omc_trend,
+            err_,
+            rms_,
+            TARGET,
         )
-        plt.xlabel("Time [BJKD]", fontsize=20)
-        plt.ylabel("O-C [min]", fontsize=20)
-        plt.xticks(fontsize=14)
-        plt.yticks(fontsize=14)
-        plt.legend(fontsize=14, loc="upper right")
-        plt.title(TARGET, fontsize=20)
-        plt.text(
-            xtime.min(),
-            yomc.min() * 24 * 60,
-            f"measured error = {err_:.1f} min",
-            fontsize=16,
-            ha="left",
-            backgroundcolor="w",
-        )
-        plt.text(
-            xtime.max(),
-            yomc.min() * 24 * 60,
-            f"residual RMS = {rms_:.1f} min",
-            fontsize=16,
-            ha="right",
-            backgroundcolor="w",
-        )
+
         plt.savefig(
             os.path.join(FIGURE_DIR, TARGET + f"_ttvs_quick_{n:02d}.png"),
             bbox_inches="tight",
         )
+
         if IPLOT:
             plt.show()
         else:
@@ -1931,6 +1891,16 @@ def main():
     else:
         lc = None
 
+    if lc is not None:
+        fig = lc.plot()
+
+        figpath = os.path.join(FIGURE_DIR, TARGET + f"_lightcurve_detrended_lc.png")
+        plt.savefig(figpath, bbox_inches="tight")
+        if IPLOT:
+            plt.show()
+        else:
+            plt.close()
+
     # detrend short cadence data
     break_tolerance = np.max([int(DURS.min() / scit * 5 / 2), 91])
     min_per = 1.0
@@ -1949,9 +1919,21 @@ def main():
     else:
         sc = None
 
-    # # ###################
-    # # -----SAVE & EXIT -----
-    # # ###################
+    if sc is not None:
+        fig = sc.plot()
+
+        figpath = os.path.join(FIGURE_DIR, TARGET + f"_lightcurve_detrended_sc.png")
+        plt.savefig(figpath, bbox_inches="tight")
+        if IPLOT:
+            plt.show()
+        else:
+            plt.close()
+
+    # # ##########################
+    # # ----- FINAL DIAGNOSTICS -----
+    # # ##########################
+
+    print("\nPerforming final diagnostic checks...\n")
 
     # ## Make individual mask for where each planet transits
 
@@ -2010,6 +1992,38 @@ def main():
             raise ValueError(
                 f"Over 50% of transits for Planet {n} have been flagged as low quality"
             )
+
+    # ## Flag overlapping transits
+
+    dur_max = np.max(DURS)
+    overlap = [None] * NPL
+
+    for i in range(NPL):
+        overlap[i] = np.zeros(len(planets[i].tts), dtype="bool")
+
+        for j in range(NPL):
+            if i != j:
+                for ttj in planets[j].tts:
+                    overlap[i] += np.abs(planets[i].tts - ttj) / dur_max < 1.5
+
+    # ## Plot folded transit
+
+    for n, p in enumerate(planets):
+        tts = p.tts[p.quality * ~overlap[n]]
+
+        fig = plot_folded_transit(lc, sc, tts, p.depth, p.duration, TARGET, n)
+        plt.savefig(
+            os.path.join(FIGURE_DIR, TARGET + f"_folded_transit_{n:02d}.png"),
+            bbox_inches="tight",
+        )
+        if IPLOT:
+            plt.show()
+        else:
+            plt.close()
+
+    # # ###################
+    # # ----- SAVE & EXIT -----
+    # # ###################
 
     # ## Save transit times
 
