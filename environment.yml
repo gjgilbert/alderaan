@@ -27,6 +27,7 @@ dependencies:
   - theano-pymc==1.1.2
   - xarray==2022.9.0
   - pip:
+     - black==25.1.0
      - celerite2==0.2.1
      - dynesty==2.1.3
      - git+https://github.com/gjgilbert/batman
@@ -34,4 +35,5 @@ dependencies:
      - ldtk==1.7.0
      - notebook==6.4.13
      - numba==0.55.1
+     - pylint==3.3.4
      - rebound==4.4.2
