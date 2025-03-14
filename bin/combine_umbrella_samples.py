@@ -395,9 +395,9 @@ hdu.header["DATETIME"] = (
     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     "Date and time of analysis",
 )
-hdu.header["COMMENT"] = (
-    "ALDERAAN single planet transit fit -- Combined Synthetic Samples"
-)
+hdu.header[
+    "COMMENT"
+] = "ALDERAAN single planet transit fit -- Combined Synthetic Samples"
 
 f_name = PROJECT_DIR + "Traces/{0}/{0}-{1}_CSS_indep.fits".format(
     TARGET, str(PLANET_NO).zfill(2)

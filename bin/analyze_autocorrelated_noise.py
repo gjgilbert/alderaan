@@ -73,28 +73,14 @@ try:
         help="Target name; format should be K00000 or S00000",
     )
     parser.add_argument(
+        "--run_id", default=None, type=str, required=True, help="run identifier"
+    )
+    parser.add_argument(
         "--project_dir",
         default=None,
         type=str,
         required=True,
         help="Project directory for accessing lightcurve data and saving outputs",
-    )
-    parser.add_argument(
-        "--data_dir",
-        default=None,
-        type=str,
-        required=True,
-        help="Data directory for accessing MAST lightcurves",
-    )
-    parser.add_argument(
-        "--catalog",
-        default=None,
-        type=str,
-        required=True,
-        help="CSV file containing input planetary parameters",
-    )
-    parser.add_argument(
-        "--run_id", default=None, type=str, required=True, help="run identifier"
     )
     parser.add_argument(
         "--verbose",
@@ -170,13 +156,11 @@ if not IPLOT:
     mpl.use("agg")
 
 if np.any(np.array(["agg", "png", "svg", "pdf", "ps"]) == mpl.get_backend()):
-    warnings.warn("Selected matplotlib backend does not support interactive plotting")
     IPLOT = False
 
 
 # MAIN SCRIPT BEGINS HERE
 def main():
-
     # # ################
     # # ----- DATA I/O -----
     # # ################
@@ -185,13 +169,7 @@ def main():
 
     # ## Read in planet and star properties
 
-    if MISSION == "Kepler":
-        path = os.path.join(PROJECT_DIR, f"Catalogs/{CATALOG}")
-    elif MISSION == "Kepler-Validation":
-        path = os.path.join(PROJECT_DIR, f"Simulations/{RUN_ID}/{RUN_ID}.csv")
-    else:
-        raise ValueError("MISSION must be 'Kepler' or 'Kepler-Validation'")
-
+    path = os.path.join(RESULTS_DIR, f"{TARGET}_transit_parameters.csv")
     catalog = io.parse_catalog(path, MISSION, TARGET)
 
     KOI_ID = catalog.koi_id.to_numpy()[0]
@@ -646,7 +624,6 @@ def main():
             freqs = np.copy(acf_freqs[z])
 
             if freqs is not None:
-
                 low_freqs = freqs[freqs <= fcut]
                 high_freqs = freqs[freqs > fcut]
 
@@ -740,7 +717,7 @@ def main():
             for k in gp_priors[z].keys():
                 gp_priors[z][k] = list(gp_priors[z][k])
 
-            fname_out = os.path.join(RESULTS_DIR, f"{TARGET}_shoterm_gp_priors_{z}.txt")
+            fname_out = os.path.join(RESULTS_DIR, f"{TARGET}_noise_gp_priors_{z}.txt")
 
             with open(fname_out, "w") as file:
                 json.dump(gp_priors[z], file)

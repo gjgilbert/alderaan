@@ -72,28 +72,14 @@ try:
         help="Target name; format should be K00000 or S00000",
     )
     parser.add_argument(
+        "--run_id", default=None, type=str, required=True, help="run identifier"
+    )
+    parser.add_argument(
         "--project_dir",
         default=None,
         type=str,
         required=True,
         help="Project directory for accessing lightcurve data and saving outputs",
-    )
-    parser.add_argument(
-        "--data_dir",
-        default=None,
-        type=str,
-        required=True,
-        help="Data directory for accessing MAST lightcurves",
-    )
-    parser.add_argument(
-        "--catalog",
-        default=None,
-        type=str,
-        required=True,
-        help="CSV file containing input planetary parameters",
-    )
-    parser.add_argument(
-        "--run_id", default=None, type=str, required=True, help="run identifier"
     )
     parser.add_argument(
         "--verbose",
@@ -113,10 +99,8 @@ try:
     args = parser.parse_args()
     MISSION = args.mission
     TARGET = args.target
-    PROJECT_DIR = args.project_dir
-    DATA_DIR = args.data_dir
-    CATALOG = args.catalog
     RUN_ID = args.run_id
+    PROJECT_DIR = args.project_dir
     VERBOSE = args.verbose
     IPLOT = args.iplot
 
@@ -130,8 +114,6 @@ print(f"   TARGET  : {TARGET}")
 print(f"   RUN ID  : {RUN_ID}")
 print("")
 print(f"   Project directory : {PROJECT_DIR}")
-print(f"   Data directory    : {DATA_DIR}")
-print(f"   Input catalog     : {CATALOG}")
 print("")
 print(f"   theano cache : {theano.config.compiledir}")
 print("")
@@ -169,13 +151,11 @@ if not IPLOT:
     mpl.use("agg")
 
 if np.any(np.array(["agg", "png", "svg", "pdf", "ps"]) == mpl.get_backend()):
-    warnings.warn("Selected matplotlib backend does not support interactive plotting")
     IPLOT = False
 
 
 # MAIN SCRIPT BEGINS HERE
 def main():
-
     # # ################
     # # ----- DATA I/O -----
     # # ################
@@ -184,15 +164,7 @@ def main():
 
     # ## Read in planet and stellar properties
 
-    # TODO: update to ALDERAAN-produced transit parameters
-
-    if MISSION == "Kepler":
-        path = os.path.join(PROJECT_DIR, f"Catalogs/{CATALOG}")
-    elif MISSION == "Kepler-Validation":
-        path = os.path.join(PROJECT_DIR, f"Simulations/{RUN_ID}/{RUN_ID}.csv")
-    else:
-        raise ValueError("MISSION must be 'Kepler' or 'Kepler-Validation'")
-
+    path = os.path.join(RESULTS_DIR, f"{TARGET}_transit_parameters.csv")
     catalog = io.parse_catalog(path, MISSION, TARGET)
 
     KOI_ID = catalog.koi_id.to_numpy()[0]
@@ -453,7 +425,6 @@ def main():
     # precompute exposure integration time offsets
     texp_offsets = [None] * 18
     for j, q in enumerate(quarters):
-
         if all_dtype[q] == "short":
             texp_offsets[q] = np.array([0.0])
         elif all_dtype[q] == "long":
@@ -466,7 +437,7 @@ def main():
 
     for z in range(4):
         try:
-            fname_in = os.path.join(RESULTS_DIR, f"{TARGET}_shoterm_gp_priors_{z}.txt")
+            fname_in = os.path.join(RESULTS_DIR, f"{TARGET}_noise_gp_priors_{z}.txt")
 
             with open(fname_in) as infile:
                 gp_percs.append(json.load(infile))
@@ -703,13 +674,13 @@ def main():
 
     fig, ax = dyplot.cornerplot(results, labels=labels[-2:], dims=np.array([-2, -1]))
     plt.savefig(
-        os.path.join(FIGURE_DIR, f"{TARGET}_dynesty_trace_q1q2.png"),
+        os.path.join(FIGURE_DIR, f"{TARGET}_dynesty_corner_q1q2.png"),
         bbox_inches="tight",
     )
 
     # ## Save sampling results
 
-    hdu_list = io.results_to_fits(results, PROJECT_DIR, RUN_ID, TARGET, NPL)
+    hdu_list = io.dynesty_results_to_fits(results, PROJECT_DIR, MISSION, TARGET, RUN_ID)
 
     path = os.path.join(PROJECT_DIR, "Results", RUN_ID, TARGET)
     os.makedirs(path, exist_ok=True)

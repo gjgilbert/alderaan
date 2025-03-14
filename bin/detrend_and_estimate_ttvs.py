@@ -200,13 +200,11 @@ if not IPLOT:
     mpl.use("agg")
 
 if np.any(np.array(["agg", "png", "svg", "pdf", "ps"]) == mpl.get_backend()):
-    warnings.warn("Selected matplotlib backend does not support interactive plotting")
     IPLOT = False
 
 
 # MAIN SCRIPT BEGINS HERE
 def main():
-
     # # ################
     # # --- DATA I/O ---
     # # ################
@@ -488,14 +486,16 @@ def main():
     oscillation_period_by_quarter = np.ones(18) * np.nan
 
     for i, lcd in enumerate(lc_data):
-        oscillation_period_by_quarter[lcd.quarter[0]] = (
-            detrend.estimate_oscillation_period(lcd, min_period=1.0)
-        )
+        min_period = np.max([5 * np.max(DURS), 13 * lcit])
+        oscillation_period_by_quarter[
+            lcd.quarter[0]
+        ] = detrend.estimate_oscillation_period(lcd, min_period=min_period)
 
     for i, scd in enumerate(sc_data):
-        oscillation_period_by_quarter[scd.quarter[0]] = (
-            detrend.estimate_oscillation_period(scd, min_period=1.0)
-        )
+        min_period = np.max([5 * np.max(DURS), 91 * scit])
+        oscillation_period_by_quarter[
+            scd.quarter[0]
+        ] = detrend.estimate_oscillation_period(scd, min_period=min_period)
 
     oscillation_period_by_season = np.zeros((4, 2))
 
@@ -509,7 +509,7 @@ def main():
 
     # detrend long cadence data
     break_tolerance = np.max([int(DURS.min() / lcit * 5 / 2), 13])
-    min_per = 1.0
+    min_per = np.max([5 * np.max(DURS), 13 * lcit])
 
     for i, lcd in enumerate(lc_data):
         print(f"QUARTER {lcd.quarter[0]}")
@@ -537,7 +537,7 @@ def main():
 
     # detrend short cadence data
     break_tolerance = np.max([int(DURS.min() / scit * 5 / 2), 91])
-    min_per = 1.0
+    min_per = np.max([5 * np.max(DURS), 91 * scit])
 
     for i, scd in enumerate(sc_data):
         print(f"QUARTER {scd.quarter[0]}")
@@ -601,7 +601,6 @@ def main():
         quality = np.zeros(len(p.tts), dtype="bool")
 
         for i, t0 in enumerate(p.tts):
-
             if sc is not None:
                 in_sc = np.abs(sc.time - t0) / p.duration < 0.5
                 near_sc = np.abs(sc.time - t0) / p.duration < 1.5
@@ -1854,14 +1853,16 @@ def main():
     oscillation_period_by_quarter = np.ones(18) * np.nan
 
     for i, lcd in enumerate(lc_data):
-        oscillation_period_by_quarter[lcd.quarter[0]] = (
-            detrend.estimate_oscillation_period(lcd, min_period=1.0)
-        )
+        min_period = np.max([5 * np.max(DURS), 13 * lcit])
+        oscillation_period_by_quarter[
+            lcd.quarter[0]
+        ] = detrend.estimate_oscillation_period(lcd, min_period=min_period)
 
     for i, scd in enumerate(sc_data):
-        oscillation_period_by_quarter[scd.quarter[0]] = (
-            detrend.estimate_oscillation_period(scd, min_period=1.0)
-        )
+        min_period = np.max([5 * np.max(DURS), 91 * scit])
+        oscillation_period_by_quarter[
+            scd.quarter[0]
+        ] = detrend.estimate_oscillation_period(scd, min_period=min_period)
 
     oscillation_period_by_season = np.zeros((4, 2))
 
@@ -1875,7 +1876,7 @@ def main():
 
     # detrend long cadence data
     break_tolerance = np.max([int(DURS.min() / lcit * 5 / 2), 13])
-    min_per = 1.0
+    min_per = np.max([5 * np.max(DURS), 13 * lcit])
 
     for i, lcd in enumerate(lc_data):
         print(f"QUARTER {lcd.quarter[0]}")
@@ -1903,7 +1904,7 @@ def main():
 
     # detrend short cadence data
     break_tolerance = np.max([int(DURS.min() / scit * 5 / 2), 91])
-    min_per = 1.0
+    min_per = np.max([5 * np.max(DURS), 91 * scit])
 
     for i, scd in enumerate(sc_data):
         print(f"QUARTER {scd.quarter[0]}")
@@ -1967,7 +1968,6 @@ def main():
         quality = np.zeros(len(p.tts), dtype="bool")
 
         for i, t0 in enumerate(p.tts):
-
             if sc is not None:
                 in_sc = np.abs(sc.time - t0) / p.duration < 0.5
                 near_sc = np.abs(sc.time - t0) / p.duration < 1.5
@@ -2025,6 +2025,17 @@ def main():
     # # ----- SAVE & EXIT -----
     # # ###################
 
+    # ## Save nominal transit parameters
+
+    print("\nSaving nominal transit parameters...\n")
+
+    transit_parameters = io.transit_parameters_to_dataframe(
+        KOI_ID, KIC_ID, planets, [U1, U2]
+    )
+    transit_parameters.to_csv(
+        os.path.join(RESULTS_DIR, f"{TARGET}_transit_parameters.csv")
+    )
+
     # ## Save transit times
 
     print("\nSaving transit times...\n")
@@ -2065,6 +2076,17 @@ def main():
         sc.to_fits(TARGET, filename, cadence="SHORT")
     else:
         print("  No short cadence data")
+
+    # ## Save stellar oscillation periods
+
+    print("\nSaving stellar oscillation periods...\n")
+
+    filename = os.path.join(RESULTS_DIR, f"{TARGET}_stellar_oscillations.txt")
+    np.savetxt(
+        filename,
+        np.stack([np.arange(18), oscillation_period_by_quarter]).T,
+        fmt=["%d", "%.9e"],
+    )
 
     # ## Exit program
 
