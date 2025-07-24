@@ -55,47 +55,61 @@ global_start_time = timer()
 
 
 #try:
-parser = argparse.ArgumentParser(
-    description="Inputs for ALDERAAN transit fiting pipeline"
-)
-parser.add_argument(
-    "--mission",
-    default=None,
-    type=str,
-    required=True,
-    help="Mission name; can be 'Kepler' or 'Simulated'",
-)
-parser.add_argument(
-    "--target",
-    default=None,
-    type=str,
-    required=True,
-    help="Target name; format should be K00000 or S00000",
-)
-parser.add_argument(
-    "--run_id", default=None, type=str, required=True, help="run identifier"
-)
-parser.add_argument(
-    "--project_dir",
-    default=None,
-    type=str,
-    required=True,
-    help="Project directory for accessing lightcurve data and saving outputs",
-)
-parser.add_argument(
-    "--verbose",
-    default=False,
-    type=bool,
-    required=False,
-    help="'True' to enable verbose logging",
-)
-parser.add_argument(
-    "--iplot",
-    default=False,
-    type=bool,
-    required=False,
-    help="'True' to enable interactive matplotlib backend; default 'agg'",
-)
+    parser = argparse.ArgumentParser(
+        description="Inputs for ALDERAAN transit fiting pipeline"
+    )
+    parser.add_argument(
+        "--mission",
+        default=None,
+        type=str,
+        required=True,
+        help="Mission name; can be 'Kepler' or 'Simulated'",
+    )
+    parser.add_argument(
+        "--target",
+        default=None,
+        type=str,
+        required=True,
+        help="Target name; format should be K00000 or S00000",
+    )
+    parser.add_argument(
+        "--run_id", default=None, type=str, required=True, help="run identifier"
+    )
+    parser.add_argument(
+        "--project_dir",
+        default=None,
+        type=str,
+        required=True,
+        help="Project directory for accessing lightcurve data and saving outputs",
+    )
+    parser.add_argument(
+        "--data_dir",
+        default=None,
+        type=str,
+        required=True,
+        help="Data directory for accessing MAST lightcurves",
+    )
+    parser.add_argument(
+        "--catalog",
+        default=None,
+        type=str,
+        required=True,
+        help="CSV file containing input planetary parameters",
+    )
+    parser.add_argument(
+        "--verbose",
+        default=False,
+        type=bool,
+        required=False,
+        help="'True' to enable verbose logging",
+    )
+    parser.add_argument(
+        "--iplot",
+        default=False,
+        type=bool,
+        required=False,
+        help="'True' to enable interactive matplotlib backend; default 'agg'",
+    )
 
 args = parser.parse_args()
 MISSION = args.mission
