@@ -123,4 +123,4 @@ temp*
 *load_table_cache*
 
 # macOS
-#.DS_Store
+*.DS_Store
