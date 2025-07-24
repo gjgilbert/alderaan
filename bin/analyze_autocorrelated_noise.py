@@ -54,61 +54,61 @@ global_start_time = timer()
 # #### Parse inputs
 
 
-try:
-    parser = argparse.ArgumentParser(
-        description="Inputs for ALDERAAN transit fiting pipeline"
-    )
-    parser.add_argument(
-        "--mission",
-        default=None,
-        type=str,
-        required=True,
-        help="Mission name; can be 'Kepler' or 'Simulated'",
-    )
-    parser.add_argument(
-        "--target",
-        default=None,
-        type=str,
-        required=True,
-        help="Target name; format should be K00000 or S00000",
-    )
-    parser.add_argument(
-        "--run_id", default=None, type=str, required=True, help="run identifier"
-    )
-    parser.add_argument(
-        "--project_dir",
-        default=None,
-        type=str,
-        required=True,
-        help="Project directory for accessing lightcurve data and saving outputs",
-    )
-    parser.add_argument(
-        "--verbose",
-        default=False,
-        type=bool,
-        required=False,
-        help="'True' to enable verbose logging",
-    )
-    parser.add_argument(
-        "--iplot",
-        default=False,
-        type=bool,
-        required=False,
-        help="'True' to enable interactive matplotlib backend; default 'agg'",
-    )
+#try:
+parser = argparse.ArgumentParser(
+    description="Inputs for ALDERAAN transit fiting pipeline"
+)
+parser.add_argument(
+    "--mission",
+    default=None,
+    type=str,
+    required=True,
+    help="Mission name; can be 'Kepler' or 'Simulated'",
+)
+parser.add_argument(
+    "--target",
+    default=None,
+    type=str,
+    required=True,
+    help="Target name; format should be K00000 or S00000",
+)
+parser.add_argument(
+    "--run_id", default=None, type=str, required=True, help="run identifier"
+)
+parser.add_argument(
+    "--project_dir",
+    default=None,
+    type=str,
+    required=True,
+    help="Project directory for accessing lightcurve data and saving outputs",
+)
+parser.add_argument(
+    "--verbose",
+    default=False,
+    type=bool,
+    required=False,
+    help="'True' to enable verbose logging",
+)
+parser.add_argument(
+    "--iplot",
+    default=False,
+    type=bool,
+    required=False,
+    help="'True' to enable interactive matplotlib backend; default 'agg'",
+)
 
-    args = parser.parse_args()
-    MISSION = args.mission
-    TARGET = args.target
-    PROJECT_DIR = args.project_dir
-    DATA_DIR = args.data_dir
-    CATALOG = args.catalog
-    RUN_ID = args.run_id
-    VERBOSE = args.verbose
-    IPLOT = args.iplot
+args = parser.parse_args()
+MISSION = args.mission
+TARGET = args.target
+PROJECT_DIR = args.project_dir
+DATA_DIR = args.data_dir
+CATALOG = args.catalog
+RUN_ID = args.run_id
+VERBOSE = args.verbose
+IPLOT = args.iplot
 
-except SystemExit:
-    warnings.warn("No arguments were parsed from the command line")
+#except SystemExit:
+#    warnings.warn("No arguments were parsed from the command line")
 
 
 print("")
