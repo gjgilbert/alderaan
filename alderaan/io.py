@@ -253,7 +253,7 @@ def dynesty_results_to_fits(results, project_dir, mission, target, run_id):
 
         ttimes_hdu = fits.BinTableHDU(
             data=ttimes_df.to_records(index=False),
-            name="TTIMES_{str(n).zfill(2)}",
+            name=f"TTIMES_{str(n).zfill(2)}",
         )
 
         hduL.append(ttimes_hdu)

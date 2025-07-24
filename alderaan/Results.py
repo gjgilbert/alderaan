@@ -116,7 +116,7 @@ class _Posteriors:
 
         self.ln_like = np.array(df["LN_LIKE"])
         self.ln_wt = np.array(df["LN_WT"])
-        self.ln_z = np.array(df["LN_WT"])
+        self.ln_z = np.array(df["LN_Z"])
 
         self.samples = df.drop(columns=["LN_LIKE", "LN_WT", "LN_Z"])
 
@@ -295,6 +295,7 @@ class Results:
         with fits.open(f) as hduL:
             for n in range(self.npl):
                 data = hduL["TTIMES_{0}".format(str(n).zfill(2))].data
+                #data = hduL[n+2].data
                 keys = data.names
 
                 _tts = []
