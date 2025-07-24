@@ -54,7 +54,7 @@ global_start_time = timer()
 # #### Parse inputs
 
 
-#try:
+try:
     parser = argparse.ArgumentParser(
         description="Inputs for ALDERAAN transit fiting pipeline"
     )
@@ -111,18 +111,18 @@ global_start_time = timer()
         help="'True' to enable interactive matplotlib backend; default 'agg'",
     )
 
-args = parser.parse_args()
-MISSION = args.mission
-TARGET = args.target
-PROJECT_DIR = args.project_dir
-DATA_DIR = args.data_dir
-CATALOG = args.catalog
-RUN_ID = args.run_id
-VERBOSE = args.verbose
-IPLOT = args.iplot
+    args = parser.parse_args()
+    MISSION = args.mission
+    TARGET = args.target
+    PROJECT_DIR = args.project_dir
+    DATA_DIR = args.data_dir
+    CATALOG = args.catalog
+    RUN_ID = args.run_id
+    VERBOSE = args.verbose
+    IPLOT = args.iplot
 
-#except SystemExit:
-#    warnings.warn("No arguments were parsed from the command line")
+except SystemExit:
+    warnings.warn("No arguments were parsed from the command line")
 
 
 print("")
