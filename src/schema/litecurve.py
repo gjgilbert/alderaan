@@ -138,8 +138,8 @@ class LiteCurve:
                       kernel_size, 
                       sigma_upper, 
                       sigma_lower, 
-                      trend = None,
-                      mask=None
+                      mask=None,
+                      trend=None
                       ):
         """
         Sigma-clip outliers using astropy.stats.sigma_clip() and a median filtered trend
@@ -152,16 +152,16 @@ class LiteCurve:
                 upper sigmga clipping threshold
             sigma_lower : float
                 lower sigma clipping threshold
-            trend : array-like, float (optional)
-                precomputed model for the trend, e.g. a Keplerian transit lightcurve
             mask : array-like, bool (optional)
                 do not reject cadences within masked regions; useful for protecting transits
+            trend : array-like, float (optional)
+                precomputed model for the trend, e.g. a Keplerian transit lightcurve
         """
-        if trend is not None:
-            raise ValueError("Not yet configured for trend kwarg")
-
         if mask is None:
             mask = np.zeros(len(self.time), dtype=bool)
+        
+        if trend is not None:
+            raise ValueError("Not yet configured for trend kwarg")
 
         loop = True
         count = 0
@@ -195,6 +195,7 @@ class LiteCurve:
             if np.sum(bad) / len(bad) > 0.01:
                 bad = np.zeros_like(mask)
 
+            # set attributes
             for k in self.__dict__.keys():
                 if type(self.__dict__[k]) is np.ndarray:
                     self.__setattr__(k, self.__dict__[k][~bad])
