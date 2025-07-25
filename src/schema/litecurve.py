@@ -6,7 +6,7 @@ from astropy.stats import sigma_clip, mad_std
 from scipy.signal import medfilt as median_filter
 from scipy.signal import savgol_filter
 
-__all__ = ["LiteCurve"]
+__all__ = ['LiteCurve']
 
 class LiteCurve:
     def __init__(self):
@@ -18,12 +18,7 @@ class LiteCurve:
         self.quality = np.array([]).astype(bool)
 
 
-    def load_kplr_pdcsap(self, 
-                         data_dir, 
-                         kic_id, 
-                         obsmode, 
-                         quarters=None
-                        ):
+    def load_kplr_pdcsap(self, data_dir, kic_id, obsmode, quarters=None):
         """
         Load photometric data from Kepler Project PDCSAP Flux lightcurves
         The raw fits files must be pre-downloaded from MAST servers and stored locally
