@@ -7,9 +7,11 @@ import numpy as np
 from src.schema.litecurve import LiteCurve
 import warnings
 
+warnings.simplefilter('always', UserWarning)
+
 # supress UnitsWarnings (this code doesn't use astropy units)
 warnings.filterwarnings(
-    action="ignore", category=astropy.units.UnitsWarning, module="astropy"
+    action='ignore', category=astropy.units.UnitsWarning, module='astropy'
 )
 
 data_dir = '/data/user/gjgilbert/data/MAST_downloads/'

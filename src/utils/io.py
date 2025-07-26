@@ -64,11 +64,14 @@ def parse_koi_catalog(filepath, koi_id):
     return catalog
 
 
-# TODO: clean up I/O (use astropy tables?)
 def parse_holczer16_catalog(filepath, koi_id, num_planets):
     """
-    Reads TTV table from Holczer+2016
-    Loads data into Ephemeris objects
+    Reads transit time table from Holczer+2016
+    Loads data into a list of Ephemeris objects
+
+    Automatically corrects for zero-point offsets between catalogs
+      - Holczer+2016 used BJD - 2454900
+      - Kepler Project used BJKD = BJD - 2454833
 
     Arguments:
         filepath (str) : path to Holczer+2016 table
@@ -78,21 +81,17 @@ def parse_holczer16_catalog(filepath, koi_id, num_planets):
     Returns:
         ephemerides : list of (0,num_planets) Ephemeris objects
     """
-
-    data = np.loadtxt(filepath, usecols=[0, 1, 2, 3, 4])
-
+    data = np.loadtxt(filepath, usecols=[0,1,2,3,4], dtype=str)
     ephemerides = []
 
-    for n in range(num_planets):
-        planet_id = int(koi_id[1:]) + 0.01 * (1 + n)
-        use = np.isclose(data[:, 0], planet_id, rtol=1e-10, atol=1e-10)
+    planet_id = data[:,0]
+    index = np.array(data[:,1], dtype=int)
+    ttime = np.array(data[:,2], dtype=float) + np.array(data[:,3],dtype=float)/24/60 + 67
+    error = np.array(data[:,4], dtype=float)/24/60
 
-        # Holczer 2016 used BJD - 2454900
-        # Kepler Project used BJKD = BJD - 2454833
+    for n in range(num_planets):
+        use = planet_id == f"{int(koi_id[1:])}.0{1+n}"
         if np.sum(use) > 0:
-            index = np.array(data[use, 1], dtype=int)
-            ttime = data[use,2] + data[use,3]/24/60 + 67
-            error = data[use,4]/24/60
-            ephemerides.append(Ephemeris(index, ttime, error))
+            ephemerides.append(Ephemeris(index[use], ttime[use], error[use]))
 
     return ephemerides

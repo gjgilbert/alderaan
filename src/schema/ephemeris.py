@@ -4,10 +4,10 @@ __all__ = ['Ephemeris']
 
 class Ephemeris:
     def __init__(self, 
-                 transit_index, 
-                 transit_times, 
-                 transit_error=None,
-                 transit_quality=None,
+                 index, 
+                 ttime, 
+                 error=None,
+                 quality=None,
                  t_min=None,
                  t_max=None
                 ):
@@ -15,10 +15,10 @@ class Ephemeris:
         Docstring
         """
         # populate attributes
-        self.index = transit_index
-        self.ttime = transit_times
-        self.error = transit_error
-        self.quality = transit_quality
+        self.index = index
+        self.ttime = ttime
+        self.error = error
+        self.quality = quality
 
         # calculate period and epoch from linear emphemeris fit
         self.period, self.epoch = self.fit_linear_ephemeris()
