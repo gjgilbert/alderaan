@@ -11,12 +11,13 @@ epoch = 6.4
 
 index = np.array([1,2,6,7,9])
 ttime = epoch + period*index + 0.1*np.random.normal(size=len(index))
+error = 0.1*np.ones_like(ttime)
 
-ephemeris = Ephemeris(index, ttime)
+ephemeris = Ephemeris(index, ttime, error)
 
-full = ephemeris._full_ttime_vector()
+full_index, full_ttime = ephemeris.full_ephemeris()
 
 print(ephemeris.period, ephemeris.epoch)
-print(full)
+print(full_index, full_ttime)
 
 print("passing")

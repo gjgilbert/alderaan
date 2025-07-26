@@ -16,8 +16,8 @@ NPL = int(catalog.npl[0])
 planets = [None]*NPL
 
 for n in range(NPL):
-    planets[n] = Planet(catalog, n, 0., 1400.)
+    planets[n] = Planet(catalog, koi_id, n, t_min=0., t_max=1400.)
 
-    print(n, planets[n].period)
+    print(n, planets[n].period, planets[n].epoch)
 
 print("passing")
