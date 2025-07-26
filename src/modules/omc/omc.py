@@ -1,4 +1,6 @@
 import numpy as np
+import pymc3 as pm
+import pymc3_ext as pmx
 
 __all__ = ['OMC']
 
@@ -25,3 +27,22 @@ class OMC:
         assert np.allclose(ephem_1, ephem_2, rtol=1e-10, atol=1e-10), "static reference ephemeris is not self-consistent"
 
         return self
+    
+
+    def polymodel(self, polyorder, xt_predict=None):
+        """
+        Build a PyMC3 model to fit TTV observed-minus-calculated data
+        Fits data with a polynomial (up to cubic)
+
+        Arguments
+        ----------
+        polyorder : int
+            polynomial order
+        xt_predict : ndarray
+            time values to predict OMC model; if not provided xtime will be used
+
+        Returns
+        -------
+        model : pm.Model()
+        """
+        
