@@ -1,7 +1,36 @@
+import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import numpy as np
 import pandas as pd
+from src.schema.ephemeris import Ephemeris
 
-def parse_catalog(filepath, koi_id, mission):
+__all__ = ['parse_koi_catalog',
+           'parse_holczer16_catalog'
+          ]
+
+
+def parse_koi_catalog(filepath, koi_id):
+    """
+    Read a Kepler Object of Interest Catalog and do some consistency checks
+    
+    Expected columns are:
+        kic_id
+        koi_id
+        npl
+        period
+        epoch
+        depth
+        duration
+        impact
+        ld_u1
+        ld_u2
+
+    Arguments:
+        filepath (str) : path to csv file
+        koi_id (str) : KOI identification number in the format, e.g., K01234
+    """
     # read catalog from csv file
     catalog = pd.read_csv(filepath, index_col=0)
     catalog = catalog.loc[catalog.koi_id == koi_id]
@@ -33,3 +62,37 @@ def parse_catalog(filepath, koi_id, mission):
         raise ValueError("NaN values found in input catalog")
     
     return catalog
+
+
+# TODO: clean up I/O (use astropy tables?)
+def parse_holczer16_catalog(filepath, koi_id, num_planets):
+    """
+    Reads TTV table from Holczer+2016
+    Loads data into Ephemeris objects
+
+    Arguments:
+        filepath (str) : path to Holczer+2016 table
+        koi_id (str) : KOI identification number in the format, e.g., K01234
+        num_planets : total number of planets in the system
+
+    Returns:
+        ephemerides : list of (0,num_planets) Ephemeris objects
+    """
+
+    data = np.loadtxt(filepath, usecols=[0, 1, 2, 3, 4])
+
+    ephemerides = []
+
+    for n in range(num_planets):
+        planet_id = int(koi_id[1:]) + 0.01 * (1 + n)
+        use = np.isclose(data[:, 0], planet_id, rtol=1e-10, atol=1e-10)
+
+        # Holczer 2016 used BJD - 2454900
+        # Kepler Project used BJKD = BJD - 2454833
+        if np.sum(use) > 0:
+            index = np.array(data[use, 1], dtype=int)
+            ttime = data[use,2] + data[use,3]/24/60 + 67
+            error = data[use,4]/24/60
+            ephemerides.append(Ephemeris(index, ttime, error))
+
+    return ephemerides

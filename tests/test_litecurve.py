@@ -1,12 +1,11 @@
 import os
 import sys
-import warnings
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import astropy
 import numpy as np
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.schema.litecurve import LiteCurve
+import warnings
 
 # supress UnitsWarnings (this code doesn't use astropy units)
 warnings.filterwarnings(
@@ -27,3 +26,5 @@ litecurve_clean = LiteCurve().from_list(litecurve_list)
 
 if np.min(litecurve_clean.time) < 0:
     raise ValueError("Lightcurve has negative timestamps...this will cause problems")
+
+print("passing")
