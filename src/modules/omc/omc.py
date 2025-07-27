@@ -15,6 +15,7 @@ from scipy import stats
 from scipy.ndimage import uniform_filter, median_filter
 from sklearn.cluster import KMeans
 from src.constants import *
+from src.utils.stats import LS_estimator
 
 class OMC:
     def __init__(self, ephemeris):
@@ -29,6 +30,10 @@ class OMC:
 
         # set static reference period, epoch, and linear ephemeris
         self = self._set_static_references(ephemeris)
+
+        # set nominal peak frequency and false alarm probability
+        self.peakfreq = None
+        self.peakfap = None
 
 
     def _set_static_references(self, ephemeris):
@@ -56,7 +61,37 @@ class OMC:
             quality = np.zeros(len(self.yomc), dtype=bool)
 
         return quality
+
     
+    def identify_significant_frequencies(self, critical_fap):
+        """
+        Identify significant periodic frequencies using a Lomb-Scargle periodogram
+
+        Arguments
+        ---------
+        critical_fap : float
+            false alarm probability threshold to consider a frequency significant (default=0.1)
+        """
+        q = self.quality
+        npts = np.sum(self.quality)
+
+        peakfreq = None
+        peakfap = None
+
+        if npts > 8:
+            try:
+                xf, yf, freqs, faps = LS_estimator(self.xtime[q], self.yomc[q], fap=critical_fap)
+
+                if len(freqs) > 0:
+                    if freqs[0] > xf.min():
+                        peakfreq = freqs[0]
+                        peakfap = faps[0]
+
+            except Exception:
+                pass
+        
+        return peakfreq, peakfap
+
 
     def poly_model(self, polyorder, ignore_bad=True, xt_predict=None):
         """
@@ -102,14 +137,14 @@ class OMC:
         return model
 
 
-    def sin_model(self, period, ignore_bad=True, xt_predict=None):
+    def sin_model(self, ttv_period=None, ignore_bad=True, xt_predict=None):
         """
         Build a PyMC3 model to fit TTV observed-minus-calculated data
         Fits data with a single-frequency sinusoid
 
         Arguments
         ----------
-        period : float
+        ttv_period : float
             pre-estimated sinusoid period; the model places tight priors on this period
         ignore_bad : bool
             True (default) to exclude bad quality times from model
@@ -129,6 +164,12 @@ class OMC:
         # times where trend will be predicted
         if xt_predict is None:
             xt_predict = self.xtime
+
+        # nominal TTV period
+        if (ttv_period is None) & (self.peakfreq is None):
+            ttv_period = 2 * (self.xtime[q].max() - self.xtime[q].min())
+        elif (ttv_period is None) & (self.peakfreq is not None):
+            ttv_period = 1 / self.peakfreq
         
         # convenience function
         def _sin_fxn(A, B, f, xt):
@@ -137,7 +178,7 @@ class OMC:
         # build pymc model
         with pm.Model() as model:
             df = 1 / (self.xtime[q].max() - self.xtime[q].min())
-            f = pm.Normal("f", mu=1 / period, sd=df)
+            f = pm.Normal("f", mu=1 / ttv_period, sd=df)
             Ah = pm.Normal("Ah", mu=0, sd=5 * np.std(self.yomc[q]))
             Bk = pm.Normal("Bk", mu=0, sd=5 * np.std(self.yomc[q]))
 
@@ -225,14 +266,68 @@ class OMC:
                                chains=2,
                                target_accept=0.95,
                                start=map_soln,
-                               progressbar=progressbar
+                               progressbar=progressbar,
+                               return_inferencedata=False
                               )
         return trace
+
+
+    def select_best_model(self, traces, dofs, verbose=True):
+        """
+        Arguments
+            traces : dict
+              dictionary of PyMC3 MultiTraces, model output from self.sample()
+            dofs : dict
+              degrees-of-freedom corresponding to each model trace
+
+        Returns
+            best_omc_model (str)
+        """
+        q = self.quality
+        npts = np.sum(self.quality)
+
+        # AIC and BIC for each model
+        aic = {}
+        bic = {}
+
+        for k in traces.keys():
+            trend = np.nanmedian(traces[k]['trend'], 0)
+            lnlike = -np.sum((self.yomc[q] - trend)**2 / self.yerr[q]**2)
+
+            aic[k] = 2 * dofs[k] - 2 * lnlike
+            bic[k] = dofs[k] * np.log(npts) - 2 * lnlike
+
+        preferred_by_aic = min(aic, key=aic.get)
+        preferred_by_bic = min(bic, key=bic.get)
+
+        if verbose:
+            print(f"AIC : {preferred_by_aic}, BIC : {preferred_by_bic}")
+
+        # Case 1: AIC and BIC match recommendation
+        if preferred_by_aic == preferred_by_bic:
+            best_omc_model = preferred_by_aic
+
+        # Case 2: Select parametric models over Matern-3/2 GP
+        elif np.any(np.array([preferred_by_aic, preferred_by_bic]) == 'matern32'):
+            if preferred_by_aic == 'matern32':
+                best_omc_model = preferred_by_bic
+            elif preferred_by_bic == 'matern32':
+                best_omc_model = preferred_by_aic
+        
+        # Case 3: Select model with more degrees of freedom
+        else:
+            if dofs[preferred_by_aic] >= dofs[preferred_by_bic]:
+                best_omc_model = preferred_by_aic
+            elif dofs[preferred_by_aic] < dofs[preferred_by_bic]:
+                best_omc_model = preferred_by_bic
+
+        return best_omc_model
     
 
     def calculate_outlier_probability(self, ymod):
         """
-        Docstring
+        Arguments:
+            ymod (ndarray) : regularized model for self.yomc
         """
         # normalize and center residuals
         res = self.yomc - ymod
@@ -273,33 +368,4 @@ class OMC:
 
         # return quality vector
         return fg_prob, out
-
-
-    def select_best_model(self, traces, dofs):
-        """
-        Docstring
-        """
-        q = self.quality
-        npts = np.sum(q)
-
-        aic = {}
-        bic = {}
-
-        for k in traces.keys():
-            trend = np.nanmedian(traces[k]['trend'], 0)
-            
-            lnlike = -np.sum((self.yomc[q] - trend)**2 / self.yerr[q]**2)
-
-            aic[k] = 2 * dofs[k] - 2 * lnlike
-            bic[k] = k * np.log(npts) - 2 * lnlike
-
-        preferred_by_aic = min(aic, key=aic.get)
-        preferred_by_bic = min(bic, key=bic.get)
-
-        if preferred_by_aic == preferred_by_bic:
-            return preferred_by_bic
-        
-        if dofs[preferred_by_bic] > dofs[preferred_by_aic]:
-            return preferred_by_bic
-        
-        return preferred_by_aic
+    
