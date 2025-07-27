@@ -1,3 +1,5 @@
+__all__ = ['LiteCurve']
+
 import glob
 import numpy as np
 import lightkurve as lk
@@ -6,7 +8,6 @@ from astropy.stats import sigma_clip, mad_std
 from scipy.signal import medfilt as median_filter
 from scipy.signal import savgol_filter
 
-__all__ = ['LiteCurve']
 
 class LiteCurve:
     def __init__(self):

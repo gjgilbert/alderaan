@@ -9,6 +9,9 @@ from src.schema.ephemeris import Ephemeris
 from src.modules.omc.omc import OMC
 import warnings
 
+import pymc3 as pm
+import pymc3_ext as pmx
+
 warnings.simplefilter('always', UserWarning)
 
 koi_id = 'K00148'
@@ -57,5 +60,8 @@ for n, p in enumerate(planets):
 
 for n, p in enumerate(planets):
     omc = OMC(p.ephemeris)
+    #trace = omc.sample(omc.poly_model(2))
+    #trace = omc.sample(omc.sin_model(345.))
+    trace = omc.sample(omc.matern32_model())
 
 print("passing")

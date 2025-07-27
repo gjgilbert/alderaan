@@ -1,3 +1,5 @@
+__all__ = ['Planet']
+
 import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -6,7 +8,6 @@ import numpy as np
 from src.schema.ephemeris import Ephemeris
 import warnings
 
-__all__ = ['Planet']
 
 class Planet:
     def __init__(self, 
@@ -24,7 +25,6 @@ class Planet:
         # set up ephemeris
         if ephemeris is not None:
             self = self.update_ephemeris(ephemeris)
-
         else:
             warnings.warn("WARNING: Planet initiated without Ephemeris")
 

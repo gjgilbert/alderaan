@@ -1,6 +1,7 @@
+__all__ = ['Ephemeris']
+
 import numpy as np
 
-__all__ = ['Ephemeris']
 
 class Ephemeris:
     def __init__(self, 
