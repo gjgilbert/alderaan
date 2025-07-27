@@ -11,8 +11,9 @@ from celerite2.theano import GaussianProcess
 import numpy as np
 import pymc3 as pm
 import pymc3_ext as pmx
+from scipy import stats
 from scipy.ndimage import uniform_filter, median_filter
-
+from sklearn.cluster import KMeans
 from src.constants import *
 
 class OMC:
@@ -210,29 +211,10 @@ class OMC:
         return model
 
     
-    def sophisticated_outlier_flagging(self, ymod):
+    def sample(self, model, progressbar=False):
         """
         Docstring
         """
-        yres = self.yomc - ymod
-        
-        z = yres / np.std(yres) 
-        z -= np.mean(z)
-
-        with pm.Model() as model:
-            # mixture parameters
-            w = pm.Dirichlet("w", np.array([1.0, 1.0]))
-            mu = pm.Normal("mu", mu=0.0, sd=1.0, shape=1)
-            tau = pm.Gamma("tau", 1.0, 1.0, shape=2)
-
-            # mixture likelihood
-            obs = pm.NormalMixture("obs", w, mu=mu * T.ones(2), tau=tau, observed=z)
-
-        with model:
-            trace = self.sample(model)           
-
-    
-    def sample(self, model, progressbar=False):
         with model:
             map_soln = pmx.optimize(start=model.test_point, 
                                     progress=progressbar
@@ -247,3 +229,77 @@ class OMC:
                               )
         return trace
     
+
+    def calculate_outlier_probability(self, ymod):
+        """
+        Docstring
+        """
+        # normalize and center residuals
+        res = self.yomc - ymod
+        res = res / np.std(res)
+        res -= np.mean(res)
+
+        # fit gaussian mixture
+        with pm.Model() as model:
+            w = pm.Dirichlet("w", np.array([1.0, 1.0]))
+            mu = pm.Normal("mu", mu=0.0, sd=1.0, shape=1)
+            tau_latent = pm.Gamma("tau_latent", 1.0, 1.0, shape=2)
+            tau = pm.Deterministic("tau", T.sort(tau_latent))
+
+            obs = pm.NormalMixture("obs", w, mu=mu * T.ones(2), tau=tau, observed=res)
+
+        with model:
+            trace = self.sample(model)
+
+        # calculate foreground/background probability
+        loc = np.nanmedian(trace["mu"], axis=0)
+        scales = np.nanmedian(1 / np.sqrt(trace["tau"]), axis=0)
+
+        z_fg = stats.norm(loc=loc, scale=scales[0]).pdf(res)
+        z_bg = stats.norm(loc=loc, scale=scales[1]).pdf(res)
+
+        fg_prob = z_fg / (z_fg + z_bg)
+
+        # use KMeans clustering to assign each point to foreground/background
+        km = KMeans(n_clusters=2)
+        group = km.fit_predict(fg_prob.reshape(-1, 1))
+        centroids = np.array([np.mean(fg_prob[group == 0]), np.mean(fg_prob[group == 1])])
+        out = group == np.argmin(centroids)
+
+        # reduce fg_prob threshold until < 30% of points are flagged
+        while np.sum(out) / len(out) > 0.3:
+            thresh = np.max(fg_prob[out])
+            out = fg_prob < thresh
+
+        # return quality vector
+        return fg_prob, out
+
+
+    def select_best_model(self, traces, dofs):
+        """
+        Docstring
+        """
+        q = self.quality
+        npts = np.sum(q)
+
+        aic = {}
+        bic = {}
+
+        for k in traces.keys():
+            trend = np.nanmedian(traces[k]['trend'], 0)
+            
+            lnlike = -np.sum((self.yomc[q] - trend)**2 / self.yerr[q]**2)
+
+            aic[k] = 2 * dofs[k] - 2 * lnlike
+            bic[k] = k * np.log(npts) - 2 * lnlike
+
+        preferred_by_aic = min(aic, key=aic.get)
+        preferred_by_bic = min(bic, key=bic.get)
+
+        if preferred_by_aic == preferred_by_bic:
+            return preferred_by_bic
+        
+        if dofs[preferred_by_bic] > dofs[preferred_by_aic]:
+            return preferred_by_bic
+        
+        return preferred_by_aic
