@@ -60,8 +60,8 @@ for n, p in enumerate(planets):
 
 for n, p in enumerate(planets):
     omc = OMC(p.ephemeris)
-    #trace = omc.sample(omc.poly_model(2))
-    #trace = omc.sample(omc.sin_model(345.))
+    trace = omc.sample(omc.poly_model(2))
+    trace = omc.sample(omc.sin_model(345.))
     trace = omc.sample(omc.matern32_model())
 
 print("passing")

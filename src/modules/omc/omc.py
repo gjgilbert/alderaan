@@ -210,6 +210,28 @@ class OMC:
         return model
 
     
+    def sophisticated_outlier_flagging(self, ymod):
+        """
+        Docstring
+        """
+        yres = self.yomc - ymod
+        
+        z = yres / np.std(yres) 
+        z -= np.mean(z)
+
+        with pm.Model() as model:
+            # mixture parameters
+            w = pm.Dirichlet("w", np.array([1.0, 1.0]))
+            mu = pm.Normal("mu", mu=0.0, sd=1.0, shape=1)
+            tau = pm.Gamma("tau", 1.0, 1.0, shape=2)
+
+            # mixture likelihood
+            obs = pm.NormalMixture("obs", w, mu=mu * T.ones(2), tau=tau, observed=z)
+
+        with model:
+            trace = self.sample(model)           
+
+    
     def sample(self, model, progressbar=False):
         with model:
             map_soln = pmx.optimize(start=model.test_point, 
@@ -224,4 +246,4 @@ class OMC:
                                progressbar=progressbar
                               )
         return trace
-        
+    
