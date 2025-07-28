@@ -22,7 +22,6 @@ litecurve_list = litecurve_raw.split_quarters()
 
 for i, lc in enumerate(litecurve_list):
     lc = lc.remove_flagged_cadences(bitmask='default')
-    lc = lc.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=1000)
 
 litecurve_clean = LiteCurve().from_list(litecurve_list)
 

@@ -1,6 +1,7 @@
 __all__ = ['Ephemeris']
 
 import numpy as np
+from scipy.interpolate import CubicSpline
 
 
 class Ephemeris:
@@ -40,6 +41,9 @@ class Ephemeris:
 
     
     def _adjust_epoch(self, t_min):
+        """
+        Put epoch in range (t_min, t_min + period)
+        """
         if self.epoch < t_min:
             adj = 1 + (t_min - self.epoch) // self.period
             self.epoch += adj * self.period
@@ -51,6 +55,9 @@ class Ephemeris:
     
     
     def fit_linear_ephemeris(self):
+        """
+        Fit a linear ephmeris using unweighted least squares
+        """
         A = np.ones((len(self.index), 2))
         A[:, 0] = self.index
 
@@ -58,18 +65,35 @@ class Ephemeris:
     
 
     def eval_linear_ephemeris(self, index=None):
+        """
+        Calculate linear ephemeris from period and epoch 
+        """
         if index is None:
             index = self.index
 
         return self.epoch + self.period*index
         
 
-    # TODO: use linear interpolation for internal times
     def full_ephemeris(self, return_index=True):
-        full_index_vector = np.arange(self.index.max()+1)
-        full_ttime_vector = self.eval_linear_ephemeris(full_index_vector)
-        full_ttime_vector[self.index] = self.ttime
+        """
+        Interpolate ephemeris over missing and poor quality transit times
+        Assumes indexing starts at zero
+        """
+        if self.quality is not None:
+            q = self.quality
+        else:
+            q = np.ones(len(self.time), dtype=bool)
+
+        spline = CubicSpline(self.index[q],
+                              self.ttime[q], 
+                              extrapolate=True,
+                              bc_type='natural'
+                             )
+
+        full_index = np.arange(0, self.index.max()+1, dtype=int)
+        full_ttime = spline(full_index)
+        full_ttime[self.index] = self.ttime
 
         if return_index:
-            return full_index_vector, full_ttime_vector
-        return full_ttime_vector
+            return full_index, full_ttime
+        return full_ttime

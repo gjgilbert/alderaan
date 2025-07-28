@@ -26,7 +26,7 @@ class OMC:
         self.yerr = ephemeris.error
 
         # flag outliers
-        self.quality = self._flag_outliers()
+        self.quality = self._quick_flag_outliers()
 
         # set static reference period, epoch, and linear ephemeris
         self = self._set_static_references(ephemeris)
@@ -49,7 +49,7 @@ class OMC:
         return self
     
 
-    def _flag_outliers(self, sigma_cut=5.0):
+    def _quick_flag_outliers(self, sigma_cut=5.0):
         if len(self.yomc) > 16:
             ysmooth = uniform_filter(median_filter(self.yomc, size=5, mode='mirror'), size=5)
         else:
@@ -61,36 +61,6 @@ class OMC:
             quality = np.zeros(len(self.yomc), dtype=bool)
 
         return quality
-
-    
-    def identify_significant_frequencies(self, critical_fap):
-        """
-        Identify significant periodic frequencies using a Lomb-Scargle periodogram
-
-        Arguments
-        ---------
-        critical_fap : float
-            false alarm probability threshold to consider a frequency significant (default=0.1)
-        """
-        q = self.quality
-        npts = np.sum(self.quality)
-
-        peakfreq = None
-        peakfap = None
-
-        if npts > 8:
-            try:
-                xf, yf, freqs, faps = LS_estimator(self.xtime[q], self.yomc[q], fap=critical_fap)
-
-                if len(freqs) > 0:
-                    if freqs[0] > xf.min():
-                        peakfreq = freqs[0]
-                        peakfap = faps[0]
-
-            except Exception:
-                pass
-        
-        return peakfreq, peakfap
 
 
     def poly_model(self, polyorder, ignore_bad=True, xt_predict=None):
@@ -251,7 +221,7 @@ class OMC:
 
         return model
 
-    
+
     def sample(self, model, progressbar=False):
         """
         Docstring
@@ -270,6 +240,36 @@ class OMC:
                                return_inferencedata=False
                               )
         return trace
+
+
+    def identify_significant_frequencies(self, critical_fap):
+        """
+        Identify significant periodic frequencies using a Lomb-Scargle periodogram
+
+        Arguments
+        ---------
+        critical_fap : float
+            false alarm probability threshold to consider a frequency significant (default=0.1)
+        """
+        q = self.quality
+        npts = np.sum(self.quality)
+
+        peakfreq = None
+        peakfap = None
+
+        if npts > 8:
+            try:
+                xf, yf, freqs, faps = LS_estimator(self.xtime[q], self.yomc[q], fap=critical_fap)
+
+                if len(freqs) > 0:
+                    if freqs[0] > xf.min():
+                        peakfreq = freqs[0]
+                        peakfap = faps[0]
+
+            except Exception:
+                pass
+        
+        return peakfreq, peakfap
 
 
     def select_best_model(self, traces, dofs, verbose=True):
@@ -322,7 +322,7 @@ class OMC:
                 best_omc_model = preferred_by_bic
 
         return best_omc_model
-    
+
 
     def calculate_outlier_probability(self, ymod):
         """
@@ -350,8 +350,8 @@ class OMC:
         loc = np.nanmedian(trace["mu"], axis=0)
         scales = np.nanmedian(1 / np.sqrt(trace["tau"]), axis=0)
 
-        z_fg = stats.norm(loc=loc, scale=scales[0]).pdf(res)
-        z_bg = stats.norm(loc=loc, scale=scales[1]).pdf(res)
+        z_fg = stats.norm(loc=loc, scale=scales.min()).pdf(res)
+        z_bg = stats.norm(loc=loc, scale=scales.max()).pdf(res)
 
         fg_prob = z_fg / (z_fg + z_bg)
 
@@ -361,11 +361,9 @@ class OMC:
         centroids = np.array([np.mean(fg_prob[group == 0]), np.mean(fg_prob[group == 1])])
         out = group == np.argmin(centroids)
 
-        # reduce fg_prob threshold until < 30% of points are flagged
-        while np.sum(out) / len(out) > 0.3:
-            thresh = np.max(fg_prob[out])
-            out = fg_prob < thresh
+        # reduce fg_prob threshold until less than 30% of points are flagged
+        if np.sum(out) / len(out) > 0.3:
+            out = fg_prob < np.percentile(fg_prob, 0.3)
 
         # return quality vector
         return fg_prob, out
-    

@@ -24,7 +24,7 @@ catalog = parse_koi_catalog(filepath, koi_id)
 assert np.all(np.diff(catalog.period) > 0), "Planets should be ordered by ascending period"
 
 NPL = int(catalog.npl[0])
-planets = [None]*int(catalog.npl[0])
+planets = [None]*NPL
 
 print(f"{NPL} planets loaded for {koi_id}")
 
@@ -46,7 +46,7 @@ count = 0
 
 for n, p in enumerate(planets):
     for ephem in holczer_ephemerides:
-        match = np.isclose(ephem.period, p.period, rtol=0.1, atol=p.duration)
+        match = np.isclose(ephem.period, p.period, rtol=0.01, atol=p.duration)
 
         if match:
             planets[n] = p.update_ephemeris(ephem)
@@ -98,7 +98,7 @@ if NPL > 1:
                     close[j] = True
 
     for i in range(NPL):
-        if not close[i]:
+        if (faps[i] > 0.1) & (not close[i]):
             omc_list[i].peakfreq = None
             omc_list[i].peakfap = None
 
@@ -143,9 +143,9 @@ for n, p in enumerate(planets):
     ymod = np.nanmedian(trace[best_model]['pred'], 0)
     fg_prob, out = omc.calculate_outlier_probability(ymod)
 
-    print(f"{np.sum(out):.0f} outliers found out of {len(out):.0f} transit times ({np.sum(out)/len(out)*100:.1f}%)")
-    print(f"measured error: {np.median(omc.yerr[~out])*24*60:1.f} min")
-    print(f"residual RMS: {mad_std(omc.yerr[~out] - ymod[~out])*24*60:.1f}")
+    print(f"{np.sum(out)} outliers found out of {len(out)} transit times ({np.sum(out)/len(out)*100:.1f}%)")
+    print(f"measured error: {(np.median(omc.yerr[~out])*24*60):.1f} min")
+    print(f"residual RMS: {(mad_std(omc.yerr[~out] - ymod[~out])*24*60):.1f}")
 
     # update Ephemeris
     p.ephemeris.model = ymod

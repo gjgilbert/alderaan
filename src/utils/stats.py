@@ -9,6 +9,7 @@ from astropy.timeseries import LombScargle
 import numpy as np
 from scipy import signal
 
+
 def LS_estimator(x, y, fsamp=None, fap=0.1, return_levels=False, max_peaks=2):
     """
     Generate a Lomb-Scargle periodogram and identify significant frequencies
@@ -16,8 +17,8 @@ def LS_estimator(x, y, fsamp=None, fap=0.1, return_levels=False, max_peaks=2):
       * optimized for finding marginal periodic TTV signals in OMC data
       * may not perform well for other applications
 
-    Parameters
-    ----------
+    Arguments
+    ---------
     x : array-like
         1D array of x data values; should be monotonically increasing
     y : array-like

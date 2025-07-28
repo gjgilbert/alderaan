@@ -32,10 +32,12 @@ class Planet:
     def _from_dataframe(self, catalog, koi_id, planet_no):
         df = catalog.loc[catalog.koi_id == koi_id].sort_values(by='period').reset_index(drop=True)
 
+        self.koi_id = koi_id
+        self.kic_id = str(df.at[planet_no, 'kic_id'])
         self.period = float(df.at[planet_no, 'period'])
         self.epoch = float(df.at[planet_no, 'epoch'])
-        self.depth = float(df.at[planet_no, 'depth'])
-        self.duration = float(df.at[planet_no, 'duration'])
+        self.depth = float(df.at[planet_no, 'depth']) * 1e-6       # ppm
+        self.duration = float(df.at[planet_no, 'duration']) / 24.  # hrs --> days
         self.impact = float(df.at[planet_no, 'impact'])
 
         return self
@@ -49,6 +51,9 @@ class Planet:
 
 
     def update_ephemeris(self, ephemeris):
+        if not np.isclose(self.period, ephemeris.period, rtol=0.1):
+            raise ValueError(f"New period ({ephemeris.period:.1f}) differs from old period ({self.period:.1f}) by more than 10%")
+
         self.ephemeris = ephemeris
         self.period = self.ephemeris.period
         self.epoch = self.ephemeris.epoch
