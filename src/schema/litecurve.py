@@ -4,9 +4,6 @@ import glob
 import numpy as np
 import lightkurve as lk
 from astropy.io import fits
-from astropy.stats import sigma_clip, mad_std
-from scipy.signal import medfilt as median_filter
-from scipy.signal import savgol_filter
 
 
 class LiteCurve:
@@ -16,6 +13,7 @@ class LiteCurve:
         self.error = np.array([]).astype(float)
         self.cadno = np.array([]).astype(int)
         self.quarter = np.array([]).astype(int)
+        self.obsmode = np.array([]).astype(str)
         self.quality = np.array([]).astype(bool)
 
 
@@ -80,13 +78,14 @@ class LiteCurve:
         # stitch into a single LightCurve
         lklc = lk_col_clean.stitch()
 
-        # set ALDERAAN schema attributes
+        # set LiteCurve attributes
         self.time = np.array(lklc.time.value, dtype=float)
         self.flux = np.array(lklc.flux.value, dtype=float)
         self.error = np.array(lklc.flux_err.value, dtype=float)
         self.cadno = np.array(lklc.cadenceno.value, dtype=int)
         self.quarter = np.array(lklc.quarter, dtype=int)
         self.season = np.array(lklc.season, dtype=int)
+        self.obsmode = np.array([obsmode]*len(self.cadno), dtype=str)
         self.quality = np.array(lklc.quality.value)
 
         return self

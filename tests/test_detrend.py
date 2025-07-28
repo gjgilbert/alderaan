@@ -6,7 +6,7 @@ import astropy
 import numpy as np
 from src.schema.litecurve import LiteCurve
 from src.schema.planet import Planet
-from src.modules.detrend.detrend import Detrend
+from src.modules.detrend.detrend import SimpleDetrender
 from src.utils.io import parse_koi_catalog, parse_holczer16_catalog
 import warnings
 
@@ -33,31 +33,6 @@ for i in range(NPL):
     planets[i] = Planet(catalog, koi_id, i)
     print(i, planets[i].period)
 
-# load Holczer+2016 catalog
-filepath = '/data/user/gjgilbert/projects/alderaan/Catalogs/holczer_2016_kepler_ttvs.txt'
-holczer_ephemerides = parse_holczer16_catalog(filepath, koi_id, NPL)
-
-print(f"{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
-
-for i, ephem in enumerate(holczer_ephemerides):
-    print(i, ephem.period)
-
-# match Holczer ephemerides to Planets
-count = 0
-
-for n, p in enumerate(planets):
-    for ephem in holczer_ephemerides:
-        match = np.isclose(ephem.period, p.period, rtol=0.01, atol=p.duration)
-
-        if match:
-            planets[n] = p.update_ephemeris(ephem)
-            count += 1
-
-print(f"{count} matching ephemerides found for {NPL} planets")
-
-for n, p in enumerate(planets):
-    print(n, p.period)
-
 
 # load lightcurves
 data_dir = '/data/user/gjgilbert/data/MAST_downloads/'
@@ -71,32 +46,55 @@ for i, lc in enumerate(litecurve_list):
 
 litecurve_clean = LiteCurve().from_list(litecurve_list)
 
-if np.min(litecurve_clean.time) < 0:
+t_min = litecurve_clean.time.min()
+t_max = litecurve_clean.time.max()
+
+if t_min < 0:
     raise ValueError("Lightcurve has negative timestamps...this will cause problems")
 
 litecurves = litecurve_clean.split_quarters()
 
 print(f"{len(litecurves)} litecurves loaded")
 
+# update planet ephemerides
+for n, p in enumerate(planets):
+    if p.ephemeris is None:
+        planets[n].ephemeris = p.predict_ephemeris(t_min, t_max)
 
 # detrend each quarter
 for j, litecurve in enumerate(litecurves):
+    assert len(np.unique(litecurve.quarter)) == 1, "expected one quarter per litecurve"
+    assert len(np.unique(litecurve.obsmode)) == 1, "expected one obsmode per litecurve"
+
+detrenders = []
+for j, litecurve in enumerate(litecurves):
     print(f"Quarter {litecurve.quarter[0]}")
 
-    detrend = Detrend(litecurve, planets)
-    mask = detrend.make_transit_mask(rel_size=3.0, abs_size=2/24)
+    detrender = SimpleDetrender(litecurve, planets)
+    mask = detrender.make_transit_mask(rel_size=3.0, abs_size=2/24)
     mask = np.sum(mask, axis=0) > 0
 
-    detrend.litecurve = detrend.clip_outliers(kernel_size=13,
-                                              sigma_upper=5.0,
-                                              sigma_lower=5.0,
-                                              mask=mask
-                                             )
+    npts_initial = len(detrender.litecurve.time)
+
+    detrender.litecurve = detrender.clip_outliers(kernel_size=13,
+                                                  sigma_upper=5,
+                                                  sigma_lower=5,
+                                                  mask=mask
+                                                )
     
-    detrend.litecurve = detrend.clip_outliers(kernel_size=13,
-                                              sigma_upper=5.,
-                                              sigma_lower=1000.,
-                                              mask=None
-                                             )
-        
+    detrender.litecurve = detrender.clip_outliers(kernel_size=13,
+                                                  sigma_upper=5,
+                                                  sigma_lower=1000,
+                                                  mask=None
+                                                 )
+    
+    npts_final = len(detrender.litecurve.time)
+
+    print(f"  {npts_initial-npts_final} outliers rejected")
+
+    oscillation_period = detrender.estimate_oscillation_period(min_period=1.0)
+
+    print(f"  oscillation period = {oscillation_period:.1f} days")
+
+
 print("passing")

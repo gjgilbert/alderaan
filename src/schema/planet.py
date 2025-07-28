@@ -26,6 +26,7 @@ class Planet:
         if ephemeris is not None:
             self = self.update_ephemeris(ephemeris)
         else:
+            self.ephemeris = None
             warnings.warn("WARNING: Planet initiated without Ephemeris")
 
 

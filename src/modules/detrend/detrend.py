@@ -5,13 +5,14 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from astropy.stats import sigma_clip, mad_std
+from astropy.timeseries import LombScargle
 import numpy as np
 from scipy.signal import medfilt as median_filter
 from scipy.signal import savgol_filter
 from src.schema.litecurve import LiteCurve
 from src.schema.planet import Planet
 
-class Detrend:
+class SimpleDetrender:
     def __init__(self, litecurve, planets):
         # check inputs
         if not isinstance(litecurve, LiteCurve):
@@ -33,6 +34,7 @@ class Detrend:
             self.periods.append(p.period)
             self.durs.append(p.duration)
 
+    
     def make_transit_mask(self, rel_size=None, abs_size=None):
         """
         Arguments
@@ -141,4 +143,33 @@ class Detrend:
                 loop = False
 
         return lc
+    
 
+    def estimate_oscillation_period(self, min_period):
+        """
+        Docstring
+        """
+        lc = self.litecurve
+        lombscargle = LombScargle(lc.time, lc.flux)
+
+        min_freq = 1 / (lc.time.max() - lc.time.min())
+        max_freq = 1 / min_period
+
+        xf, yf = lombscargle.autopower(
+            minimum_frequency=min_freq, maximum_frequency=max_freq
+        )
+
+        peak_freq = xf[np.argmax(yf)]
+        peak_per = np.max([1.0 / peak_freq, 1.001 * min_period])
+
+        return peak_per
+    
+
+
+class GaussianProcessDetrender(SimpleDetrender):
+    def __init__(self):
+        pass
+
+class AutocorrelationDetrender(SimpleDetrender):
+    def __init__(self):
+        pass
