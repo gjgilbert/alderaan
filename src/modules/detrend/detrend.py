@@ -351,7 +351,27 @@ class GaussianProcessDetrender(SimpleDetrender):
         # optimize hyperparameters
         with model:
             map_soln = pmx.optimize(start=model.test_point, vars=[flux0], progress=progressbar)
-        
+            map_soln = pmx.optimize(start=map_soln, vars=[flux0, log_var], progress=progressbar)
+
+            for i in range(1 + correct_ramp):
+                if gp_term == 'RotationTerm':
+                    map_soln = pmx.optimize(
+                        start=map_soln,
+                        vars=[log_var, flux0, sigma, P, log_Q0, log_dQ, mix],
+                        progress=progressbar,
+                    )
+                if gp_term == 'SHOTerm':
+                    map_soln = pmx.optimize(
+                        start=map_soln,
+                        vars=[log_var, flux0, sigma, P, log_Q0],
+                        progress=progressbar,
+                    )
+                if correct_ramp:
+                    map_soln = pmx.optimize(
+                        start=map_soln,
+                        vars=[log_var, flux0, ramp_amp, log_tau],
+                        progress=progressbar,
+                    )
 
 
 
