@@ -1,0 +1,175 @@
+import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+from aesara_theano_fallback import aesara as theano
+import astropy
+from astropy.stats import mad_std
+from celerite2.backprop import LinAlgError
+from datetime import datetime
+import numpy as np
+import shutil
+from src.constants import *
+from src.schema.ephemeris import Ephemeris
+from src.schema.litecurve import LiteCurve
+from src.schema.planet import Planet
+from src.modules.detrend.detrend import GaussianProcessDetrender
+from src.modules.omc.omc import OMC
+from src.utils.io import parse_koi_catalog, parse_holczer16_catalog
+from timeit import default_timer as timer
+import warnings
+
+# #################### #
+# Initialization Block #
+########################
+
+# flush buffer
+sys.stdout.flush()
+
+# filter warnings
+warnings.simplefilter('always', UserWarning)
+warnings.filterwarnings(
+    action='ignore', category=astropy.units.UnitsWarning, module='astropy'
+)
+
+# start program timer
+global_start_time = timer()
+
+print("")
+print("+" * shutil.get_terminal_size().columns)
+print("ALDERAAN Pipeline")
+print(f"Initialized {datetime.now().strftime('%d-%b-%Y at %H:%M:%S')}")
+print("+" * shutil.get_terminal_size().columns)
+print("")
+
+# hard-code inputs
+mission = 'Kepler'
+target = 'K00148'
+run_id = 'develop'
+
+project_dir = '/data/user/gjgilbert/projects/alderaan/'
+data_dir = '/data/user/gjgilbert/data/MAST_downloads/'
+catalog_csv = os.path.join(project_dir, 'Catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
+
+print("")
+print(f"   MISSION : {mission}")
+print(f"   TARGET  : {target}")
+print(f"   RUN ID  : {run_id}")
+print("")
+print(f"   Project directory : {project_dir}")
+print(f"   Data directory    : {data_dir}")
+print(f"   Input catalog     : {catalog_csv}")
+print("")
+print(f"   theano cache : {theano.config.compiledir}")
+print("")
+
+# build directory structure
+outputs_dir = os.path.join(project_dir, 'outputs')
+os.makedirs(outputs_dir, exist_ok=True)
+
+results_dir = os.path.join(outputs_dir, 'results', run_id, target)
+os.makedirs(results_dir, exist_ok=True)
+
+quicklook_dir = os.path.join(outputs_dir, 'quicklook', run_id, target)
+os.makedirs(quicklook_dir, exist_ok=True)
+
+# ######### #
+# I/O Block #
+# ######### #
+
+# load KOI catalog
+catalog = parse_koi_catalog(catalog_csv, target)
+
+assert np.all(np.diff(catalog.period) > 0), "Planets should be ordered by ascending period"
+
+NPL = int(catalog.npl[0])
+koi_id = catalog.koi_id[0]
+kic_id = int(catalog.kic_id[0])
+
+# load lightcurves
+kic_id = catalog.kic_id[0]
+
+litecurve_master_raw = LiteCurve().load_kplr_pdcsap(data_dir, kic_id, 'long cadence')
+litecurve_list_raw = litecurve_master_raw.split_quarters()
+
+for i, lc in enumerate(litecurve_list_raw):
+    lc = lc.remove_flagged_cadences(bitmask='default')
+
+litecurve_master = LiteCurve().from_list(litecurve_list_raw)
+
+t_min = litecurve_master.time.min()
+t_max = litecurve_master.time.max()
+if t_min < 0:
+    raise ValueError("Lightcurve has negative timestamps...this will cause problems")
+
+# split litecurves by quarter
+litecurves = litecurve_master.split_quarters()
+
+for j, litecurve in enumerate(litecurves):
+    assert len(np.unique(litecurve.quarter)) == 1, "expected one quarter per litecurve"
+    assert len(np.unique(litecurve.obsmode)) == 1, "expected one obsmode per litecurve"
+
+print(f"{len(litecurves)} litecurves loaded for {target}")
+
+# initialize planets
+planets = [None]*NPL
+for n in range(NPL):
+    planets[n] = Planet(catalog, target, n)
+
+print(f"{NPL} planets loaded for {target}")
+print([np.round(p.period,6) for p in planets])
+
+
+# update planet ephemerides
+for n, p in enumerate(planets):
+    if p.ephemeris is None:
+        planets[n].ephemeris = p.predict_ephemeris(t_min, t_max)
+
+# load Holczer+2016 catalog
+filepath = '/data/user/gjgilbert/projects/alderaan/Catalogs/holczer_2016_kepler_ttvs.txt'
+holczer_ephemerides = parse_holczer16_catalog(filepath, koi_id, NPL)
+
+print(f"{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
+
+# match Holczer ephemerides to Planets
+count = 0
+
+for n, p in enumerate(planets):
+    for ephem in holczer_ephemerides:
+        match = np.isclose(ephem.period, p.period, rtol=0.01, atol=p.duration)
+
+        if match:
+            print(f"Planet {n} : {p.period:.6f} --> {ephem.period:.6f}")
+            planets[n] = p.update_ephemeris(ephem)
+            count += 1
+
+print(f"{count} matching ephemerides found ({len(holczer_ephemerides)} expected)")
+
+# ############################## #
+# Ephemeris Regularization Block #
+# ############################## #
+
+print("regularizing ephemerides")
+
+# initialize OMC object for each planet
+omc_list = []
+for n, p in enumerate(planets):
+    omc_list.append(OMC(p.ephemeris))
+
+# fit a regularized model
+for n, p in enumerate(planets):
+    omc = OMC(p.ephemeris)
+    npts = np.sum(omc.quality)
+
+    _period = np.copy(p.period)
+
+    if npts >= 8:
+        trace = omc.sample(omc.matern32_model())
+        ymod = np.nanmedian(trace['pred'], 0)
+
+        regularized_ephemeris = ymod + omc._static_ephemeris
+        p.ephemeris.ttime = ymod + omc._static_ephemeris
+
+        planets[n] = p.update_ephemeris(p.ephemeris)
+
+    print(f"Planet {n} : {_period:.6f} --> {planets[n].period:.6f}")

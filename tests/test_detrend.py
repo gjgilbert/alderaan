@@ -112,7 +112,7 @@ print(mad_std(oscillation_periods, ignore_nan=True))
 
 # detrend the litecurves
 for j, detrender in enumerate(detrenders):
-    print(f"Detrending {j} of {len(detrenders)} litecurves", flush=True)
+    print(f"Detrending {j+1} of {len(detrenders)} litecurves", flush=True)
     
     # set detrender arguments based on observing mode
     obsmode = detrender.litecurve.obsmode[0]

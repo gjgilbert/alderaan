@@ -53,7 +53,9 @@ class Planet:
 
     def update_ephemeris(self, ephemeris):
         if not np.isclose(self.period, ephemeris.period, rtol=0.1):
-            raise ValueError(f"New period ({ephemeris.period:.1f}) differs from old period ({self.period:.1f}) by more than 10%")
+            raise ValueError(f"New period ({ephemeris.period:.6f}) differs from old period ({self.period:.6f}) by more than 10%")
+
+        ephemeris = ephemeris.update_period_and_epoch()
 
         self.ephemeris = ephemeris
         self.period = self.ephemeris.period

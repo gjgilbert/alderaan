@@ -39,6 +39,12 @@ class Ephemeris:
         # put epoch in range (t_min, t_min + period)
         self.epoch = self._adjust_epoch(self.t_min)
 
+        # clip vectors to range (t_min, t_max)
+        use = (self.ttime >= self.t_min) & (self.ttime <= self.t_max)
+        for k in self.__dict__.keys():
+            if type(self.__dict__[k]) is np.ndarray:
+                self.__setattr__(k, self.__dict__[k][use])
+
     
     def _adjust_epoch(self, t_min):
         """
@@ -72,6 +78,15 @@ class Ephemeris:
             index = self.index
 
         return self.epoch + self.period*index
+    
+
+    def update_period_and_epoch(self):
+        """
+        Recompute linear ephemeris to ensure consistency
+        """
+        self.period, self.epoch = self.fit_linear_ephemeris()
+
+        return self
         
 
     def full_ephemeris(self, return_index=True):
