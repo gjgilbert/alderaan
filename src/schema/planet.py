@@ -44,20 +44,11 @@ class Planet:
         return self
     
 
-    def predict_ephemeris(self, t_min, t_max):
-        ttime = np.arange(self.epoch, t_max, self.period)
-        index = np.array(np.round((ttime - self.epoch) / self.period), dtype=int)
-        
-        return Ephemeris(index, ttime, t_min=t_min, t_max=t_max)
-
-
     def update_ephemeris(self, ephemeris):
         if not np.isclose(self.period, ephemeris.period, rtol=0.1):
             raise ValueError(f"New period ({ephemeris.period:.6f}) differs from old period ({self.period:.6f}) by more than 10%")
 
-        ephemeris = ephemeris.update_period_and_epoch()
-
-        self.ephemeris = ephemeris
+        self.ephemeris = ephemeris.update_period_and_epoch()
         self.period = self.ephemeris.period
         self.epoch = self.ephemeris.epoch
 

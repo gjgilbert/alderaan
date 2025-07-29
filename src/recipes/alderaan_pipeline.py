@@ -119,11 +119,11 @@ for n in range(NPL):
 print(f"{NPL} planets loaded for {target}")
 print([np.round(p.period,6) for p in planets])
 
-
 # update planet ephemerides
 for n, p in enumerate(planets):
     if p.ephemeris is None:
-        planets[n].ephemeris = p.predict_ephemeris(t_min, t_max)
+        _ephemeris = Ephemeris(period=p.period, epoch=p.epoch, t_min=t_min, t_max=t_max)
+        planets[n] = p.update_ephemeris(_ephemeris)
 
 # load Holczer+2016 catalog
 filepath = '/data/user/gjgilbert/projects/alderaan/Catalogs/holczer_2016_kepler_ttvs.txt'
@@ -145,9 +145,9 @@ for n, p in enumerate(planets):
 
 print(f"{count} matching ephemerides found ({len(holczer_ephemerides)} expected)")
 
-# ############################## #
-# Ephemeris Regularization Block #
-# ############################## #
+# ######### #
+# OMC Block #
+# ######### #
 
 print("regularizing ephemerides")
 

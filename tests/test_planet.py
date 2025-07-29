@@ -3,6 +3,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
+from src.schema.ephemeris import Ephemeris
 from src.schema.planet import Planet
 from src.utils.io import parse_koi_catalog
 import warnings
@@ -23,8 +24,9 @@ planets = [None]*NPL
 
 for n in range(NPL):
     planets[n] = Planet(catalog, koi_id, n)
-    planets[n] = planets[n].update_ephemeris(planets[n].predict_ephemeris(t_min, t_max))
 
-    print(n, planets[n].period, planets[n].epoch)
+for n, p in enumerate(planets):
+    ephemeris = Ephemeris(period=p.period, epoch=p.epoch, t_min=t_min, t_max=t_max)
+    p = p.update_ephemeris(ephemeris)
 
 print("passing")

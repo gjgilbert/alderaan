@@ -6,8 +6,10 @@ from scipy.interpolate import CubicSpline
 
 class Ephemeris:
     def __init__(self, 
-                 index, 
-                 ttime, 
+                 period=None,
+                 epoch=None,
+                 index=None, 
+                 ttime=None, 
                  error=None,
                  quality=None,
                  t_min=None,
@@ -16,25 +18,53 @@ class Ephemeris:
         """
         Docstring
         """
-        # populate attributes
-        self.index = index
-        self.ttime = ttime
-        self.error = error
-        self.quality = quality
+        # check inputs
+        init_linear_ephem = (
+            (period is not None) & 
+            (epoch is not None) &
+            (t_min is not None) &
+            (t_max is not None)
+        )
 
-        # calculate period and epoch from linear emphemeris fit
-        self.period, self.epoch = self.fit_linear_ephemeris()
+        init_ttv_ephem = (
+            (index is not None) &
+            (ttime is not None)
+        )
 
-        # set (t_min, t_max)
-        if t_min is not None:
-            self.t_min = t_min
-        else:
-            self.t_min = self.ttime.min() - self.period / 2
+        if init_linear_ephem & init_ttv_ephem:
+            raise ValueError("must supply exactly on of (ttime, index) or (period, epoch)")
         
-        if t_max is not None:
+        # Case 1 : linear ephemeris
+        if init_linear_ephem:
+            self.period = period
+            self.epoch = epoch
+            self.t_min = t_min
             self.t_max = t_max
-        else:
-            self.t_max = self.ttime.max() + self.period / 2
+
+            self._adjust_epoch(self.t_min)
+
+            self.ttime = np.arange(self.epoch, t_max, self.period)
+            self.index = np.array(np.round((self.ttime - self.epoch) / self.period), dtype=int)
+            self.error = None
+            self.quality = None
+
+        # Case 2 : TTV ephemeris
+        elif init_ttv_ephem:
+            self.index = index
+            self.ttime = ttime
+            self.error = error
+            self.quality = quality
+
+            self.period, self.epoch = self.fit_linear_ephemeris()
+
+            if t_min is not None:
+                self.t_min = t_min
+            else:
+                self.t_min = self.ttime.min() - self.period / 2
+            if t_max is not None:
+                self.t_max = t_max
+            else:
+                self.t_max = self.ttime.max() + self.period / 2
 
         # put epoch in range (t_min, t_min + period)
         self.epoch = self._adjust_epoch(self.t_min)
@@ -45,7 +75,7 @@ class Ephemeris:
             if type(self.__dict__[k]) is np.ndarray:
                 self.__setattr__(k, self.__dict__[k][use])
 
-    
+
     def _adjust_epoch(self, t_min):
         """
         Put epoch in range (t_min, t_min + period)
@@ -97,7 +127,7 @@ class Ephemeris:
         if self.quality is not None:
             q = self.quality
         else:
-            q = np.ones(len(self.time), dtype=bool)
+            q = np.ones(len(self.ttime), dtype=bool)
 
         spline = CubicSpline(self.index[q],
                               self.ttime[q], 

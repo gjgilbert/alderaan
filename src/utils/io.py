@@ -92,6 +92,6 @@ def parse_holczer16_catalog(filepath, koi_id, num_planets):
     for n in range(num_planets):
         use = planet_id == f"{int(koi_id[1:])}.0{1+n}"
         if np.sum(use) > 0:
-            ephemerides.append(Ephemeris(index[use], ttime[use], error[use]))
+            ephemerides.append(Ephemeris(index=index[use], ttime=ttime[use], error=error[use]))
 
     return ephemerides
