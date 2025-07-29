@@ -7,10 +7,11 @@ from astropy.stats import mad_std
 from celerite2.backprop import LinAlgError
 import numpy as np
 from src.constants import *
+from src.schema.ephemeris import Ephemeris
 from src.schema.litecurve import LiteCurve
 from src.schema.planet import Planet
-from src.modules.detrend.detrend import GaussianProcessDetrender
-from src.utils.io import parse_koi_catalog, parse_holczer16_catalog
+from src.modules.detrend import GaussianProcessDetrender
+from src.utils.io import parse_koi_catalog
 import warnings
 
 warnings.simplefilter('always', UserWarning)
@@ -59,7 +60,8 @@ if t_min < 0:
 # update planet ephemerides
 for n, p in enumerate(planets):
     if p.ephemeris is None:
-        planets[n].ephemeris = p.predict_ephemeris(t_min, t_max)
+        _ephemeris = Ephemeris(period=p.period, epoch=p.epoch, t_min=t_min, t_max=t_max)
+        planets[n] = p.update_ephemeris(_ephemeris)
 
 # split litecurves by quarter
 litecurves = litecurve_master.split_quarters()

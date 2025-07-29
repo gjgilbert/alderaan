@@ -7,7 +7,7 @@ import numpy as np
 from src.utils.io import parse_koi_catalog, parse_holczer16_catalog
 from src.schema.planet import Planet
 from src.schema.ephemeris import Ephemeris
-from src.modules.omc.omc import OMC
+from src.modules.omc import OMC
 import warnings
 
 warnings.simplefilter('always', UserWarning)
