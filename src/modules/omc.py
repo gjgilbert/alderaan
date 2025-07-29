@@ -22,14 +22,16 @@ class OMC:
         # set initial O-C estimates
         self.index = ephemeris.index
         self.xtime = ephemeris.ttime
-        self.yomc = ephemeris.ttime - ephemeris.eval_linear_ephemeris()
+        self.yobs = ephemeris.ttime - ephemeris.eval_linear_ephemeris()
         self.yerr = ephemeris.error
+        self.ymod = None
 
         # flag outliers
-        self.quality = self._quick_flag_outliers()
+        self.quality = self.quick_flag_outliers()
+        self.out_prob = None
 
         # set static reference period, epoch, and linear ephemeris
-        self = self._set_static_references(ephemeris)
+        self._set_static_references(ephemeris)
 
         # set nominal peak frequency and false alarm probability
         self.peakfreq = None
@@ -37,28 +39,21 @@ class OMC:
 
 
     def _set_static_references(self, ephemeris):
-        self._static_period = ephemeris.period.copy()
-        self._static_epoch = ephemeris.epoch.copy()
-        self._static_ephemeris = ephemeris.eval_linear_ephemeris()
+        self._static_period = ephemeris._static_period.copy()
+        self._static_epoch = ephemeris._static_epoch.copy()
+        self._static_ephemeris = ephemeris._static_ephemeris.copy()
 
-        ephem_1 = self._static_epoch + self.index*self._static_period
-        ephem_2 = self._static_ephemeris
 
-        assert np.allclose(ephem_1, ephem_2, rtol=1e-10, atol=1e-10), "static reference ephemeris is not self-consistent"
-
-        return self
-    
-
-    def _quick_flag_outliers(self, sigma_cut=5.0):
-        if len(self.yomc) > 16:
-            ysmooth = uniform_filter(median_filter(self.yomc, size=5, mode='mirror'), size=5)
+    def quick_flag_outliers(self, sigma_cut=5.0):
+        if len(self.yobs) > 16:
+            ysmooth = uniform_filter(median_filter(self.yobs, size=5, mode='mirror'), size=5)
         else:
-            ysmooth = np.median(self.yomc)
+            ysmooth = np.median(self.yobs)
 
-        if len(self.yomc) > 4:
-            quality = np.abs(self.yomc - ysmooth)/mad_std(self.yomc - ysmooth) < sigma_cut
+        if len(self.yobs) > 4:
+            quality = np.abs(self.yobs - ysmooth)/mad_std(self.yobs - ysmooth) < sigma_cut
         else:
-            quality = np.zeros(len(self.yomc), dtype=bool)
+            quality = np.zeros(len(self.yobs), dtype=bool)
 
         return quality
 
@@ -102,7 +97,7 @@ class OMC:
             trend = pm.Deterministic("trend", pm.math.dot(Xt,C))
             pred = pm.Deterministic("pred", pm.math.dot(Xp,C))
 
-            pm.Normal("obs", mu=trend, sd=self.yerr[q], observed=self.yomc[q])
+            pm.Normal("obs", mu=trend, sd=self.yerr[q], observed=self.yobs[q])
 
         return model
 
@@ -149,13 +144,13 @@ class OMC:
         with pm.Model() as model:
             df = 1 / (self.xtime[q].max() - self.xtime[q].min())
             f = pm.Normal("f", mu=1 / ttv_period, sd=df)
-            Ah = pm.Normal("Ah", mu=0, sd=5 * np.std(self.yomc[q]))
-            Bk = pm.Normal("Bk", mu=0, sd=5 * np.std(self.yomc[q]))
+            Ah = pm.Normal("Ah", mu=0, sd=5 * np.std(self.yobs[q]))
+            Bk = pm.Normal("Bk", mu=0, sd=5 * np.std(self.yobs[q]))
 
             trend = pm.Deterministic("trend", _sin_fxn(Ah, Bk, f, self.xtime[q]))
             pred = pm.Deterministic("pred", _sin_fxn(Ah, Bk, f, xt_predict))
 
-            pm.Normal("obs", mu=trend, sd=self.yerr[q], observed=self.yomc[q])
+            pm.Normal("obs", mu=trend, sd=self.yerr[q], observed=self.yobs[q])
 
         return model
 
@@ -190,7 +185,7 @@ class OMC:
         dx = np.mean(np.diff(self.xtime))
 
         # maximum GP amplitude
-        ymax = np.sqrt(mad_std(self.yomc) ** 2 - np.median(self.yerr) ** 2)
+        ymax = np.sqrt(mad_std(self.yobs) ** 2 - np.median(self.yerr) ** 2)
 
         # pymc model
         with pm.Model() as model:
@@ -201,22 +196,22 @@ class OMC:
 
             rho = pm.Uniform("rho", lower=2 * dx, upper=self.xtime[q].max() - self.xtime[q].min())
             kernel = GPterms.Matern32Term(sigma=T.exp(log_sigma), rho=rho)
-            mean = pm.Normal("mean", mu=np.mean(self.yomc[q]), sd=np.std(self.yomc[q]))
+            mean = pm.Normal("mean", mu=np.mean(self.yobs[q]), sd=np.std(self.yobs[q]))
             
             # define the GP and factorize the covariance matrix
             gp = GaussianProcess(kernel, t=self.xtime[q], yerr=self.yerr[q], mean=mean)
             gp.compute(self.xtime[q], yerr=self.yerr[q])
 
             # track GP prediction, covariance, and degrees of freedom
-            trend, cov = gp.predict(self.yomc[q], self.xtime[q], return_cov=True)
+            trend, cov = gp.predict(self.yobs[q], self.xtime[q], return_cov=True)
 
             trend = pm.Deterministic("trend", trend)
             cov = pm.Deterministic("cov", cov)
-            pred = pm.Deterministic("pred", gp.predict(self.yomc[q], xt_predict))
+            pred = pm.Deterministic("pred", gp.predict(self.yobs[q], xt_predict))
             dof = pm.Deterministic("dof", pm.math.trace(cov / self.yerr[q]**2))
 
             # add marginal likelihood to model
-            lnlike = gp.log_likelihood(self.yomc[q])
+            lnlike = gp.log_likelihood(self.yobs[q])
             pm.Potential("lnlike", lnlike)
 
         return model
@@ -259,7 +254,7 @@ class OMC:
 
         if npts > 8:
             try:
-                xf, yf, freqs, faps = LS_estimator(self.xtime[q], self.yomc[q], fap=critical_fap)
+                xf, yf, freqs, faps = LS_estimator(self.xtime[q], self.yobs[q], fap=critical_fap)
 
                 if len(freqs) > 0:
                     if freqs[0] > xf.min():
@@ -292,7 +287,7 @@ class OMC:
 
         for k in traces.keys():
             trend = np.nanmedian(traces[k]['trend'], 0)
-            lnlike = -np.sum((self.yomc[q] - trend)**2 / self.yerr[q]**2)
+            lnlike = -np.sum((self.yobs[q] - trend)**2 / self.yerr[q]**2)
 
             aic[k] = 2 * dofs[k] - 2 * lnlike
             bic[k] = dofs[k] * np.log(npts) - 2 * lnlike
@@ -327,10 +322,10 @@ class OMC:
     def calculate_outlier_probability(self, ymod):
         """
         Arguments:
-            ymod (ndarray) : regularized model for self.yomc
+            ymod (ndarray) : regularized model for self.yobs
         """
         # normalize and center residuals
-        res = self.yomc - ymod
+        res = self.yobs - ymod
         res = res / np.std(res)
         res -= np.mean(res)
 

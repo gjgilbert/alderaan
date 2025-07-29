@@ -2,6 +2,7 @@ __all__ = ['Ephemeris']
 
 import numpy as np
 from scipy.interpolate import CubicSpline
+import warnings
 
 
 class Ephemeris:
@@ -66,14 +67,17 @@ class Ephemeris:
             else:
                 self.t_max = self.ttime.max() + self.period / 2
 
-        # put epoch in range (t_min, t_min + period)
-        self.epoch = self._adjust_epoch(self.t_min)
-
         # clip vectors to range (t_min, t_max)
         use = (self.ttime >= self.t_min) & (self.ttime <= self.t_max)
         for k in self.__dict__.keys():
             if type(self.__dict__[k]) is np.ndarray:
                 self.__setattr__(k, self.__dict__[k][use])
+
+        # put epoch in range (t_min, t_min + period)
+        self._adjust_epoch(self.t_min)
+
+        # set static period, epoch, and ephemeris
+        self._set_static_references()
 
 
     def _adjust_epoch(self, t_min):
@@ -86,10 +90,19 @@ class Ephemeris:
         if self.epoch > (t_min + self.period):
             adj = (self.epoch - t_min) // self.period
             self.epoch -= adj * self.period
+    
+    
+    def _set_static_references(self):
+        assert not hasattr(self, '_static_period'), "attribute '_static_period' already exists"
+        self._static_period = np.copy(self.period)
 
-        return self.epoch
-    
-    
+        assert not hasattr(self, '_static_epoch'), "attribute '_static_epoch' already exists"
+        self._static_epoch = np.copy(self.epoch)
+
+        assert not hasattr(self, '_static_ephemeris'), "attribute '_static_ephemeris' already exists"
+        self._static_ephemeris = np.copy(self.eval_linear_ephemeris())
+
+
     def fit_linear_ephemeris(self):
         """
         Fit a linear ephmeris using unweighted least squares
@@ -142,3 +155,21 @@ class Ephemeris:
         if return_index:
             return full_index, full_ttime
         return full_ttime
+    
+    
+    def update_from_omc(self, omc):
+        assert np.all(np.isclose(self._static_period, omc._static_period, rtol=1e-12)), "static periods do not match"
+        assert np.all(np.isclose(self._static_epoch, omc._static_epoch, rtol=1e-12)), "static epochs do not match"
+        assert np.all(np.isclose(self._static_ephemeris, omc._static_ephemeris, rtol=1e-12)), "static ephemerides do not match"
+
+        if len(self.ttime) != len(omc.xtime):
+            warnings.warn(f"updated ephemeris has {len(omc.xtime)} transit times (was {len(self.ttimes)})")
+        
+        self.index = omc.index.copy()
+        self.ttime = omc._static_ephemeris + omc.ymod
+        self.error = omc.yerr.copy()
+        self.quality = omc.quality.copy()
+
+        self.period, self.epoch = self.fit_linear_ephemeris()
+
+        return self

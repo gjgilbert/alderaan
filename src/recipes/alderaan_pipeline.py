@@ -13,8 +13,9 @@ from src.constants import *
 from src.schema.ephemeris import Ephemeris
 from src.schema.litecurve import LiteCurve
 from src.schema.planet import Planet
-from src.modules.detrend.detrend import GaussianProcessDetrender
-from src.modules.omc.omc import OMC
+from src.modules.detrend import GaussianProcessDetrender
+from src.modules.omc import OMC
+from src.modules.quicklook import plot_omc
 from src.utils.io import parse_koi_catalog, parse_holczer16_catalog
 from timeit import default_timer as timer
 import warnings
@@ -47,8 +48,8 @@ mission = 'Kepler'
 target = 'K00148'
 run_id = 'develop'
 
-project_dir = '/data/user/gjgilbert/projects/alderaan/'
-data_dir = '/data/user/gjgilbert/data/MAST_downloads/'
+project_dir = '/Users/research/projects/alderaan/'
+data_dir = '/Users/research/data/MAST_downloads/'
 catalog_csv = os.path.join(project_dir, 'Catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
 
 print("")
@@ -126,7 +127,7 @@ for n, p in enumerate(planets):
         planets[n] = p.update_ephemeris(_ephemeris)
 
 # load Holczer+2016 catalog
-filepath = '/data/user/gjgilbert/projects/alderaan/Catalogs/holczer_2016_kepler_ttvs.txt'
+filepath = os.path.join(project_dir, 'Catalogs/holczer_2016_kepler_ttvs.txt')
 holczer_ephemerides = parse_holczer16_catalog(filepath, koi_id, NPL)
 
 print(f"{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
@@ -145,6 +146,7 @@ for n, p in enumerate(planets):
 
 print(f"{count} matching ephemerides found ({len(holczer_ephemerides)} expected)")
 
+
 # ######### #
 # OMC Block #
 # ######### #
@@ -158,18 +160,29 @@ for n, p in enumerate(planets):
 
 # fit a regularized model
 for n, p in enumerate(planets):
-    omc = OMC(p.ephemeris)
+    omc = omc_list[n]
     npts = np.sum(omc.quality)
 
     _period = np.copy(p.period)
 
-    if npts >= 8:
+    # Matern-3/2 model | don't use GP on very noisy data
+    if (npts >= 8) & (np.median(omc.yerr) <= 0.5 * mad_std(omc.yobs)):
         trace = omc.sample(omc.matern32_model())
-        ymod = np.nanmedian(trace['pred'], 0)
 
-        regularized_ephemeris = ymod + omc._static_ephemeris
-        p.ephemeris.ttime = ymod + omc._static_ephemeris
+    # Polynomial model | require 2^N transits
+    else:
+        polyorder = np.max([1, np.min([3, int(np.log2(npts))-1])])
+        trace = omc.sample(omc.poly_model(polyorder))
 
-        planets[n] = p.update_ephemeris(p.ephemeris)
+    # update ephemeris
+    omc.ymod = np.nanmedian(trace['pred'], 0)
+    omc_list[n] = omc
+
+    p.ephemeris = p.ephemeris.update_from_omc(omc)
+    planets[n] = p.update_ephemeris(p.ephemeris)
+
+    # make quicklook plot
+    filepath = os.path.join(quicklook_dir, f"{target}_omc_initial.png")
+    plot_omc(omc_list, target, filepath)
 
     print(f"Planet {n} : {_period:.6f} --> {planets[n].period:.6f}")

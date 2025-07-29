@@ -15,7 +15,7 @@ warnings.simplefilter('always', UserWarning)
 koi_id = 'K00148'
 
 # load KOI catalog
-filepath = '/data/user/gjgilbert/projects/alderaan/Catalogs/kepler_dr25_gaia_dr2_crossmatch.csv'
+filepath = '/Users/research/projects/alderaan/Catalogs/kepler_dr25_gaia_dr2_crossmatch.csv'
 catalog = parse_koi_catalog(filepath, koi_id)
 
 assert np.all(np.diff(catalog.period) > 0), "Planets should be ordered by ascending period"
@@ -30,7 +30,7 @@ for i in range(NPL):
     print(i, planets[i].period)
 
 # load Holczer+2016 catalog
-filepath = '/data/user/gjgilbert/projects/alderaan/Catalogs/holczer_2016_kepler_ttvs.txt'
+filepath = '/Users/research/projects/alderaan/Catalogs/holczer_2016_kepler_ttvs.txt'
 holczer_ephemerides = parse_holczer16_catalog(filepath, koi_id, NPL)
 
 print(f"{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
@@ -109,7 +109,7 @@ for n, p in enumerate(planets):
 for n, p in enumerate(planets):
     print(f"\nPlanet {n}: P = {p.period:.1f}")
 
-    omc = OMC(p.ephemeris)
+    omc = omc_list[n]
     npts = np.sum(omc.quality)
 
     trace = {}
@@ -127,7 +127,7 @@ for n, p in enumerate(planets):
         dof['sinusoid'] = 3
 
     # Matern-3/2 model | don't use GP on very noisy data
-    if (npts >= 8) & (np.median(omc.yerr) <= 0.5 * mad_std(omc.yomc)):
+    if (npts >= 8) & (np.median(omc.yerr) <= 0.5 * mad_std(omc.yobs)):
         trace['matern32'] = omc.sample(omc.matern32_model())
         dof['matern32'] = np.nanmedian(trace['matern32']["dof"])
 
@@ -138,17 +138,20 @@ for n, p in enumerate(planets):
 
     # calculate outlier probability using a gaussian mixture model
     ymod = np.nanmedian(trace[best_model]['pred'], 0)
-    fg_prob, out = omc.calculate_outlier_probability(ymod)
+    out_prob, out = omc.calculate_outlier_probability(ymod)
 
     print(f"{np.sum(out)} outliers found out of {len(out)} transit times ({np.sum(out)/len(out)*100:.1f}%)")
     print(f"measured error: {(np.median(omc.yerr[~out])*24*60):.1f} min")
-    print(f"residual RMS: {(mad_std(omc.yerr[~out] - ymod[~out])*24*60):.1f}")
+    print(f"residual RMS: {(mad_std(omc.yobs[~out] - ymod[~out])*24*60):.1f}")
+
+    # update OMC
+    omc.ymod = ymod
+    omc.quality = ~out
+    omc.out_prob = out_prob
+    omc_list[n] = omc
 
     # update Ephemeris
-    p.ephemeris.model = ymod
-    p.ephemeris.quality = ~out
-    p.ephemeris.fg_prob = fg_prob
-
+    p.ephemeris = p.ephemeris.update_from_omc(omc)
     planets[n] = p.update_ephemeris(p.ephemeris)
 
 print("passing")
