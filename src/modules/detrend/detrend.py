@@ -10,7 +10,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import aesara_theano_fallback.tensor as T
 from astropy.stats import sigma_clip, mad_std
 from astropy.timeseries import LombScargle
-from celerite2.backprop import LinAlgError
 from celerite2.theano import GaussianProcess
 from celerite2.theano import terms as GPterms
 import numpy as np
@@ -237,7 +236,7 @@ class GaussianProcessDetrender(SimpleDetrender):
         return peak_per
     
 
-    def flatten(self,
+    def detrend(self,
                 gp_term,
                 nominal_gp_period,
                 minimum_gp_period,
@@ -297,7 +296,7 @@ class GaussianProcessDetrender(SimpleDetrender):
                 mean += (
                     flux0[i]
                     * (1 + ramp_amp[i] * T.exp(-(time - t_min) / T.exp(log_tau[i])))
-                    * (sig_id == i)
+                    * (seg_id == i)
                 )
 
             return mean
@@ -341,12 +340,15 @@ class GaussianProcessDetrender(SimpleDetrender):
             mean_all = pm.Deterministic("mean_all", _mean_fxn(lc.time, seg_id, flux0, ramp_amp, log_tau))
             log_var = pm.Normal("log_var", mu=np.var(lc.flux - median_filter(lc.flux, 13)), sd=5.0)
 
-            gp = GaussianProcess(kernel, 
-                                 t=lc.time[oot]
-                                 diag=T.exp(log_var)*T.ones(np.sum(oot))
-                                 mean=mean_oot
-                                )
-            gp.marginal("gp", observed=lc.flux[oot])
+            gp = GaussianProcess(kernel, mean=mean_oot)
+            gp.compute(lc.time[oot], diag=T.exp(log_var)*T.ones(len(lc.time[oot])))
+            
+            # likelihood
+            pm.Potential("lnlike", gp.log_likelihood(lc.flux[oot]))
+
+            # predicted trend; if len(y)!=len(t) set include_mean=False
+            pred = gp.predict(lc.flux[oot], t=lc.time, include_mean=False)
+            pm.Deterministic("pred", pred + mean_all)
 
         # optimize hyperparameters
         with model:
@@ -373,18 +375,13 @@ class GaussianProcessDetrender(SimpleDetrender):
                         progress=progressbar,
                     )
 
+        self.litecurve.flux /= map_soln['pred']
+        self.litecurve.error /= map_soln['pred']
 
+        if return_trend:
+            return self.litecurve, map_soln['pred']
+        return self.litecurve
 
-
-
-
-
-        
-
-
-
-
-    
 
 class AutoCorrelationDetrender(SimpleDetrender):
     def __init__(self, *args, **kwargs):

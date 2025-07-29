@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 import astropy
 from astropy.stats import mad_std
+from celerite2.backprop import LinAlgError
 import numpy as np
 from src.constants import *
 from src.schema.litecurve import LiteCurve
@@ -77,7 +78,6 @@ print(f"{len(litecurves)} litecurves loaded")
 # initialize detrenders
 detrenders = []
 for j, litecurve in enumerate(litecurves):
-    print(f"Quarter {litecurve.quarter[0]}")
     detrenders.append(GaussianProcessDetrender(litecurve, planets))
 
 # clip outliers
@@ -91,7 +91,7 @@ for j, detrender in enumerate(detrenders):
     
     npts_final = len(detrender.litecurve.time)
 
-    print(f"  {npts_initial-npts_final} outliers rejected")
+    print(f"Quarter {litecurve.quarter[0]} : {npts_initial-npts_final} outliers rejected")
 
 # estimate oscillation periods
 oscillation_periods = np.zeros(len(detrenders))
@@ -110,11 +110,72 @@ for j, detrender in enumerate(detrenders):
 print(np.nanmedian(oscillation_periods))
 print(mad_std(oscillation_periods, ignore_nan=True))
 
-
+# detrend the litecurves
 for j, detrender in enumerate(detrenders):
-    mask = detrender.make_transit_mask(rel_size=3.0, abs_size=2/24, mask_type='condensed')
-    break_locs = detrender._identify_breaks(gap_tolerance=13, jump_tolerance=5, mask=mask)
+    print(f"Detrending {j} of {len(detrenders)} litecurves", flush=True)
+    
+    # set detrender arguments based on observing mode
+    obsmode = detrender.litecurve.obsmode[0]
 
-    print(break_locs)
+    if obsmode == 'short cadence':
+        min_period = np.max([5 * np.max(detrender.durs), 91 * kepler_scit])
+        gap_tolerance = np.max([int(np.min(detrender.durs) / kepler_scit * 5 / 2), 91])
+        jump_tolerance = 5.0
+    elif obsmode == 'long cadence':
+        min_period = np.max([5 * np.max(detrender.durs), 13 * kepler_lcit])
+        gap_tolerance = np.max([int(np.min(detrender.durs) / kepler_lcit * 5 / 2), 13])
+        jump_tolerance = 5.0
+    else:
+        raise ValueError(f"unsuported obsmode: {obsmode}")
+    
+    # make transit mask
+    mask = detrender.make_transit_mask(rel_size=3.0, abs_size=2/24, mask_type='condensed')
+    
+    # call detrender.detrend(), using successively simpler models as fallbacks
+
+    try:
+        litecurves[j] = detrender.detrend(
+            'RotationTerm',
+            np.nanmedian(oscillation_periods),
+            min_period,
+            transit_mask=mask,
+            gap_tolerance=gap_tolerance,
+            jump_tolerance=jump_tolerance,
+            correct_ramp=True,
+            return_trend=False, 
+            progressbar=False
+        )
+    except LinAlgError:
+        warnings.warn(
+            "Initial detrending failed...attempting to refit without exponential ramp component"
+        )
+
+        try:
+            litecurves[j] = detrender.detrend(
+                'RotationTerm',
+                np.nanmedian(oscillation_periods),
+                min_period,
+                transit_mask=mask,
+                gap_tolerance=gap_tolerance,
+                jump_tolerance=jump_tolerance,
+                correct_ramp=False,
+                return_trend=False, 
+                progressbar=False
+            )
+        except LinAlgError:
+            warnings.warn(
+                "Detrending with RotationTerm failed...attempting to detrend with SHOTerm"
+            )
+            litecurves[j] = detrender.detrend(
+                'SHOTerm',
+                np.nanmedian(oscillation_periods),
+                min_period,
+                transit_mask=mask,
+                gap_tolerance=gap_tolerance,
+                jump_tolerance=jump_tolerance,
+                correct_ramp=False,
+                return_trend=False, 
+                progressbar=False
+            )
 
 print("passing")

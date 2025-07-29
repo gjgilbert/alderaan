@@ -21,7 +21,11 @@ class LiteCurve:
         """
         Load photometric data from Kepler Project PDCSAP Flux lightcurves
         The raw fits files must be pre-downloaded from MAST servers and stored locally
-
+        
+        This function performs minimal detrending steps
+         * remove_nans()
+         * normalize()
+                
         Arguments:
             data_dir (str) : path to where data are stored
             kic_id (int) : Kepler Input Catalog (KIC) identification number
@@ -66,6 +70,7 @@ class LiteCurve:
             order = np.argsort(cadno)
             lkc_list = [lkc_list[j] for j in order]
 
+            # lk.stitch() also normalizes the lightkurves
             lkc = lk.LightCurveCollection(lkc_list).stitch().remove_nans()
             
             lkc.quarter = lkc.quarter*np.ones(len(lkc.time), dtype='int')

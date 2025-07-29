@@ -10,9 +10,6 @@ from src.schema.ephemeris import Ephemeris
 from src.modules.omc.omc import OMC
 import warnings
 
-import pymc3 as pm
-import pymc3_ext as pmx
-
 warnings.simplefilter('always', UserWarning)
 
 koi_id = 'K00148'
