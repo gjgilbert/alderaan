@@ -7,6 +7,8 @@ import astropy
 from astropy.stats import mad_std
 from celerite2.backprop import LinAlgError
 from datetime import datetime
+import gc
+import matplotlib.pyplot as plt
 import numpy as np
 import shutil
 from src.constants import *
@@ -26,6 +28,7 @@ import warnings
 
 # flush buffer
 sys.stdout.flush()
+sys.stderr.flush()
 
 # filter warnings
 warnings.simplefilter('always', UserWarning)
@@ -78,7 +81,7 @@ os.makedirs(quicklook_dir, exist_ok=True)
 # I/O Block #
 # ######### #
 
-print('\n\nI/O BLOCK\n\n')
+print('\n\nI/O BLOCK\n')
 
 # load KOI catalog
 catalog = parse_koi_catalog(catalog_csv, target)
@@ -123,7 +126,7 @@ with warnings.catch_warnings(record=True) as catch:
     for n in range(NPL):
         planets[n] = Planet(catalog, target, n)
 
-print(f"{NPL} planets loaded for {target}")
+print(f"\n{NPL} planets loaded for {target}")
 print([np.round(p.period,6) for p in planets])
 
 # update planet ephemerides
@@ -136,7 +139,7 @@ for n, p in enumerate(planets):
 filepath = os.path.join(project_dir, 'Catalogs/holczer_2016_kepler_ttvs.txt')
 holczer_ephemerides = parse_holczer16_catalog(filepath, koi_id, NPL)
 
-print(f"{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
+print(f"\n{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
 
 # match Holczer ephemerides to Planets
 count = 0
@@ -146,24 +149,30 @@ for n, p in enumerate(planets):
         match = np.isclose(ephem.period, p.period, rtol=0.01, atol=p.duration)
 
         if match:
-            print(f"Planet {n} : {p.period:.6f} --> {ephem.period:.6f}")
+            print(f"  Planet {n} : {p.period:.6f} --> {ephem.period:.6f}")
             planets[n] = p.update_ephemeris(ephem)
             count += 1
 
 print(f"{count} matching ephemerides found ({len(holczer_ephemerides)} expected)")
-print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
 
 # quicklook litecurve
 filepath = os.path.join(quicklook_dir, f"{target}_litecurve_raw.png")
-_ = plot_litecurve(litecurve_master, target, filepath, planets)
+_ = plot_litecurve(litecurve_master, target, planets, filepath)
+
+# end-of-block cleanup
+sys.stdout.flush()
+sys.stderr.flush()
+plt.close('all')
+gc.collect()
+
+print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
 
 
 # ######### #
 # OMC Block #
 # ######### #
 
-print('\n\nOMC BLOCK\n\n')
-
+print('\n\nOMC BLOCK (initialization)\n')
 print("regularizing ephemerides")
 
 # initialize OMC object for each planet
@@ -207,6 +216,12 @@ for n, p in enumerate(planets):
 
     print(f"Planet {n} : {_period:.6f} --> {planets[n].period:.6f}")
 
+# end-of-block cleanup
+sys.stdout.flush()
+sys.stderr.flush()
+plt.close('all')
+gc.collect()
+
 print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
 
 
@@ -214,6 +229,7 @@ print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
 # DETRENDING BLOCK #
 # ################ #
 
+print('\n\nDETRENDING BLOCK (1st pass)\n')
 
 # initialize detrenders
 detrenders = []
@@ -231,7 +247,7 @@ for j, detrender in enumerate(detrenders):
     
     npts_final = len(detrender.litecurve.time)
 
-    print(f"Quarter {detrender.litecurve.quarter[0]} : {npts_initial-npts_final} outliers rejected")
+    print(f"  Quarter {detrender.litecurve.quarter[0]} : {npts_initial-npts_final} outliers rejected")
 
 # estimate oscillation periods
 oscillation_periods = np.zeros(len(detrenders))
@@ -247,12 +263,14 @@ for j, detrender in enumerate(detrenders):
 
     oscillation_periods[j] = detrender.estimate_oscillation_period(min_period=min_period)
 
-print(np.nanmedian(oscillation_periods))
-print(mad_std(oscillation_periods, ignore_nan=True))
+_osc_per_mu = np.nanmedian(oscillation_periods)
+_osc_per_sd = mad_std(oscillation_periods, ignore_nan=True)
+
+print(f"\nNominal stellar oscillation period = {_osc_per_mu:.1f} +/- {_osc_per_sd:.1f} days")
 
 # detrend the litecurves
 for j, detrender in enumerate(detrenders):
-    print(f"Detrending {j+1} of {len(detrenders)} litecurves", flush=True)
+    print(f"\nDetrending {j+1} of {len(detrenders)} litecurves", flush=True)
     
     # set detrender arguments based on observing mode
     obsmode = detrender.litecurve.obsmode[0]
@@ -269,16 +287,15 @@ for j, detrender in enumerate(detrenders):
         raise ValueError(f"unsuported obsmode: {obsmode}")
     
     # make transit mask
-    mask = detrender.make_transit_mask(rel_size=3.0, abs_size=2/24, mask_type='condensed')
+    transit_mask = detrender.make_transit_mask(rel_size=3.0, abs_size=2/24, mask_type='condensed')
     
     # call detrender.detrend(), using successively simpler models as fallbacks
-
     try:
         litecurves[j] = detrender.detrend(
             'RotationTerm',
             np.nanmedian(oscillation_periods),
             min_period,
-            transit_mask=mask,
+            transit_mask=transit_mask,
             gap_tolerance=gap_tolerance,
             jump_tolerance=jump_tolerance,
             correct_ramp=True,
@@ -295,7 +312,7 @@ for j, detrender in enumerate(detrenders):
                 'RotationTerm',
                 np.nanmedian(oscillation_periods),
                 min_period,
-                transit_mask=mask,
+                transit_mask=transit_mask,
                 gap_tolerance=gap_tolerance,
                 jump_tolerance=jump_tolerance,
                 correct_ramp=False,
@@ -310,7 +327,7 @@ for j, detrender in enumerate(detrenders):
                 'SHOTerm',
                 np.nanmedian(oscillation_periods),
                 min_period,
-                transit_mask=mask,
+                transit_mask=transit_mask,
                 gap_tolerance=gap_tolerance,
                 jump_tolerance=jump_tolerance,
                 correct_ramp=False,
@@ -318,3 +335,14 @@ for j, detrender in enumerate(detrenders):
                 progressbar=False
             )
 
+# quicklook litecurve
+filepath = os.path.join(quicklook_dir, f"{target}_litecurve_detrended.png")
+_ = plot_litecurve(LiteCurve().from_list(litecurves), target, planets, filepath)
+
+# end-of-block cleanup
+sys.stdout.flush()
+sys.stderr.flush()
+plt.close('all')
+gc.collect()
+
+print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")

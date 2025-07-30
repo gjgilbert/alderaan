@@ -8,7 +8,7 @@ from src.schema.ephemeris import Ephemeris
 from src.modules.omc import OMC
 
 
-def plot_omc(data, target, filepath):
+def plot_omc(data, target, filepath=None, interactive=False):
     """
     Plot observed-minus-calculated
     Input can be an alderaan Ephmeris or OMC object or a list of these
@@ -94,12 +94,16 @@ def plot_omc(data, target, filepath):
     ax[n].set_xlabel("Time [BJKD]", fontsize=20)
 
     plt.tight_layout()
-    plt.savefig(filepath)
 
-    return fig, ax
+    if filepath is not None:
+        plt.savefig(filepath)
+    if not interactive:
+        plt.close(fig)
+    
+    return fig
 
 
-def plot_litecurve(litecurve, target, filepath, planets=None):
+def plot_litecurve(litecurve, target, planets=None, filepath=None, interactive=False):
     # shorthand
     lc = litecurve
 
@@ -114,19 +118,29 @@ def plot_litecurve(litecurve, target, filepath, planets=None):
     ax.set_ylabel("Flux", fontsize=24)
     ax.set_xlim(lc.time.min(), lc.time.max())
 
-    yrange = 1.1*np.max([np.abs(1-lc.flux.min()),np.abs(1-lc.flux.max())])
+    yrange = 1.3*np.max([
+        np.abs(1-np.percentile(lc.flux, 0.1)),
+        np.abs(1-np.percentile(lc.flux, 99.9))
+    ])
     ax.set_ylim(1-yrange, 1+yrange)
 
     if planets is not None:
+        ymin = 1 - yrange*(1.3 + 0.1*len(planets))
+        ymax = 1 + yrange 
+        ax.set_ylim(ymin, ymax)
         for n, p in enumerate(planets):
             ax.plot(
                 p.ephemeris.ttime, 
-                np.ones_like(p.ephemeris.ttime) - (0.9-0.1*n)*yrange, 
+                np.ones_like(p.ephemeris.ttime) - (0.9-0.1*n)*(1-ymin), 
                 '^',
                 c=f'C{n}'
             )
 
     plt.tight_layout()
-    plt.savefig(filepath)
 
+    if filepath is not None:
+        plt.savefig(filepath)
+    if not interactive:
+        plt.close(fig)
+    
     return fig, ax
