@@ -208,3 +208,113 @@ for n, p in enumerate(planets):
     print(f"Planet {n} : {_period:.6f} --> {planets[n].period:.6f}")
 
 print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
+
+
+# ################ #
+# DETRENDING BLOCK #
+# ################ #
+
+
+# initialize detrenders
+detrenders = []
+for j, litecurve in enumerate(litecurves):
+    detrenders.append(GaussianProcessDetrender(litecurve, planets))
+
+# clip outliers
+for j, detrender in enumerate(detrenders):    
+    mask = detrender.make_transit_mask(rel_size=3.0, abs_size=2/24, mask_type='condensed')
+    
+    npts_initial = len(detrender.litecurve.time)
+
+    detrender.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=5, mask=mask)
+    detrender.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=1000, mask=None)
+    
+    npts_final = len(detrender.litecurve.time)
+
+    print(f"Quarter {detrender.litecurve.quarter[0]} : {npts_initial-npts_final} outliers rejected")
+
+# estimate oscillation periods
+oscillation_periods = np.zeros(len(detrenders))
+for j, detrender in enumerate(detrenders):
+    obsmode = detrender.litecurve.obsmode[0]
+
+    if obsmode == 'short cadence':
+        min_period = np.max([5 * np.max(detrender.durs), 91 * kepler_scit])
+    elif obsmode == 'long cadence':
+        min_period = np.max([5 * np.max(detrender.durs), 13 * kepler_lcit])
+    else:
+        raise ValueError(f"unsuported obsmode: {obsmode}")
+
+    oscillation_periods[j] = detrender.estimate_oscillation_period(min_period=min_period)
+
+print(np.nanmedian(oscillation_periods))
+print(mad_std(oscillation_periods, ignore_nan=True))
+
+# detrend the litecurves
+for j, detrender in enumerate(detrenders):
+    print(f"Detrending {j+1} of {len(detrenders)} litecurves", flush=True)
+    
+    # set detrender arguments based on observing mode
+    obsmode = detrender.litecurve.obsmode[0]
+
+    if obsmode == 'short cadence':
+        min_period = np.max([5 * np.max(detrender.durs), 91 * kepler_scit])
+        gap_tolerance = np.max([int(np.min(detrender.durs) / kepler_scit * 5 / 2), 91])
+        jump_tolerance = 5.0
+    elif obsmode == 'long cadence':
+        min_period = np.max([5 * np.max(detrender.durs), 13 * kepler_lcit])
+        gap_tolerance = np.max([int(np.min(detrender.durs) / kepler_lcit * 5 / 2), 13])
+        jump_tolerance = 5.0
+    else:
+        raise ValueError(f"unsuported obsmode: {obsmode}")
+    
+    # make transit mask
+    mask = detrender.make_transit_mask(rel_size=3.0, abs_size=2/24, mask_type='condensed')
+    
+    # call detrender.detrend(), using successively simpler models as fallbacks
+
+    try:
+        litecurves[j] = detrender.detrend(
+            'RotationTerm',
+            np.nanmedian(oscillation_periods),
+            min_period,
+            transit_mask=mask,
+            gap_tolerance=gap_tolerance,
+            jump_tolerance=jump_tolerance,
+            correct_ramp=True,
+            return_trend=False, 
+            progressbar=False
+        )
+    except LinAlgError:
+        warnings.warn(
+            "Initial detrending failed...attempting to refit without exponential ramp component"
+        )
+
+        try:
+            litecurves[j] = detrender.detrend(
+                'RotationTerm',
+                np.nanmedian(oscillation_periods),
+                min_period,
+                transit_mask=mask,
+                gap_tolerance=gap_tolerance,
+                jump_tolerance=jump_tolerance,
+                correct_ramp=False,
+                return_trend=False, 
+                progressbar=False
+            )
+        except LinAlgError:
+            warnings.warn(
+                "Detrending with RotationTerm failed...attempting to detrend with SHOTerm"
+            )
+            litecurves[j] = detrender.detrend(
+                'SHOTerm',
+                np.nanmedian(oscillation_periods),
+                min_period,
+                transit_mask=mask,
+                gap_tolerance=gap_tolerance,
+                jump_tolerance=jump_tolerance,
+                correct_ramp=False,
+                return_trend=False, 
+                progressbar=False
+            )
+
