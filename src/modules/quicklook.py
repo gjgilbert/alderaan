@@ -3,6 +3,7 @@ __all__ = ['plot_omc']
 from astropy.stats import mad_std
 import matplotlib.pyplot as plt
 import numpy as np
+from src.schema.planet import Planet
 from src.schema.ephemeris import Ephemeris
 from src.modules.omc import OMC
 
@@ -84,9 +85,46 @@ def plot_omc(data, target, filepath):
 
         ax[n].tick_params(labelsize=12)
         ax[n].set_ylabel("O-C [min]", fontsize=20)
+        
+        yrange = 24*60*np.max([np.abs(omc.yobs.min()),np.abs(omc.yobs.max())])
+        yrange = np.max([5, 1.1*yrange])
+        ax[n].set_ylim(-yrange, +yrange)
 
     ax[0].set_title(f"{target}", fontsize=20)
     ax[n].set_xlabel("Time [BJKD]", fontsize=20)
+
+    plt.tight_layout()
+    plt.savefig(filepath)
+
+    return fig, ax
+
+
+def plot_litecurve(litecurve, target, filepath, planets=None):
+    # shorthand
+    lc = litecurve
+
+    if planets is not None:
+        if isinstance(planets, Planet):
+            planets = [planets]
+    
+    fig, ax = plt.subplots(1,1, figsize=(20,4))
+    ax.plot(lc.time, lc.flux, 'k.', ms=0.5)
+    ax.tick_params(labelsize=12)
+    ax.set_xlabel("Time [BJKD]", fontsize=24)
+    ax.set_ylabel("Flux", fontsize=24)
+    ax.set_xlim(lc.time.min(), lc.time.max())
+
+    yrange = 1.1*np.max([np.abs(1-lc.flux.min()),np.abs(1-lc.flux.max())])
+    ax.set_ylim(1-yrange, 1+yrange)
+
+    if planets is not None:
+        for n, p in enumerate(planets):
+            ax.plot(
+                p.ephemeris.ttime, 
+                np.ones_like(p.ephemeris.ttime) - (0.9-0.1*n)*yrange, 
+                '^',
+                c=f'C{n}'
+            )
 
     plt.tight_layout()
     plt.savefig(filepath)

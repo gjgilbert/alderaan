@@ -15,7 +15,7 @@ from src.schema.litecurve import LiteCurve
 from src.schema.planet import Planet
 from src.modules.detrend import GaussianProcessDetrender
 from src.modules.omc import OMC
-from src.modules.quicklook import plot_omc
+from src.modules.quicklook import plot_litecurve, plot_omc
 from src.utils.io import parse_koi_catalog, parse_holczer16_catalog
 from timeit import default_timer as timer
 import warnings
@@ -78,6 +78,8 @@ os.makedirs(quicklook_dir, exist_ok=True)
 # I/O Block #
 # ######### #
 
+print('\n\nI/O BLOCK\n\n')
+
 # load KOI catalog
 catalog = parse_koi_catalog(catalog_csv, target)
 
@@ -103,6 +105,7 @@ t_max = litecurve_master.time.max()
 if t_min < 0:
     raise ValueError("Lightcurve has negative timestamps...this will cause problems")
 
+
 # split litecurves by quarter
 litecurves = litecurve_master.split_quarters()
 
@@ -112,10 +115,13 @@ for j, litecurve in enumerate(litecurves):
 
 print(f"{len(litecurves)} litecurves loaded for {target}")
 
-# initialize planets
-planets = [None]*NPL
-for n in range(NPL):
-    planets[n] = Planet(catalog, target, n)
+# initialize planets (catch no ephemeris warning)
+with warnings.catch_warnings(record=True) as catch:
+    warnings.simplefilter('always', category=UserWarning)
+
+    planets = [None]*NPL
+    for n in range(NPL):
+        planets[n] = Planet(catalog, target, n)
 
 print(f"{NPL} planets loaded for {target}")
 print([np.round(p.period,6) for p in planets])
@@ -145,11 +151,18 @@ for n, p in enumerate(planets):
             count += 1
 
 print(f"{count} matching ephemerides found ({len(holczer_ephemerides)} expected)")
+print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
+
+# quicklook litecurve
+filepath = os.path.join(quicklook_dir, f"{target}_litecurve_raw.png")
+_ = plot_litecurve(litecurve_master, target, filepath, planets)
 
 
 # ######### #
 # OMC Block #
 # ######### #
+
+print('\n\nOMC BLOCK\n\n')
 
 print("regularizing ephemerides")
 
@@ -167,12 +180,19 @@ for n, p in enumerate(planets):
 
     # Matern-3/2 model | don't use GP on very noisy data
     if (npts >= 8) & (np.median(omc.yerr) <= 0.5 * mad_std(omc.yobs)):
-        trace = omc.sample(omc.matern32_model())
+        with warnings.catch_warnings(record=True) as catch:
+            warnings.simplefilter('always', category=RuntimeWarning)
+            trace = omc.sample(omc.matern32_model())
 
     # Polynomial model | require 2^N transits
     else:
         polyorder = np.max([1, np.min([3, int(np.log2(npts))-1])])
-        trace = omc.sample(omc.poly_model(polyorder))
+        with warnings.catch_warnings(record=True) as catch:
+            warnings.simplefilter('always', category=RuntimeWarning)
+            trace = omc.sample(omc.poly_model(polyorder))
+
+    if len(catch) > 0:
+        print(f"{len(catch)} RuntimeWarnings caught during sampling")
 
     # update ephemeris
     omc.ymod = np.nanmedian(trace['pred'], 0)
@@ -183,6 +203,8 @@ for n, p in enumerate(planets):
 
     # make quicklook plot
     filepath = os.path.join(quicklook_dir, f"{target}_omc_initial.png")
-    plot_omc(omc_list, target, filepath)
+    _ = plot_omc(omc_list, target, filepath)
 
     print(f"Planet {n} : {_period:.6f} --> {planets[n].period:.6f}")
+
+print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
