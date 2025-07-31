@@ -5,6 +5,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
+from src.constants import kepler_lcit, kepler_scit
 from src.schema.litecurve import LiteCurve
 from src.schema.planet import Planet
 
@@ -87,16 +88,29 @@ class BaseAlg():
         Returns a length num_planets list, each entry is a list of obsmode str
         """
         lc = self.litecurve
-
         obsmode = [None]*self.npl
 
         for n, p in enumerate(self.planets):
             obsmode[n] = []
             for tc in p.ephemeris.ttime:
                 obsmode[n].append(lc.obsmode[np.argmin(np.abs(lc.time-tc))])
+            obsmode[n] = np.array(obsmode[n])
 
         return obsmode
+    
 
+    def get_transit_exptime(self):
+        obsmode = self.get_transit_obsmode()
+        exptime = [None]*self.npl
+
+        for n, p in enumerate(self.planets):
+            exptime[n] = np.zeros(len(p.ephemeris.ttime), dtype=float)
+
+            exptime[n][obsmode[n] == 'long cadence'] = kepler_lcit
+            exptime[n][obsmode[n] == 'short cadence'] = kepler_scit
+
+        return exptime
+            
     
     def identify_overlapping_transits(self, rtol=None, atol=None):
         """
@@ -116,12 +130,10 @@ class BaseAlg():
             ttime_i = self.planets[i].ephemeris.ttime
             
             for j in range(i+1,self.npl):
-                dtol = rtol * 0.5 * (self.durs[i] + self.durs[j])
-                
                 for tc_j in self.planets[j].ephemeris.ttime:
+                    if rtol is not None:
+                        overlap[i] |= np.abs(ttime_i - tc_j) < rtol * 0.5 * (self.durs[i] + self.durs[j])
                     if atol is not None:
                         overlap[i] |= np.abs(ttime_i - tc_j) < atol
-                    if rtol is not None:
-                        overlap[i] |= np.abs(ttime_i - tc_j) < dtol
 
         return overlap

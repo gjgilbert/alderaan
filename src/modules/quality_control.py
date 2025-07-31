@@ -15,8 +15,6 @@ class QualityControl(BaseAlg):
     def __init__(self, litecurve, planets):
         super().__init__(litecurve, planets)
 
-        self.transit_obsmode = self.get_transit_obsmode()
-
 
     def check_coverage(self):
         """
@@ -27,14 +25,10 @@ class QualityControl(BaseAlg):
         lc = self.litecurve
 
         quality = [None]*self.npl
+        transit_exptime = self.get_transit_exptime()
 
         for n, p in enumerate(self.planets):
-            obsmode = np.array(self.transit_obsmode[n])
-
-            exptime = np.zeros(len(p.ephemeris.ttime), dtype=float)
-            exptime[obsmode == 'long cadence'] = kepler_lcit
-            exptime[obsmode == 'short cadence'] = kepler_scit
-
+            exptime = transit_exptime[n]
             assert not any(exptime == 0), "all exposure times expected to be non-zero"
 
             count_expected = np.maximum(1, np.array(p.duration / exptime, dtype=int))
@@ -69,8 +63,9 @@ class QualityControl(BaseAlg):
 
         lc = self.litecurve
 
-        overlap = self.identify_overlapping_transits(rtol=rel_size, atol=abs_size)
         quality = [None]*self.npl
+        overlap = self.identify_overlapping_transits(rtol=rel_size, atol=abs_size)
+        obsmode = self.get_transit_obsmode()
 
         for n, p in enumerate(self.planets):
             rms = np.zeros(len(p.ephemeris.ttime))
@@ -80,11 +75,10 @@ class QualityControl(BaseAlg):
                 flux = lc.flux[np.abs(lc.time - tc) < half_width]
                 rms[i] = mad_std(flux, ignore_nan=True)
 
-            obsmode = np.array(self.transit_obsmode[n])
             quality[n] = np.ones(len(p.ephemeris.ttime), dtype='bool')
 
-            for om in np.unique(obsmode):
-                use = (obsmode == om) & ~overlap[n]
+            for om in np.unique(np.array(obsmode[n])):
+                use = (obsmode[n]== om) & ~overlap[n]
                 rms_mu = np.nanmedian(rms[use])
                 rms_sd = mad_std(rms[use], ignore_nan=True)
 
