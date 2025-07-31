@@ -353,19 +353,32 @@ with warnings.catch_warnings(record=True) as catch:
     warnings.simplefilter('always', category=RuntimeWarning)
     coverage = qc.check_coverage()
 
-for n, p in enumerate(planets):
-    _nbad = np.sum(~coverage[n])
-    _ntot = len(coverage[n])
-    _fbad = _nbad / len(coverage[n])
-    print(f"  Planet {n}: {np.sum(_nbad)} of {_ntot} transits ({int(100*_fbad)}%) rejected for insufficent photometric coverage")
-
 # check for transits with unusually high noise
 with warnings.catch_warnings(record=True) as catch:
     warnings.simplefilter('always', category=RuntimeWarning)
     good_rms = qc.check_rms(rel_size=3.0, abs_size=2/24, sigma_cut=5.0)
 
 for n, p in enumerate(planets):
-    _nbad = np.sum(~good_rms[n])
+    print(f"\n  Planet {n}:")
+
+    assert len(coverage[n]) == len(p.ephemeris.ttime)
+    assert len(good_rms[n]) == len(p.ephemeris.ttime)
+
+    planets[n].quality = coverage[n] & good_rms[n]
+
+    _nbad = np.sum(~coverage[n])
+    _ntot = len(coverage[n])
+    print(f"    {np.sum(_nbad)} of {_ntot} transits ({int(100*_nbad/_ntot)}%) rejected for insufficent photometric coverage")
+
+    _nbad = np.sum(~good_rms[n] & coverage[n])
     _ntot = len(good_rms[n])
-    _fbad = _nbad / len(good_rms[n])
-    print(f"  Planet {n}: {np.sum(_nbad)} of {_ntot} transits ({int(100*_fbad)}%) rejected for high photometric noise")
+    print(f"    {np.sum(_nbad)} of {_ntot} transits ({int(100*_nbad/_ntot)}%) rejected for high photometric noise")
+    
+
+# end-of-block cleanup
+sys.stdout.flush()
+sys.stderr.flush()
+plt.close('all')
+gc.collect()
+
+print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")

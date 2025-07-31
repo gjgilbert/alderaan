@@ -111,12 +111,6 @@ for j, litecurve in enumerate(litecurves):
 
 print(f"{len(litecurves)} litecurves loaded for {target}")
 
-for j, litecurve in enumerate(litecurves):
-    assert len(np.unique(litecurve.quarter)) == 1, "expected one quarter per litecurve"
-    assert len(np.unique(litecurve.obsmode)) == 1, "expected one obsmode per litecurve"
-
-print(f"{len(litecurves)} litecurves loaded for {target}")
-
 # initialize planets (catch no ephemeris warning)
 with warnings.catch_warnings(record=True) as catch:
     warnings.simplefilter('always', category=UserWarning)
@@ -154,6 +148,11 @@ for n, p in enumerate(planets):
 
 print(f"{count} matching ephemerides found ({len(holczer_ephemerides)} expected)")
 
+# update ephemerides
+for n, p in enumerate(planets):
+    p.ephemeris = p.ephemeris.interpolate('spline', full=True)
+    planets[n] = p.update_ephemeris(p.ephemeris)
+
 # quicklook litecurve
 filepath = os.path.join(quicklook_dir, f"{target}_litecurve_raw.png")
 _ = plot_litecurve(litecurve_master, target, planets, filepath)
@@ -180,19 +179,31 @@ with warnings.catch_warnings(record=True) as catch:
     warnings.simplefilter('always', category=RuntimeWarning)
     coverage = qc.check_coverage()
 
-for n, p in enumerate(planets):
-    _nbad = np.sum(~coverage[n])
-    _ntot = len(coverage[n])
-    _fbad = _nbad / len(coverage[n])
-    print(f"  Planet {n}: {np.sum(_nbad)} of {_ntot} transits ({int(100*_fbad)}%) rejected for insufficent photometric coverage")
-
 # check for transits with unusually high noise
 with warnings.catch_warnings(record=True) as catch:
     warnings.simplefilter('always', category=RuntimeWarning)
     good_rms = qc.check_rms(rel_size=3.0, abs_size=2/24, sigma_cut=5.0)
 
 for n, p in enumerate(planets):
-    _nbad = np.sum(~good_rms[n])
+    print(f"\n  Planet {n}:")
+
+    assert len(coverage[n]) == len(p.ephemeris.ttime)
+    assert len(good_rms[n]) == len(p.ephemeris.ttime)
+
+    planets[n].quality = coverage[n] & good_rms[n]
+
+    _nbad = np.sum(~coverage[n])
+    _ntot = len(coverage[n])
+    print(f"    {np.sum(_nbad)} of {_ntot} transits ({int(100*_nbad/_ntot)}%) rejected for insufficent photometric coverage")
+
+    _nbad = np.sum(~good_rms[n] & coverage[n])
     _ntot = len(good_rms[n])
-    _fbad = _nbad / len(good_rms[n])
-    print(f"  Planet {n}: {np.sum(_nbad)} of {_ntot} transits ({int(100*_fbad)}%) rejected for high photometric noise")
+    print(f"    {np.sum(_nbad)} of {_ntot} transits ({int(100*_nbad/_ntot)}%) rejected for high photometric noise")
+
+# end-of-block cleanup
+sys.stdout.flush()
+sys.stderr.flush()
+plt.close('all')
+gc.collect()
+
+print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
