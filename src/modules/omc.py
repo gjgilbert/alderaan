@@ -14,7 +14,7 @@ import pymc3_ext as pmx
 from scipy import stats
 from scipy.ndimage import uniform_filter, median_filter
 from sklearn.cluster import KMeans
-from src.constants import *
+from src.constants import pi
 from src.utils.stats import LS_estimator
 
 class OMC:

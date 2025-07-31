@@ -79,3 +79,49 @@ class BaseAlg():
             raise ValueError(f"mask_type f{mask_type} not supported")
 
         return mask.astype(bool)
+
+
+    def get_transit_obsmode(self):
+        """
+        Determine the observing mode at each transit time
+        Returns a length num_planets list, each entry is a list of obsmode str
+        """
+        lc = self.litecurve
+
+        obsmode = [None]*self.npl
+
+        for n, p in enumerate(self.planets):
+            obsmode[n] = []
+            for tc in p.ephemeris.ttime:
+                obsmode[n].append(lc.obsmode[np.argmin(np.abs(lc.time-tc))])
+
+        return obsmode
+
+    
+    def identify_overlapping_transits(self, rtol=None, atol=None):
+        """
+        Identify where transits overlap based on separation of transit midpoints
+
+        Arguments
+            rtol (float) : relative tolerance, in units of transit durations
+            atol (float) : absolute tolerance, in units of hours
+        """
+        if (rtol is None) and (atol is None):
+            raise ValueError("at least one of rtol or atol must be provided")
+
+        overlap = [None]*self.npl
+
+        for i in range(self.npl):
+            overlap[i] = np.zeros(len(self.planets[i].ephemeris.ttime), dtype=bool)
+            ttime_i = self.planets[i].ephemeris.ttime
+            
+            for j in range(i+1,self.npl):
+                dtol = rtol * 0.5 * (self.durs[i] + self.durs[j])
+                
+                for tc_j in self.planets[j].ephemeris.ttime:
+                    if atol is not None:
+                        overlap[i] |= np.abs(ttime_i - tc_j) < atol
+                    if rtol is not None:
+                        overlap[i] |= np.abs(ttime_i - tc_j) < dtol
+
+        return overlap

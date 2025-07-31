@@ -1,13 +1,45 @@
 __all__ = ['LiteCurve']
 
-import glob
-import numpy as np
-import lightkurve as lk
+import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from astropy.io import fits
+import glob
+import lightkurve as lk
+import numpy as np
+from src.constants import kepler_lcit, kepler_scit
 
 
 class LiteCurve:
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        if len(args) == 0:
+            self = self._set_empty_attribute_arrays()
+        
+        elif len(args) == 1 and isinstance(args[0], list):
+            if all([isinstance(lc, LiteCurve) for lc in args[0]]):
+                self = self._from_list(*args, **kwargs)
+            else:
+                raise TypeError("Unexpected input types in list")
+        
+        elif (len(args) > 1) and isinstance(args[0], str):
+            if 'data_source' not in kwargs:
+                raise ValueError("Missing required keyword argmument 'data_source")
+            else:
+                data_source = kwargs.pop('data_source')
+
+            if data_source == 'Kepler PDCSAP':
+                self = self._from_kplr_pdcsap(*args, **kwargs)
+            elif data_source == 'ALDERAAN':
+                self = self._from_alderaan(*args, **kwargs)
+            else:
+                raise ValueError(f"Unsupported data_source: {data_source}")      
+        
+        else:
+            raise TypeError("Unsupported init signature")
+
+
+    def _set_empty_attribute_arrays(self):
         self.time = np.array([]).astype(float)
         self.flux = np.array([]).astype(float)
         self.error = np.array([]).astype(float)
@@ -16,8 +48,21 @@ class LiteCurve:
         self.obsmode = np.array([]).astype(str)
         self.quality = np.array([]).astype(bool)
 
+        return self    
 
-    def load_kplr_pdcsap(self, data_dir, kic_id, obsmode, quarters=None):
+
+    def _from_list(self, litecurve_list):
+        self = self._set_empty_attribute_arrays()
+
+        for i, lc in enumerate(litecurve_list):
+            for k in self.__dict__.keys():
+                if type(self.__dict__[k]) is np.ndarray:
+                    self.__setattr__(k, np.hstack([self.__dict__[k],lc.__dict__[k]]))
+
+        return self
+    
+
+    def _from_kplr_pdcsap(self, data_dir, kic_id, obsmode, quarters=None):
         """
         Load photometric data from Kepler Project PDCSAP Flux lightcurves
         The raw fits files must be pre-downloaded from MAST servers and stored locally
@@ -94,21 +139,12 @@ class LiteCurve:
         self.quality = np.array(lklc.quality.value)
 
         return self
-    
+        
 
-    def load_alderaan(self, data_dir, kic_id, obsmode):
-        raise ValueError("Not yet implemented")
+    def _from_alderaan(self, data_dir, target_id):
+        raise NotImplementedError("Loading ALDERAAN files not yet implemented")
     
     
-    def from_list(self, litecurve_list):
-        for i, lc in enumerate(litecurve_list):
-            for k in self.__dict__.keys():
-                if type(self.__dict__[k]) is np.ndarray:
-                    self.__setattr__(k, np.hstack([self.__dict__[k],lc.__dict__[k]]))
-
-        return self
-    
-
     def split_quarters(self):
         quarters = np.unique(self.quarter)
 
