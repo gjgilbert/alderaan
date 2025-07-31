@@ -136,7 +136,9 @@ class LiteCurve:
         self.quarter = np.array(lklc.quarter, dtype=int)
         self.season = np.array(lklc.season, dtype=int)
         self.obsmode = np.array([obsmode]*len(self.cadno), dtype=str)
-        self.quality = np.array(lklc.quality.value)
+        
+        # remove cadences flagged by Kepler project pipeline
+        self = self._remove_flagged_cadences(lklc.quality)
 
         return self
         
@@ -159,13 +161,14 @@ class LiteCurve:
         return litecurve_list
     
 
-    def remove_flagged_cadences(self, bitmask='default'):
+    def _remove_flagged_cadences(self, quality_flags, bitmask='default'):
         qmask = lk.KeplerQualityFlags.create_quality_mask(
-            self.quality, bitmask=bitmask
+            quality_flags, bitmask=bitmask
         )
         for k in self.__dict__.keys():
             if type(self.__dict__[k]) is np.ndarray:
                 self.__setattr__(k, self.__dict__[k][qmask])
 
+        self.quality = np.ones(len(self.time), dtype=bool)
+
         return self
-    

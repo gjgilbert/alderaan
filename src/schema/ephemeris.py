@@ -1,5 +1,6 @@
 __all__ = ['Ephemeris']
 
+from copy import deepcopy
 import numpy as np
 from scipy.interpolate import CubicSpline
 import warnings
@@ -132,29 +133,54 @@ class Ephemeris:
         return self
         
 
-    def full_ephemeris(self, return_index=True):
+    def interpolate(self, method, full=False):
         """
-        Interpolate ephemeris over missing and poor quality transit times
-        Assumes indexing starts at zero
-        """
+        Interpolate poor quality transit times
+        Optionally interpolate missing transit times
+        """        
         if self.quality is not None:
             q = self.quality
         else:
             q = np.ones(len(self.ttime), dtype=bool)
 
-        spline = CubicSpline(self.index[q],
-                              self.ttime[q], 
-                              extrapolate=True,
-                              bc_type='natural'
-                             )
+        transit_exists = deepcopy(self.index)
+        index_full = np.arange(self.index.min(), self.index.max()+1, dtype=int)
 
-        full_index = np.arange(0, self.index.max()+1, dtype=int)
-        full_ttime = spline(full_index)
-        full_ttime[self.index] = self.ttime
+        if method == 'linear':
+            ttime_full = self.epoch + self.period*index_full
+        
+        elif method == 'spline':
+            spline = CubicSpline(self.index[q],
+                                self.ttime[q], 
+                                extrapolate=True,
+                                bc_type='natural'
+                                )
 
-        if return_index:
-            return full_index, full_ttime
-        return full_ttime
+            ttime_full = spline(index_full)
+
+        ttime_full[transit_exists[q]] = self.ttime[q]
+
+        error_full = np.zeros(len(ttime_full))*np.nan
+        if self.error is not None:
+            error_full[transit_exists[q]] = self.error[q]
+
+        quality_full = np.ones(len(ttime_full), dtype=bool)
+        if self.quality is not None:
+            quality_full[transit_exists] = self.quality
+        
+        if full:
+            keep = index_full
+        else:
+            keep = transit_exists
+        
+        self.index = index_full[keep]
+        self.ttime = ttime_full[keep]
+        self.error = error_full[keep]
+        self.quality = quality_full[keep]
+
+        self = self.update_period_and_epoch()
+
+        return self
     
     
     def update_from_omc(self, omc):

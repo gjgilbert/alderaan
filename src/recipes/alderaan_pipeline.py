@@ -49,7 +49,7 @@ print("")
 
 # hard-code inputs
 mission = 'Kepler'
-target = 'K00137'
+target = 'K00148'
 run_id = 'develop'
 
 project_dir = '/Users/research/projects/alderaan/'
@@ -94,21 +94,12 @@ koi_id = catalog.koi_id[0]
 kic_id = int(catalog.kic_id[0])
 
 # load lightcurves
-kic_id = catalog.kic_id[0]
-
-litecurve_master_raw = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP')
-litecurve_list_raw = litecurve_master_raw.split_quarters()
-
-for i, lc in enumerate(litecurve_list_raw):
-    lc = lc.remove_flagged_cadences(bitmask='default')
-
-litecurve_master = LiteCurve(litecurve_list_raw)
+litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP')
 
 t_min = litecurve_master.time.min()
 t_max = litecurve_master.time.max()
 if t_min < 0:
     raise ValueError("Lightcurve has negative timestamps...this will cause problems")
-
 
 # split litecurves by quarter
 litecurves = litecurve_master.split_quarters()
@@ -122,7 +113,6 @@ print(f"{len(litecurves)} litecurves loaded for {target}")
 # initialize planets (catch no ephemeris warning)
 with warnings.catch_warnings(record=True) as catch:
     warnings.simplefilter('always', category=UserWarning)
-
     planets = [None]*NPL
     for n in range(NPL):
         planets[n] = Planet(catalog, target, n)
@@ -209,6 +199,7 @@ for n, p in enumerate(planets):
     omc_list[n] = omc
 
     p.ephemeris = p.ephemeris.update_from_omc(omc)
+    p.ephemeris = p.ephemeris.interpolate('spline', full=True)
     planets[n] = p.update_ephemeris(p.ephemeris)
 
     # make quicklook plot

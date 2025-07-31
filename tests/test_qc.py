@@ -95,24 +95,21 @@ koi_id = catalog.koi_id[0]
 kic_id = int(catalog.kic_id[0])
 
 # load lightcurves
-kic_id = catalog.kic_id[0]
-
-litecurve_master_raw = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP')
-litecurve_list_raw = litecurve_master_raw.split_quarters()
-
-for i, lc in enumerate(litecurve_list_raw):
-    lc = lc.remove_flagged_cadences(bitmask='default')
-
-litecurve_master = LiteCurve(litecurve_list_raw)
+litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP')
 
 t_min = litecurve_master.time.min()
 t_max = litecurve_master.time.max()
 if t_min < 0:
     raise ValueError("Lightcurve has negative timestamps...this will cause problems")
 
-
 # split litecurves by quarter
 litecurves = litecurve_master.split_quarters()
+
+for j, litecurve in enumerate(litecurves):
+    assert len(np.unique(litecurve.quarter)) == 1, "expected one quarter per litecurve"
+    assert len(np.unique(litecurve.obsmode)) == 1, "expected one obsmode per litecurve"
+
+print(f"{len(litecurves)} litecurves loaded for {target}")
 
 for j, litecurve in enumerate(litecurves):
     assert len(np.unique(litecurve.quarter)) == 1, "expected one quarter per litecurve"
@@ -134,8 +131,8 @@ print([np.round(p.period,6) for p in planets])
 # update planet ephemerides
 for n, p in enumerate(planets):
     if p.ephemeris is None:
-        _ephemeris = Ephemeris(period=p.period, epoch=p.epoch, t_min=t_min, t_max=t_max)
-        planets[n] = p.update_ephemeris(_ephemeris)
+        ephemeris = Ephemeris(period=p.period, epoch=p.epoch, t_min=t_min, t_max=t_max)
+        planets[n] = p.update_ephemeris(ephemeris)
 
 # load Holczer+2016 catalog
 filepath = os.path.join(project_dir, 'Catalogs/holczer_2016_kepler_ttvs.txt')
