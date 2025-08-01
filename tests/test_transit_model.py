@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import shutil
 from src.constants import *
-from src.schema.ephemeris import Ephemeris
+from src.schema.ephemeris import Ephemeris, WarpEphemeris
 from src.schema.litecurve import LiteCurve
 from src.schema.planet import Planet
 from src.modules.detrend import GaussianProcessDetrender
@@ -170,3 +170,7 @@ transitmodel = TransitModel(litecurve, planets)
 print("Supersample factor")
 for obsmode in transitmodel.unique_obsmodes:
     print(f"  {obsmode} : {transitmodel._obsmode_to_supersample(obsmode)}")
+
+
+for n, p in enumerate(transitmodel.planets):
+    print(isinstance(p.ephemeris, WarpEphemeris))

@@ -1,4 +1,6 @@
-__all__ = ['Ephemeris']
+__all__ = ['Ephemeris',
+           'WarpEphemeris'
+           ]
 
 from copy import deepcopy
 import numpy as np
@@ -33,8 +35,8 @@ class Ephemeris:
             (ttime is not None)
         )
 
-        if init_linear_ephem & init_ttv_ephem:
-            raise ValueError("must supply exactly on of (ttime, index) or (period, epoch)")
+        if init_linear_ephem + init_ttv_ephem != 1:
+            raise ValueError("must supply exactly one of (ttime, index) or (period, epoch)")
         
         # Case 1 : linear ephemeris
         if init_linear_ephem:
@@ -199,3 +201,47 @@ class Ephemeris:
         self.period, self.epoch = self.fit_linear_ephemeris()
 
         return self
+
+
+class WarpEphemeris(Ephemeris):
+    """
+    A WarpEphemeris is used exclusively when fitting a Transit Model
+    The mehods "warp" the ttime vector to account for transit timing variations
+
+    The warp functions assume zero-indexing on transit indexes
+    """
+    def __init__(self, index, ttime):
+         super().__init__(self, index=index, ttime=ttime)
+    
+
+    def _set_bins(self):
+        index_full = np.arange(0, self.index.max()+1, dtype=int)
+        ttime_full = self.epoch + self.period * index_full
+
+        self._bin_edges = np.concatenate(
+            [
+                [ttime_full[0] - 0.5 * self.period],
+                0.5 * (ttime_full[1:] + ttime_full[:-1]),
+                [ttime_full[-1] + 0.5 * self.period],
+            ]
+        )
+
+        self._bin_values = np.concatenate([[ttime_full[0]], ttime_full, [ttime_full[-1]]])
+
+
+    def _get_model_dt(self, t, return_inds=False):
+        _inds = np.searchsorted(self._bin_edges, t)
+        _vals = self._bin_values[_inds]
+
+        if return_inds:
+            return _vals, _inds
+        return _vals
+    
+
+    def _warp_times(self, t, return_inds=False):
+        warps = self._get_model_dt(t, return_inds=return_inds)
+
+        if return_inds:
+            return t - warps[0], warps[1]
+        else:
+            return t - warps

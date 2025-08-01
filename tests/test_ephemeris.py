@@ -3,7 +3,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
-from src.schema.ephemeris import Ephemeris
+from src.schema.ephemeris import Ephemeris, WarpEphemeris
 import warnings
 
 warnings.simplefilter('always', UserWarning)
@@ -18,20 +18,20 @@ error = 0.1*np.ones_like(ttime)
 
 # TTV init
 ephemeris = Ephemeris(index=index, ttime=ttime, error=error)
-full_index, full_ttime = ephemeris.full_ephemeris()
 
 print(ephemeris.period, ephemeris.epoch)
-print(full_index)
-print(full_ttime)
-print("")
+print(len(ephemeris.index), len(ephemeris.ttime))
 
 # linear init
 ephemeris = Ephemeris(period=period, epoch=epoch, t_min=0., t_max=1400.)
-full_index, full_ttime = ephemeris.full_ephemeris()
 
 print(ephemeris.period, ephemeris.epoch)
-print(full_index)
-print(full_ttime)
-print("")
+print(len(ephemeris.index), len(ephemeris.ttime))
+
+# WarpEphemeris
+ephemeris = WarpEphemeris(index=index, ttime=ttime)
+
+print(ephemeris.period, ephemeris.epoch)
+print(ephemeris._static_period, ephemeris._static_epoch)
 
 print("passing")
