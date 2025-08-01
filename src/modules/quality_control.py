@@ -25,12 +25,10 @@ class QualityControl(BaseAlg):
         lc = self.litecurve
 
         quality = [None]*self.npl
-        transit_exptime = self.get_transit_exptime()
+        obsmode = self.get_transit_obsmode()
 
         for n, p in enumerate(self.planets):
-            exptime = transit_exptime[n]
-            assert not any(exptime == 0), "all exposure times expected to be non-zero"
-
+            exptime = np.array([self._obsmode_to_exptime(om) for om in obsmode[n]])
             count_expected = np.maximum(1, np.array(p.duration / exptime, dtype=int))
 
             quality[n] = np.zeros(len(p.ephemeris.ttime), dtype='bool')

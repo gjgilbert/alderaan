@@ -34,10 +34,15 @@ class BaseAlg():
         self.planets = planets
 
         self.periods = []
+        self.depths = []
         self.durs = []
         for p in planets:
             self.periods.append(p.period)
+            self.depths.append(p.depth)
             self.durs.append(p.duration)
+
+        # define lookup
+        self._define_exptime_lookup()
 
 
     def make_transit_mask(self, rel_size=None, abs_size=None, mask_type='standard'):
@@ -99,17 +104,15 @@ class BaseAlg():
         return obsmode
     
 
-    def get_transit_exptime(self):
-        obsmode = self.get_transit_obsmode()
-        exptime = [None]*self.npl
+    def _define_exptime_lookup(self):
+        self.__exptime_lookup = {
+            'long cadence': kepler_lcit,
+            'short cadence': kepler_scit
+        }
 
-        for n, p in enumerate(self.planets):
-            exptime[n] = np.zeros(len(p.ephemeris.ttime), dtype=float)
 
-            exptime[n][obsmode[n] == 'long cadence'] = kepler_lcit
-            exptime[n][obsmode[n] == 'short cadence'] = kepler_scit
-
-        return exptime
+    def _obsmode_to_exptime(self, obsmode):       
+        return self.__exptime_lookup[obsmode]
             
     
     def identify_overlapping_transits(self, rtol=None, atol=None):
