@@ -33,13 +33,14 @@ class BaseAlg():
         self.npl = len(planets)
         self.planets = planets
 
-        self.periods = []
-        self.depths = []
-        self.durs = []
-        for p in planets:
-            self.periods.append(p.period)
-            self.depths.append(p.depth)
-            self.durs.append(p.duration)
+        self.periods = np.zeros(self.npl, dtype=float)
+        self.depths = np.zeros(self.npl, dtype=float)
+        self.durs = np.zeros(self.npl, dtype=float)
+        
+        for n, p in enumerate(planets):
+            self.periods[n] = p.period
+            self.depths[n] = p.depth
+            self.durs[n] = p.duration
 
         # define lookup
         self._define_exptime_lookup()

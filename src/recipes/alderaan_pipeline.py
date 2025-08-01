@@ -255,10 +255,10 @@ for j, detrender in enumerate(detrenders):
 
     oscillation_periods[j] = detrender.estimate_oscillation_period(min_period=min_period)
 
-_osc_per_mu = np.nanmedian(oscillation_periods)
-_osc_per_sd = mad_std(oscillation_periods, ignore_nan=True)
+osc_per_mu = np.nanmedian(oscillation_periods)
+osc_per_sd = np.max([mad_std(oscillation_periods, ignore_nan=True), 0.1*osc_per_mu])
 
-print(f"\nNominal stellar oscillation period = {_osc_per_mu:.1f} +/- {_osc_per_sd:.1f} days")
+print(f"\nNominal stellar oscillation period = {osc_per_mu:.1f} +/- {osc_per_sd:.1f} days")
 
 # detrend the litecurves
 for j, detrender in enumerate(detrenders):

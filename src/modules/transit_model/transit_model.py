@@ -7,7 +7,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from copy import deepcopy
 import dynesty
 import numpy as np
-from src.constants import kepler_lcit, kepler_scit
 from src.modules.base import BaseAlg
 from src.modules.transit_model.dynesty import prior_transform
 from src.schema.ephemeris import WarpEphemeris
@@ -103,7 +102,7 @@ class TransitModel(BaseAlg):
     
 
     @staticmethod
-    def lnlike(theta, transitmodel):
+    def _lnlike(theta, transitmodel):
         """
         theta : array-like
             num_planets * [C0, C1, rp, b, T14] + [q1, q2]
@@ -125,9 +124,9 @@ class TransitModel(BaseAlg):
         u2 = np.sqrt(q1) * (1 - 2 * q2)
 
         # calculate log-likelihood
-        _lnlike = 0.0
+        lnlike = 0.0
 
-        for obsmode in tm.unique_obmodes:
+        for obsmode in tm.unique_obsmodes:
             flux_obs = lc.flux[lc.obsmode == obsmode]
             flux_err = lc.error[lc.obsmode == obsmode]
             flux_mod = np.ones_like(flux_obs)
@@ -136,10 +135,10 @@ class TransitModel(BaseAlg):
             supersample_factor = tm.__supersample_lookup[obsmode]
 
             for n, p in enumerate(tm.planets):
-                C0, C1, rp, b, T14 = np.array(theta[5 * tm.npl : 5 * (tm.npl + 1)])
+                C0, C1, rp, b, T14 = np.array(theta[5 * n : 5 * (n + 1)])
 
                 _t = tm._warped_time[n] + C0 + C1 * tm._warped_legx[n]
-                _t_supersample = (exptime_ioff + _t.reshape(_t.size)).flatten()
+                _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).flatten()
 
                 nthreads = 1
                 ds = _rsky._rsky(
@@ -162,29 +161,29 @@ class TransitModel(BaseAlg):
                 )
 
                 flux_mod += qld_flux - 1.0
-                _lnlike += -0.5 * np.sum(((flux_obs - flux_mod) / flux_err) ** 2)
+                lnlike += -0.5 * np.sum(((flux_obs - flux_mod) / flux_err) ** 2)
 
             # enforce prior on limb darkening
             sig_ld_sq = 0.01
-            _lnlike -= 1.0 / (2 * sig_ld_sq) * (u1 - tm.limbdark[0]) ** 2
-            _lnlike -= 1.0 / (2 * sig_ld_sq) * (u2 - tm.limbdark[1]) ** 2
+            lnlike -= 1.0 / (2 * sig_ld_sq) * (u1 - tm.limbdark[0]) ** 2
+            lnlike -= 1.0 / (2 * sig_ld_sq) * (u2 - tm.limbdark[1]) ** 2
 
-        if not np.isfinite(_lnlike):
+        if not np.isfinite(lnlike):
             return -1e300
         
-        return _lnlike
+        return lnlike
     
 
     def sample(self, checkpoint_file=None, checkpoint_every=60, progress=False):
         ndim = 5 * self.npl + 2
         sampler = dynesty.DynamicNestedSampler(
-            self.lnlike, 
+            self._lnlike, 
             prior_transform,
             ndim,
             bound='multi',
             sample='rwalk',
-            logl_args=(self),
-            ptform_args=(self.durs),
+            logl_args=(self,),
+            ptform_args=(self.durs,),
         )
         sampler.run_nested(
             checkpoint_file=checkpoint_file,
@@ -193,3 +192,7 @@ class TransitModel(BaseAlg):
         )
         
         return sampler.results
+    
+
+    def optimize(self):
+        pass
