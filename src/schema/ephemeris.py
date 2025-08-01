@@ -1,6 +1,4 @@
-__all__ = ['Ephemeris',
-           'WarpEphemeris'
-           ]
+__all__ = ['Ephemeris', 'WarpEphemeris']
 
 from copy import deepcopy
 import numpy as np
@@ -205,18 +203,21 @@ class Ephemeris:
 
 class WarpEphemeris(Ephemeris):
     """
-    A WarpEphemeris is used exclusively when fitting a Transit Model
-    The mehods "warp" the ttime vector to account for transit timing variations
-
-    The warp functions assume zero-indexing on transit indexes
+    WarpEphemeris is used exclusively when fitting a Transit Model
+     * the litecurve.time vector is copied for each of the N planets
+     * times are then "warped" to account for transit timing variations
+     * the transit model assumes linear perturbations to a fixed ephemeris
+        
+    IMPORTANT!!! The warp functions assume zero-indexing on transit indexes
     """
     def __init__(self, index, ttime):
          super().__init__(self, index=index, ttime=ttime)
+         self._set_bins()
     
 
     def _set_bins(self):
         index_full = np.arange(0, self.index.max()+1, dtype=int)
-        ttime_full = self.epoch + self.period * index_full
+        ttime_full = self._static_epoch + self._static_period * index_full
 
         self._bin_edges = np.concatenate(
             [

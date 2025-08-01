@@ -4,19 +4,16 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../'
 
 from aesara_theano_fallback import aesara as theano
 import astropy
-from astropy.stats import mad_std
-from celerite2.backprop import LinAlgError
 from datetime import datetime
 import gc
 import matplotlib.pyplot as plt
 import numpy as np
 import shutil
 from src.constants import *
+from src.schema.planet import Planet
 from src.schema.ephemeris import Ephemeris, WarpEphemeris
 from src.schema.litecurve import LiteCurve
-from src.schema.planet import Planet
-from src.modules.detrend import GaussianProcessDetrender
-from src.modules.transit_model import TransitModel
+from src.modules.transit_model.transit_model import TransitModel
 from src.utils.io import parse_koi_catalog, parse_holczer16_catalog
 from timeit import default_timer as timer
 import warnings
@@ -165,12 +162,9 @@ print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
 
 print('\n\nTRANSIT MODEL BLOCK\n')
 
-transitmodel = TransitModel(litecurve, planets)
+limbdark = [0.4,0.25]
+transitmodel = TransitModel(litecurve, planets, limbdark)
 
 print("Supersample factor")
 for obsmode in transitmodel.unique_obsmodes:
     print(f"  {obsmode} : {transitmodel._obsmode_to_supersample(obsmode)}")
-
-
-for n, p in enumerate(transitmodel.planets):
-    print(isinstance(p.ephemeris, WarpEphemeris))

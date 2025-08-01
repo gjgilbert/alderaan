@@ -45,6 +45,17 @@ class BaseAlg():
         self._define_exptime_lookup()
 
 
+    def _define_exptime_lookup(self):
+        self.__exptime_lookup = {
+            'long cadence': kepler_lcit,
+            'short cadence': kepler_scit
+        }
+
+
+    def _obsmode_to_exptime(self, obsmode):       
+        return self.__exptime_lookup[obsmode]
+            
+    
     def make_transit_mask(self, rel_size=None, abs_size=None, mask_type='standard'):
         """
         Arguments
@@ -104,17 +115,6 @@ class BaseAlg():
         return obsmode
     
 
-    def _define_exptime_lookup(self):
-        self.__exptime_lookup = {
-            'long cadence': kepler_lcit,
-            'short cadence': kepler_scit
-        }
-
-
-    def _obsmode_to_exptime(self, obsmode):       
-        return self.__exptime_lookup[obsmode]
-            
-    
     def identify_overlapping_transits(self, rtol=None, atol=None):
         """
         Identify where transits overlap based on separation of transit midpoints
