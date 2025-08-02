@@ -1,6 +1,12 @@
-__all__ = ['plot_omc']
+__all__ = ['plot_omc',
+           'plot_litecurve',
+           'dynesty_runplot',
+           'dynesty_traceplot',
+           'dynesty_cornerplot',
+          ]
 
 from astropy.stats import mad_std
+from dynesty import plotting as dyplot
 import matplotlib.pyplot as plt
 import numpy as np
 from src.schema.planet import Planet
@@ -144,3 +150,71 @@ def plot_litecurve(litecurve, target, planets=None, filepath=None, interactive=F
         plt.close(fig)
     
     return fig, ax
+
+
+def dynesty_runplot(results, target, filepath=None, interactive=False):
+    fig, ax = dyplot.runplot(results, logplot=True, label_kwargs={'fontsize':16}, color='#0d0887')
+    
+    ax[0].set_title(target, fontsize=24)
+    fig.tight_layout()
+    
+    if filepath is not None:
+        plt.savefig(filepath, bbox_inches='tight', dpi=96)
+    if not interactive:
+        plt.close(fig)
+
+    return fig, ax
+
+
+def dynesty_traceplot(results, target, planet_no, filepath=None, interactive=False):
+    fig, ax = dyplot.traceplot(
+        results,
+        labels=_parameter_labels(1, subscripts=False),
+        dims=np.arange(5 * planet_no, 5 * (planet_no + 1)),
+        label_kwargs={'fontsize':14},
+    )
+    
+    fig.tight_layout()
+    fig.suptitle(f"{target} - Planet {planet_no}", fontsize=18, y=fig.subplotpars.top + 0.02)
+    
+    if filepath is not None:
+        plt.savefig(filepath, bbox_inches='tight', dpi=96)
+    if not interactive:
+        plt.close(fig)
+        
+    return fig, ax
+
+
+def dynesty_cornerplot(results, target, planet_no, filepath=None, interactive=False):
+    fig, ax = dyplot.cornerplot(
+        results,
+        labels=_parameter_labels(1, subscripts=False),
+        dims=np.arange(5 * planet_no, 5 * (planet_no + 1)),
+        label_kwargs={'fontsize':14},
+        color=f'C{planet_no}',
+    )
+    
+    fig.tight_layout()
+    fig.suptitle(f"{target} - Planet {planet_no}", fontsize=18, y=fig.subplotpars.top + 0.02)
+    
+    if filepath is not None:
+        plt.savefig(filepath, bbox_inches='tight', dpi=96)
+    if not interactive:
+        plt.close(fig)
+        
+    return fig, ax
+
+
+def _parameter_labels(npl, subscripts=True):
+    labels = []
+    
+    if subscripts:
+        for n in range(npl):
+            labels = labels + f'$C0_{n}$ $C1_{n}$ $r_{n}$ $b_{n}$ $T14_{n}$'.split()
+    else:
+        for n in range(npl):
+            labels = labels + f'C0 C1 r b T14'.split()
+
+    labels += 'q1 q2'.split()
+    
+    return labels

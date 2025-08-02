@@ -16,7 +16,7 @@ from src.schema.ephemeris import Ephemeris, WarpEphemeris
 from src.schema.litecurve import LiteCurve
 from src.modules.detrend import GaussianProcessDetrender
 from src.modules.transit_model.transit_model import TransitModel
-from src.modules.quicklook import plot_litecurve, plot_omc
+from src.modules.quicklook import plot_litecurve, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
 from src.utils.io import parse_koi_catalog, parse_holczer16_catalog
 from timeit import default_timer as timer
 import warnings
@@ -298,5 +298,15 @@ for obsmode in transitmodel.unique_obsmodes:
 
 print("\nSampling with DynamicNestedSampler")
 results = transitmodel.sample(progress=True)
+
+filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_runplot.png')
+fig, ax = dynesty_runplot(results, koi_id, filepath=filepath)
+
+for n, p in enumerate(transitmodel.npl):
+    filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_traceplot_{n:02d}.png')
+    fig, ax = dynesty_traceplot(results, koi_id, n, filepath=filepath)
+
+    filepath=os.path.join(quicklook_dir, f'{koi_id}_dynesty_cornerplot_{n:02d}.png')
+    fig, ax = dynesty_cornerplot(results, koi_id, n, filepath=filepath, interactive=True)
 
 print("passing")
