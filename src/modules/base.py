@@ -43,20 +43,89 @@ class BaseAlg():
             self.durs[n] = p.duration
 
         # define lookup
+        self._init_obsmode_tracking()        
+
+
+    def _init_obsmode_tracking(self):
+        self.transit_obsmode = self.get_transit_obsmode()
+        self.unique_obsmodes = np.unique(np.hstack(self.transit_obsmode))
+
         self._define_exptime_lookup()
+        self._define_supersample_lookup()
+        self._define_exptime_integration_offset_lookup()
 
 
     def _define_exptime_lookup(self):
-        self.__exptime_lookup = {
+        self._exptime_lookup = {
             'long cadence': kepler_lcit,
             'short cadence': kepler_scit
         }
 
 
     def _obsmode_to_exptime(self, obsmode):       
-        return self.__exptime_lookup[obsmode]
-            
+        return self._exptime_lookup[obsmode]
     
+
+    def _compute_supersample(self, obsmode):    
+        # ingress/egress timescale estimate following Winn 2010
+        tau12 = (13 / 24) * (np.array(self.periods) / 365.25) ** (1 / 3) * np.sqrt(np.array(self.depths)) 
+
+        # sigma so binning error is < 0.1% of photometric uncertainty
+        sigma = np.nanmean(self.litecurve.error / self.litecurve.flux) * 0.04
+
+        # supersample factor following Kipping 2010
+        exptime = self._obsmode_to_exptime(obsmode)
+        supersample = np.array(np.ceil(np.sqrt((self.depths / tau12) * (exptime / 8 / sigma))), dtype=int)
+        supersample = np.max([supersample + (supersample % 2 + 1)])
+
+        return supersample
+    
+
+    def _define_supersample_lookup(self):
+        self._supersample_lookup = {}
+        for om in np.unique(np.hstack(self.transit_obsmode)):
+            self._supersample_lookup[om] = self._compute_supersample(om)
+        
+
+    def _obsmode_to_supersample(self, obsmode):
+        return self._supersample_lookup[obsmode]
+
+
+    def _compute_exptime_integration_offset(self, obsmode):
+        exptime = self._obsmode_to_exptime(obsmode)
+        supersample = self._obsmode_to_supersample(obsmode)
+        return np.linspace(-exptime/2, exptime/2, supersample)
+    
+
+    def _define_exptime_integration_offset_lookup(self):
+        self._exptime_integration_offset_lookup = {}
+        for om in np.unique(np.hstack(self.transit_obsmode)):
+            self._exptime_integration_offset_lookup[om] = (
+                self._compute_exptime_integration_offset(om)
+            )
+            
+
+    def _obsmode_to_exptime_integration_offset(self, obsmode):
+        return self._exptime_integration_offset_lookup[obsmode]
+    
+            
+    def get_transit_obsmode(self):
+        """
+        Determine the observing mode at each transit time
+        Returns a length num_planets list, each entry is a list of obsmode str
+        """
+        lc = self.litecurve
+        obsmode = [None]*self.npl
+
+        for n, p in enumerate(self.planets):
+            obsmode[n] = []
+            for tc in p.ephemeris.ttime:
+                obsmode[n].append(lc.obsmode[np.argmin(np.abs(lc.time-tc))])
+            obsmode[n] = np.array(obsmode[n])
+
+        return obsmode
+
+
     def make_transit_mask(self, rel_size=None, abs_size=None, mask_type='standard'):
         """
         Arguments
@@ -98,23 +167,6 @@ class BaseAlg():
 
         return mask.astype(bool)
 
-
-    def get_transit_obsmode(self):
-        """
-        Determine the observing mode at each transit time
-        Returns a length num_planets list, each entry is a list of obsmode str
-        """
-        lc = self.litecurve
-        obsmode = [None]*self.npl
-
-        for n, p in enumerate(self.planets):
-            obsmode[n] = []
-            for tc in p.ephemeris.ttime:
-                obsmode[n].append(lc.obsmode[np.argmin(np.abs(lc.time-tc))])
-            obsmode[n] = np.array(obsmode[n])
-
-        return obsmode
-    
 
     def identify_overlapping_transits(self, rtol=None, atol=None):
         """
