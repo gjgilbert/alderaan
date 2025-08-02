@@ -5,6 +5,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../'
 from aesara_theano_fallback import aesara as theano
 import astropy
 from astropy.stats import mad_std
+from celerite2.backprop import LinAlgError
 from datetime import datetime
 import gc
 import matplotlib.pyplot as plt
@@ -296,13 +297,19 @@ for obsmode in transitmodel.unique_obsmodes:
     print(f"  {obsmode} : {transitmodel._obsmode_to_supersample(obsmode)}")
 
 
+print("\nOptimizing")
+theta = transitmodel.optimize()
+
+STOPHERE
+
+
 print("\nSampling with DynamicNestedSampler")
-results = transitmodel.sample(progress=True)
+results = transitmodel.sample(progress=False)
 
 filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_runplot.png')
 fig, ax = dynesty_runplot(results, koi_id, filepath=filepath)
 
-for n, p in enumerate(transitmodel.npl):
+for n, p in enumerate(transitmodel.planets):
     filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_traceplot_{n:02d}.png')
     fig, ax = dynesty_traceplot(results, koi_id, n, filepath=filepath)
 
