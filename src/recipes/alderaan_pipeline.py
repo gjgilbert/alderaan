@@ -54,8 +54,9 @@ mission = 'Kepler'
 target = 'K00148'
 run_id = 'develop'
 
-data_dir = '/Users/research/data/MAST_downloads/'
-catalog_csv = os.path.join(project_dir, 'Catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
+project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))
+data_dir = os.path.join(project_dir, 'tests/testdata/')
+catalog_csv = os.path.join(project_dir, 'tests/catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
 
 print("")
 print(f"   MISSION : {mission}")
