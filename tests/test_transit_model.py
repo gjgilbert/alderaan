@@ -13,7 +13,7 @@ import numpy as np
 import shutil
 from src.constants import *
 from src.schema.planet import Planet
-from src.schema.ephemeris import Ephemeris, WarpEphemeris
+from src.schema.ephemeris import Ephemeris
 from src.schema.litecurve import LiteCurve
 from src.modules.detrend import GaussianProcessDetrender
 from src.modules.transit_model.transit_model import ShapeTransitModel, TTimeTransitModel
@@ -51,9 +51,9 @@ mission = 'Kepler'
 target = 'K00148'
 run_id = 'develop'
 
-project_dir = '/Users/research/projects/alderaan/'
-data_dir = '/Users/research/data/MAST_downloads/'
-catalog_csv = os.path.join(project_dir, 'Catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
+project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))
+data_dir = os.path.join(project_dir, 'tests/testdata/')
+catalog_csv = os.path.join(project_dir, 'tests/catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
 
 print("")
 print(f"   MISSION : {mission}")
@@ -127,7 +127,7 @@ for n, p in enumerate(planets):
         planets[n] = p.update_ephemeris(ephemeris)
 
 # load Holczer+2016 catalog
-filepath = os.path.join(project_dir, 'Catalogs/holczer_2016_kepler_ttvs.txt')
+filepath = os.path.join(project_dir, 'tests/catalogs/holczer_2016_kepler_ttvs.txt')
 holczer_ephemerides = parse_holczer16_catalog(filepath, koi_id, NPL)
 
 print(f"\n{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
@@ -302,10 +302,22 @@ theta = transitmodel.optimize()
 planets = transitmodel.update_planet_parameters(theta)
 limbdark = transitmodel.update_limbdark_parameters(theta)
 
-#print("\nFitting independent transit times")
-#ttvmodel = TTimeTransitModel(litecurve, planets, limbdark)
+print("\nFitting independent transit times")
+ttvmodel = TTimeTransitModel(litecurve, planets, limbdark)
 
-print("\nSampling with DynamicNestedSampler")
+for n, p in enumerate(planets):
+    print(f"\nPlanet {n} : fitting {len(p.ephemeris.ttime)} transit times")
+
+    ttime_new, ttime_err_new = ttvmodel.mazeh13_holczer16_method(n, quicklook_dir=quicklook_dir)
+
+    assert len(ttime_new) == len(ttime_err_new)
+    assert len(ttime_new) == len(p.ephemeris.ttime)
+
+    print(f"Planet {n} : {np.sum(~np.isnan(ttime_new))} of {len(ttime_new)} transit times fit successfully")
+
+
+
+'''print("\nSampling with DynamicNestedSampler")
 results = transitmodel.sample(progress=True)
 
 filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_runplot.png')
@@ -316,6 +328,6 @@ for n, p in enumerate(transitmodel.planets):
     fig, ax = dynesty_traceplot(results, koi_id, n, filepath=filepath)
 
     filepath=os.path.join(quicklook_dir, f'{koi_id}_dynesty_cornerplot_{n:02d}.png')
-    fig, ax = dynesty_cornerplot(results, koi_id, n, filepath=filepath, interactive=True)
+    fig, ax = dynesty_cornerplot(results, koi_id, n, filepath=filepath, interactive=True)'''
 
 print("passing")
