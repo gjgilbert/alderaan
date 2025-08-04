@@ -51,9 +51,9 @@ mission = 'Kepler'
 target = 'K00148'
 run_id = 'develop'
 
-project_dir = '/Users/research/projects/alderaan/'
-data_dir = '/Users/research/data/MAST_downloads/'
-catalog_csv = os.path.join(project_dir, 'Catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
+project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))
+data_dir = os.path.join(project_dir, 'tests/testdata/')
+catalog_csv = os.path.join(project_dir, 'tests/catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
 
 print("")
 print(f"   MISSION : {mission}")
@@ -127,7 +127,7 @@ for n, p in enumerate(planets):
         planets[n] = p.update_ephemeris(ephemeris)
 
 # load Holczer+2016 catalog
-filepath = os.path.join(project_dir, 'Catalogs/holczer_2016_kepler_ttvs.txt')
+filepath = os.path.join(project_dir, 'tests/catalogs/holczer_2016_kepler_ttvs.txt')
 holczer_ephemerides = parse_holczer16_catalog(filepath, koi_id, NPL)
 
 print(f"\n{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
