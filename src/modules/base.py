@@ -43,7 +43,7 @@ class BaseAlg():
             self.durs[n] = p.duration
 
         # define lookup
-        self._init_obsmode_tracking()        
+        self._init_obsmode_tracking()
 
 
     def _init_obsmode_tracking(self):

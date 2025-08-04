@@ -4,8 +4,11 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
+from dynesty.utils import print_fn
 import numpy as np
 from scipy.special import erfinv
+import time
+
 
 def prior_transform(uniform_hypercube, fixed_durations):
     """

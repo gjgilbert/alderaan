@@ -1,6 +1,8 @@
 import os
 import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+sys.path.insert(0, project_dir)
 
 from aesara_theano_fallback import aesara as theano
 import astropy
@@ -52,7 +54,6 @@ mission = 'Kepler'
 target = 'K00148'
 run_id = 'develop'
 
-project_dir = '/Users/research/projects/alderaan/'
 data_dir = '/Users/research/data/MAST_downloads/'
 catalog_csv = os.path.join(project_dir, 'Catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
 

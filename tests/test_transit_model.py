@@ -16,7 +16,7 @@ from src.schema.planet import Planet
 from src.schema.ephemeris import Ephemeris, WarpEphemeris
 from src.schema.litecurve import LiteCurve
 from src.modules.detrend import GaussianProcessDetrender
-from src.modules.transit_model.transit_model import TransitModel
+from src.modules.transit_model.transit_model import ShapeTransitModel, TTimeTransitModel
 from src.modules.quicklook import plot_litecurve, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
 from src.utils.io import parse_koi_catalog, parse_holczer16_catalog
 from timeit import default_timer as timer
@@ -290,21 +290,23 @@ print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
 print('\n\nTRANSIT MODEL BLOCK\n')
 
 limbdark = [catalog.limbdark_1[0], catalog.limbdark_2[0]]
-transitmodel = TransitModel(litecurve, planets, limbdark)
+transitmodel = ShapeTransitModel(litecurve, planets, limbdark)
+#ttvmodel = TTimeTransitModel(litecurve, planets, limbdark)
 
 print("Supersample factor")
 for obsmode in transitmodel.unique_obsmodes:
     print(f"  {obsmode} : {transitmodel._obsmode_to_supersample(obsmode)}")
 
-
-print("\nOptimizing")
+print("\Fitting initial transit model")
 theta = transitmodel.optimize()
+planets = transitmodel.update_planet_parameters(theta)
+limbdark = transitmodel.update_limbdark_parameters(theta)
 
-STOPHERE
-
+#print("\nFitting independent transit times")
+#ttvmodel = TTimeTransitModel(litecurve, planets, limbdark)
 
 print("\nSampling with DynamicNestedSampler")
-results = transitmodel.sample(progress=False)
+results = transitmodel.sample(progress=True)
 
 filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_runplot.png')
 fig, ax = dynesty_runplot(results, koi_id, filepath=filepath)
