@@ -153,6 +153,8 @@ if not IPLOT:
 if np.any(np.array(["agg", "png", "svg", "pdf", "ps"]) == mpl.get_backend()):
     IPLOT = False
 
+# flush buffer
+sys.stdout.flush()
 
 # MAIN SCRIPT BEGINS HERE
 def main():
