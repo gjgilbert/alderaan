@@ -19,13 +19,10 @@ if <ENV_NAME> is not specified, the conda environment will be named "alderaan"
 
 # Running the pipeline
 
-Before running the ALDERAAN pipeline, raw photometric lightcurves must be downloaded from the Mikulski Archive for Space Telescopes (MAST). Instructions for accessing these files can be found either at MAST (https://archive.stsci.edu/kepler/download_options.html) or at the Exoplanet Archive (https://exoplanetarchive.ipac.caltech.edu/bulk_data_download/).
+To test running the pipeline, navigate into <LOCAL_DIR> and run the following commmand
 
-ALDERAAN currently uses the Pre-Search Data Conditioning Simple Aperature Photometry (PDC-SAP) data products. These files will be in FITS format and should be placed in a user-specified <DATA_DIRCTORY> on your local machine.
+```
+$ python tests/test_transit_model.py
+```
 
-To run the pipeline, navigate into the cloned repository <LOCAL_DIR>. From there, execute three commands in sequence:
-  1. ``python bin/detrend_and_estimate_ttvs.py``
-  2. ``python bin/analyze_autocorrelated_noise.py``
-  3. ``python bin/fit_transit_shape_*.py``
-
-Each command takes a number of commmand line arguments which must be explicitly given.
+The test is hard-coded to use data from K00148. All the necessary data is in the directory /tests/testdata and /tests/catalogs. `test_transit_model.py` will autmoatically pull from these directories.
