@@ -306,12 +306,14 @@ print("\nFitting independent transit times")
 ttvmodel = TTimeTransitModel(litecurve, planets, limbdark)
 
 for n, p in enumerate(planets):
+    print(f"\nPlanet {n} : fitting {len(p.ephemeris.ttime)} transit times")
+
     ttime_new, ttime_err_new = ttvmodel.mazeh13_holczer16_method(n, quicklook_dir=quicklook_dir)
 
     assert len(ttime_new) == len(ttime_err_new)
     assert len(ttime_new) == len(p.ephemeris.ttime)
 
-    print(f" Planet {n} : {np.sum(~np.isnan(ttime_new))} of {len(ttime_new)} transit times fit successfully")
+    print(f"Planet {n} : {np.sum(~np.isnan(ttime_new))} of {len(ttime_new)} transit times fit successfully")
 
 
 

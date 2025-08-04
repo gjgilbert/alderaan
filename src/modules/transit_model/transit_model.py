@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from copy import deepcopy
 import dynesty
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FormatStrFormatter
 import numpy as np
 import numpy.polynomial.polynomial as poly
 from scipy.optimize import least_squares
@@ -485,6 +486,12 @@ class TTimeTransitModel(TransitModel):
                             ax[0].plot(_t, _f_obs, 'ko')
                             ax[0].plot(_t, _f_mod, c=f'C{planet_no}', lw=3)
 
+                            xticks = np.array([tc-transit_window_size/2, tc, tc+transit_window_size/2]).round(2)
+                            ax[0].set_xticks(xticks)
+                            ax[0].yaxis.set_major_formatter(FormatStrFormatter('%.4f'))
+                            ax[0].set_xlabel("Time [BJKD]", fontsize=14)
+                            ax[0].set_ylabel("Flux", fontsize=14)
+
                             display = np.abs(chisq - qx2_min) < 2.5
 
                             _x = tc_offset[display]
@@ -497,8 +504,15 @@ class TTimeTransitModel(TransitModel):
                             ax[1].axvline(tc_fit[np.argmin(x2_fit)], color='k', ls=':')
                             ax[1].axvline(np.mean(tc_fit), color='k', ls=':')
                             ax[1].axvline(_ttj, color='k', lw=2)
-                            ax[1].set_ylim(-0.5, 2.5)
 
+                            xticks = np.array([_ttj - 1.5 * _errj, _ttj, _ttj + 1.5 * _errj])
+                            ax[1].set_xticks(xticks, np.round(xticks - _ttj, 4))
+                            ax[1].set_ylim(-0.5, 2.5)
+                            ax[1].set_xlabel("$\Delta t_c$", fontsize=14)
+                            ax[1].set_ylabel("$\Delta \chi^2$", fontsize=14)
+                            
+                            plt.suptitle(f"{target} - Planet {planet_no}", fontsize=18)
+                            plt.tight_layout()
                             fig.savefig(path)
                             plt.close()
 
