@@ -1,4 +1,4 @@
-__all__ = ['Ephemeris', 'WarpEphemeris']
+__all__ = ['Ephemeris']
 
 from copy import deepcopy
 import numpy as np
@@ -199,50 +199,3 @@ class Ephemeris:
         self.period, self.epoch = self.fit_linear_ephemeris()
 
         return self
-
-
-class WarpEphemeris(Ephemeris):
-    """
-    WarpEphemeris is used exclusively when fitting a Transit Model
-     * the litecurve.time vector is copied for each of the N planets
-     * times are then "warped" to account for transit timing variations
-     * the transit model assumes linear perturbations to a fixed ephemeris
-        
-    IMPORTANT!!! The warp functions assume zero-indexing on transit indexes
-    """
-    def __init__(self, index, ttime):
-         super().__init__(self, index=index, ttime=ttime)
-         self._set_bins()
-    
-
-    def _set_bins(self):
-        index_full = np.arange(0, self.index.max()+1, dtype=int)
-        ttime_full = self._static_epoch + self._static_period * index_full
-
-        self._bin_edges = np.concatenate(
-            [
-                [ttime_full[0] - 0.5 * self.period],
-                0.5 * (ttime_full[1:] + ttime_full[:-1]),
-                [ttime_full[-1] + 0.5 * self.period],
-            ]
-        )
-
-        self._bin_values = np.concatenate([[ttime_full[0]], ttime_full, [ttime_full[-1]]])
-
-
-    def _get_model_dt(self, t, return_inds=False):
-        _inds = np.searchsorted(self._bin_edges, t)
-        _vals = self._bin_values[_inds]
-
-        if return_inds:
-            return _vals, _inds
-        return _vals
-    
-
-    def _warp_times(self, t, return_inds=False):
-        warps = self._get_model_dt(t, return_inds=return_inds)
-
-        if return_inds:
-            return t - warps[0], warps[1]
-        else:
-            return t - warps

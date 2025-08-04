@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 
 from copy import deepcopy
 import dynesty
+import matplotlib.pyplot as plt
 import numpy as np
 import numpy.polynomial.polynomial as poly
 from scipy.optimize import least_squares
@@ -93,7 +94,6 @@ class TransitModel(BaseAlg):
             return t - warps[0], warps[1]
         else:
             return t - warps
-
 
 
 class ShapeTransitModel(TransitModel):
@@ -322,7 +322,6 @@ class TTimeTransitModel(TransitModel):
         super().__init__(litecurve, planets, limbdark)
 
 
-
     def _construct_template(self, planet_no, obsmode, transit_window_size):
         """
         planet_no (int) : planet number index
@@ -337,7 +336,7 @@ class TTimeTransitModel(TransitModel):
 
         time_template = np.arange(0, transit_window_size/2, exptime/supersample/2, dtype=float)
         time_template = np.hstack([-time_template[:-1][::-1], time_template])
-        flux_template = np.ones_like(time_template)
+        flux_template = np.zeros_like(time_template)
 
         nthreads = 1
         ds = _rsky._rsky(
@@ -355,16 +354,14 @@ class TTimeTransitModel(TransitModel):
             ds, np.abs(p.ror), self.limbdark[0], self.limbdark[1], nthreads
         )
 
-        qld_flux = np.mean(
-            qld_flux.reshape(-1, supersample), axis=1
-        )
-
-        flux_template += qld_flux - 1
+        flux_template += qld_flux
 
         return time_template, flux_template
     
 
-    def mazeh13_holczer16_method(self, planet_no, rel_window_size=5.0, abs_window_size_buffer=1/24):
+    def mazeh13_holczer16_method(
+            self, planet_no, rel_window_size=5.0, abs_window_size_buffer=1/24, quicklook_dir=None,
+        ):
         """
         Docstring
         """
@@ -372,10 +369,13 @@ class TTimeTransitModel(TransitModel):
         lc = self.litecurve
         p = self.planets[planet_no]
 
+        ttime = np.nan * np.ones(len(p.ephemeris.ttime))
+        ttime_err = np.nan * np.ones(len(p.ephemeris.ttime))
+        
         overlap = self.identify_overlapping_transits(rtol=1.0, atol=1.0)
        
-        assert len(p.ttime) == len(overlap[planet_no]), (
-            f"Mismatched sizes for ttime ({len(p.ttime)}) and overlap ({len(overlap[planet_no])})"
+        assert len(p.ephemeris.ttime) == len(overlap[planet_no]), (
+            f"Mismatched sizes for ttime ({len(p.ephemeris.ttime)}) and overlap ({len(overlap[planet_no])})"
         )
 
         transit_obsmode = self.transit_obsmode[planet_no]
@@ -390,82 +390,116 @@ class TTimeTransitModel(TransitModel):
             transit_window_size = rel_window_size * p.duration + abs_window_size_buffer
             time_template, flux_template = self._construct_template(planet_no, obsmode, transit_window_size)
 
-            t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).flatten()
-
-            ttime = np.nan*np.ones(len(p.ttime))
-            ttime_err = np.nan*np.ones(len(p.ttime))
             
-            for j, tc in enumerate(p.ttime):
-                if not overlap[planet_no][j] and p.quality[j] and (transit_obsmode == obsmode):
-                    print(  "Transit {j} : BKJD = {tc:.1f}")
-
+            for j, tc in enumerate(p.ephemeris.ttime):
+                if not overlap[planet_no][j] and p.ephemeris.quality[j] and (transit_obsmode[j] == obsmode):
                     # STEP 0: pull data near a single transit
-                    mask_wide = np.abs(self.litecurve.time - tc) < transit_window_size / 2
-                    mask_narrow = np.abs(self.litecurve.time - tc) < p.duration / 2 + abs_window_size_buffer
+                    in_transit = np.abs(self.litecurve.time - tc) < p.duration / 2 + abs_window_size_buffer
+                    transit_window = np.abs(self.litecurve.time - tc) < transit_window_size / 2
 
-                    _t = lc.time[mask_wide]
-                    _f_obs = lc.flux[mask_wide]
-                    _f_err = lc.error[mask_wide]
+                    if np.sum(in_transit) > 0:
+                        print(f"  Transit {j} : BKJD = {tc:.1f}")
 
-                    # remove any residual out-of-transit trend
-                    use = mask_narrow[mask_wide]
-                    _f_err /= poly.polyval(_t, poly.polyfit(_t[use], _f_obs[use], 1))
-                    
-                    # STEP 1: generate tc_offset vs chisq vectors
-                    gridstep = exptime / supersample / 1.618 / 3
-                    tc_offset = np.arange(0, transit_window_size / 2, gridstep)
-                    tc_offset = tc + np.hstack([-tc_offset[:-1][::-1], tc_offset])
-                    chisq = np.zeros_like(tc_offset)
+                        _t = lc.time[transit_window]
+                        _f_obs = lc.flux[transit_window]
+                        _f_err = lc.error[transit_window]
 
-                    for i, tc_o in enumerate(tc_offset):
-                        _f_mod = np.interp(t_supersample, time_template, flux_template)
-                        _f_mod = bin_data(t_supersample, _f_mod, exptime, bin_centers=_t)
+                        _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).flatten()
 
-                        chisq[i] = np.sum(((_f_obs - _f_obs) / _f_err)**2)
+                        # remove any residual out-of-transit trend
+                        use = ~in_transit[transit_window]
+                        try:
+                            _f_obs /= poly.polyval(_t, poly.polyfit(_t[use], _f_obs[use], 1))
+                        except TypeError:
+                            pass
 
-                    # STEP 2: isolate relevant portions of {tc_offset, chisq} vectors
-                    delta_chisq = 2.0
+                        # STEP 1: generate tc_offset vs chisq vectors
+                        gridstep = exptime / supersample / 1.618 / 3
+                        tc_offset = np.arange(0, transit_window_size / 2, gridstep)
+                        tc_offset = tc + np.hstack([-tc_offset[:-1][::-1], tc_offset])
+                        chisq = np.zeros_like(tc_offset)
 
-                    loop = True
-                    while loop:
-                        # grab data near chisq minimum
-                        tc_fit = tc_offset[chisq < chisq.min() + delta_chisq]
-                        x2_fit = chisq[chisq < chisq.min() + delta_chisq]
+                        for i, tc_o in enumerate(tc_offset):
+                            _f_mod = np.interp(_t_supersample - tc_o, time_template, flux_template)
+                            _f_mod = bin_data(_t_supersample, _f_mod, exptime, bin_centers=_t)[1]
 
-                        # eliminate points far from the local minimum
-                        faraway = np.abs(tc_fit - np.median(tc_fit)) / np.median(np.diff(tc_fit)) > 1 + 0.5*len(tc_fit)
+                            chisq[i] = np.sum(((_f_obs - _f_mod) / _f_err)**2)
 
-                        tc_fit = tc_fit[~faraway]
-                        x2_fit = x2_fit[~faraway]
+                        # STEP 2: isolate relevant portions of {tc_offset, chisq} vectors
+                        delta_chisq = 2.0
 
-                        # check stopping conditions
-                        if len(x2_fit) > 7:
-                            loop = False
-                        if delta_chisq >= 16:
-                            loop = False
+                        loop = True
+                        while loop:
+                            # grab data near chisq minimum
+                            tc_fit = tc_offset[chisq < chisq.min() + delta_chisq]
+                            x2_fit = chisq[chisq < chisq.min() + delta_chisq]
 
-                        # increment chisq
-                        chisq *= np.sqrt(2)
+                            # eliminate points far from the local minimum
+                            faraway = np.abs(tc_fit - np.median(tc_fit)) / np.median(np.diff(tc_fit)) > 1 + 0.5*len(tc_fit)
 
-                    # STEP 3: fit a parabola to local chisq minimum
-                    if len(tc_fit) > 3:
-                        # polynomial fitting
-                        quad_coeffs = np.polyfit(tc_fit, x2_fit, 2)
-                        quad_model = np.polyval(quad_coeffs, tc_fit)
-                        qtc_min = -quad_coeffs[1] / (2 * quad_coeffs[0])
-                        qx2_min = np.polyval(quad_coeffs, qtc_min)
-                        qtc_err = np.sqrt(1 / quad_coeffs[0])
+                            tc_fit = tc_fit[~faraway]
+                            x2_fit = x2_fit[~faraway]
 
-                        # transit time and scaled error
-                        _ttj = np.nanmean([qtc_min, np.mean(tc_fit)])
-                        _errj = qtc_err * (1 + np.std(x2_fit - quad_model))
+                            # check stopping conditions
+                            if len(x2_fit) > 7:
+                                loop = False
+                            if delta_chisq >= 16:
+                                loop = False
 
-                        # check that the fit is well-conditioned
-                        convex_local_min = quad_coeffs[0] > 0
-                        within_bounds = (_ttj > tc_fit.min()) and (_ttj < tc_fit.max())
+                            # increment chisq
+                            delta_chisq *= np.sqrt(2)
 
-                        if convex_local_min and within_bounds:
+                        # STEP 3: fit a parabola to local chisq minimum
+                        if len(tc_fit) > 3:
+                            # polynomial fitting
+                            quad_coeffs = np.polyfit(tc_fit, x2_fit, 2)
+                            quad_model = np.polyval(quad_coeffs, tc_fit)
+                            qtc_min = -quad_coeffs[1] / (2 * quad_coeffs[0])
+                            qx2_min = np.polyval(quad_coeffs, qtc_min)
+                            qtc_err = np.sqrt(1 / quad_coeffs[0])
+
+                            # transit time and scaled error
+                            _ttj = np.nanmean([qtc_min, np.mean(tc_fit)])
+                            _errj = qtc_err * (1 + np.std(x2_fit - quad_model))
+
+                            # check that the fit is well-conditioned
+                            convex_local_min = quad_coeffs[0] > 0
+                            within_bounds = (_ttj > tc_fit.min()) and (_ttj < tc_fit.max())
+
+                            #if convex_local_min and within_bounds:
                             ttime[j] = _ttj.copy()
                             ttime_err[j] = _errj.copy()
+
+                        # STEP 4: make quicklook plot
+                        if (quicklook_dir is not None) and (len(_f_obs) > 0):
+                            target = 'K00148'
+                            ttv_dir = os.path.join(quicklook_dir, 'ttvs')
+                            os.makedirs(ttv_dir, exist_ok=True)
+                            path = os.path.join(ttv_dir, f'{target}_{planet_no}_ttv_{j}.png')
+
+                            _f_mod = np.interp(_t_supersample - _ttj, time_template, flux_template)
+                            _f_mod = bin_data(_t_supersample, _f_mod, exptime, bin_centers=_t)[1]
+                            
+                            fig, ax = plt.subplots(1,2, figsize=(8,3))
+                            
+                            ax[0].plot(_t, _f_obs, 'ko')
+                            ax[0].plot(_t, _f_mod, c=f'C{planet_no}', lw=3)
+
+                            display = np.abs(chisq - qx2_min) < 2.5
+
+                            _x = tc_offset[display]
+                            _y_obs = (chisq-qx2_min)[display]
+                            _y_mod = np.polyval(quad_coeffs, _x) - qx2_min
+
+                            ax[1].plot(_x, _y_obs, 'o', mec='k', mfc='w')
+                            ax[1].plot(_x, _y_mod, c=f'C{planet_no}', lw=3)
+                            ax[1].axvline(qtc_min, color='k', ls=':')
+                            ax[1].axvline(tc_fit[np.argmin(x2_fit)], color='k', ls=':')
+                            ax[1].axvline(np.mean(tc_fit), color='k', ls=':')
+                            ax[1].axvline(_ttj, color='k', lw=2)
+                            ax[1].set_ylim(-0.5, 2.5)
+
+                            fig.savefig(path)
+                            plt.close()
 
         return ttime, ttime_err
