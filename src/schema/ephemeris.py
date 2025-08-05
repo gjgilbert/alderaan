@@ -100,9 +100,6 @@ class Ephemeris:
         assert not hasattr(self, '_static_epoch'), "attribute '_static_epoch' already exists"
         self._static_epoch = np.copy(self.epoch)
 
-        assert not hasattr(self, '_static_ephemeris'), "attribute '_static_ephemeris' already exists"
-        self._static_ephemeris = np.copy(self.eval_linear_ephemeris())
-
 
     def fit_linear_ephemeris(self):
         """

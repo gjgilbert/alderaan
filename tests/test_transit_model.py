@@ -17,6 +17,7 @@ from src.schema.ephemeris import Ephemeris
 from src.schema.litecurve import LiteCurve
 from src.modules.detrend import GaussianProcessDetrender
 from src.modules.transit_model.transit_model import ShapeTransitModel, TTimeTransitModel
+from src.modules.quality_control import QualityControl
 from src.modules.quicklook import plot_litecurve, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
 from src.utils.io import parse_koi_catalog, parse_holczer16_catalog
 from timeit import default_timer as timer
@@ -283,6 +284,49 @@ gc.collect()
 print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
 
 
+# ##################### #
+# QUALITY CONTROL BLOCK #
+# ##################### #
+
+print("\n\nQUALITY CONTROL BLOCK")
+
+qc = QualityControl(LiteCurve(litecurves), planets)
+
+# check for transits with poor photometric coverage
+with warnings.catch_warnings(record=True) as catch:
+    warnings.simplefilter('always', category=RuntimeWarning)
+    coverage = qc.check_coverage()
+
+# check for transits with unusually high noise
+with warnings.catch_warnings(record=True) as catch:
+    warnings.simplefilter('always', category=RuntimeWarning)
+    good_rms = qc.check_rms(rel_size=3.0, abs_size=2/24, sigma_cut=5.0)
+
+for n, p in enumerate(planets):
+    print(f"\n  Planet {n}:")
+
+    assert len(coverage[n]) == len(p.ephemeris.ttime)
+    assert len(good_rms[n]) == len(p.ephemeris.ttime)
+
+    _nbad = np.sum(~coverage[n])
+    _ntot = len(coverage[n])
+    print(f"    {np.sum(_nbad)} of {_ntot} transits ({int(100*_nbad/_ntot)}%) rejected for insufficent photometric coverage")
+
+    _nbad = np.sum(~good_rms[n] & coverage[n])
+    _ntot = len(good_rms[n])
+    print(f"    {np.sum(_nbad)} of {_ntot} transits ({int(100*_nbad/_ntot)}%) rejected for high photometric noise")
+    
+    planets[n].ephemeris.quality = coverage[n] & good_rms[n]
+
+# end-of-block cleanup
+sys.stdout.flush()
+sys.stderr.flush()
+plt.close('all')
+gc.collect()
+
+print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
+
+
 # ################### #
 # TRANSIT MODEL BLOCK #
 # ################### #
@@ -306,14 +350,17 @@ print("\nFitting independent transit times")
 ttvmodel = TTimeTransitModel(litecurve, planets, limbdark)
 
 for n, p in enumerate(planets):
-    print(f"\nPlanet {n} : fitting {len(p.ephemeris.ttime)} transit times")
+    print(f"\nPlanet {n} : fitting {np.sum(p.ephemeris.quality)} transit times")
 
     ttime_new, ttime_err_new = ttvmodel.mazeh13_holczer16_method(n, quicklook_dir=quicklook_dir)
 
     assert len(ttime_new) == len(ttime_err_new)
     assert len(ttime_new) == len(p.ephemeris.ttime)
 
-    print(f"Planet {n} : {np.sum(~np.isnan(ttime_new))} of {len(ttime_new)} transit times fit successfully")
+    _nfit = np.sum(~np.isnan(ttime_new))
+    _ntot = np.sum(p.ephemeris.quality)
+
+    print(f"Planet {n} : {_nfit} of {_ntot} transit times ({_nfit / _ntot * 100:.1f}%) fit successfully")
 
 
 

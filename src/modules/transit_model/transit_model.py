@@ -399,7 +399,7 @@ class TTimeTransitModel(TransitModel):
                     transit_window = np.abs(self.litecurve.time - tc) < transit_window_size / 2
 
                     if np.sum(in_transit) > 0:
-                        print(f"  Transit {j} : BKJD = {tc:.1f}")
+                        print(f"  Transit {p.ephemeris.index[j]} : BKJD = {tc:.1f}")
 
                         _t = lc.time[transit_window]
                         _f_obs = lc.flux[transit_window]

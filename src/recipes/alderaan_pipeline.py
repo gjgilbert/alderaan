@@ -371,8 +371,6 @@ for n, p in enumerate(planets):
     assert len(coverage[n]) == len(p.ephemeris.ttime)
     assert len(good_rms[n]) == len(p.ephemeris.ttime)
 
-    planets[n].quality = coverage[n] & good_rms[n]
-
     _nbad = np.sum(~coverage[n])
     _ntot = len(coverage[n])
     print(f"    {np.sum(_nbad)} of {_ntot} transits ({int(100*_nbad/_ntot)}%) rejected for insufficent photometric coverage")
@@ -381,6 +379,7 @@ for n, p in enumerate(planets):
     _ntot = len(good_rms[n])
     print(f"    {np.sum(_nbad)} of {_ntot} transits ({int(100*_nbad/_ntot)}%) rejected for high photometric noise")
     
+    planets[n].ephemeris.quality = coverage[n] & good_rms[n]
 
 # end-of-block cleanup
 sys.stdout.flush()
