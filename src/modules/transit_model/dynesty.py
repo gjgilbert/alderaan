@@ -5,6 +5,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from dynesty.utils import print_fn
+import io
 import numpy as np
 from scipy.special import erfinv
 import time
@@ -128,11 +129,21 @@ def _norm_ppf(u, mu, sig, eps=1e-12):
 
 def throttled_print_fn(interval=10):
     last = [0]
+    start = time.time()
 
     def callback(results, niter, ncall, *args, **kwargs):
         now = time.time()
         if now - last[0] >= interval:
+            runtime = (now - start)/60
+
+            buf = io.StringIO()
+            stdout = sys.stdout
+            sys.stdout = buf
             print_fn(results, niter, ncall, *args, **kwargs)
+            sys.stdout = stdout
+
+            line = buf.getvalue().rstrip()
+            print(f"{line} | runtime: {runtime:.1f} min")
             last[0] = now
 
     return callback

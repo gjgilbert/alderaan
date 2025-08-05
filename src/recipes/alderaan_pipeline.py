@@ -19,8 +19,9 @@ from src.schema.litecurve import LiteCurve
 from src.schema.planet import Planet
 from src.modules.detrend import GaussianProcessDetrender
 from src.modules.omc import OMC
+from src.modules.transit_model.transit_model import ShapeTransitModel, TTimeTransitModel
 from src.modules.quality_control import QualityControl
-from src.modules.quicklook import plot_litecurve, plot_omc
+from src.modules.quicklook import plot_litecurve, plot_omc, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
 from src.utils.io import parse_koi_catalog, parse_holczer16_catalog, copy_input_target_catalog
 from timeit import default_timer as timer
 import warnings
@@ -334,9 +335,12 @@ for j, detrender in enumerate(detrenders):
                 progressbar=False
             )
 
+# recombine litecurves
+litecurve = LiteCurve(litecurves)
+
 # quicklook litecurve
 filepath = os.path.join(quicklook_dir, f"{target}_litecurve_detrended.png")
-_ = plot_litecurve(LiteCurve(litecurves), target, planets, filepath)
+_ = plot_litecurve(litecurve, target, planets, filepath)
 
 # end-of-block cleanup
 sys.stdout.flush()
@@ -353,7 +357,7 @@ print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
 
 print("\n\nQUALITY CONTROL BLOCK")
 
-qc = QualityControl(LiteCurve(litecurves), planets)
+qc = QualityControl(litecurve, planets)
 
 # check for transits with poor photometric coverage
 with warnings.catch_warnings(record=True) as catch:
@@ -388,3 +392,51 @@ plt.close('all')
 gc.collect()
 
 print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
+
+
+# ################### #
+# TRANSIT MODEL BLOCK #
+# ################### #
+
+print('\n\nTRANSIT MODEL BLOCK\n')
+
+limbdark = [catalog.limbdark_1[0], catalog.limbdark_2[0]]
+transitmodel = ShapeTransitModel(litecurve, planets, limbdark)
+
+print("Supersample factor")
+for obsmode in transitmodel.unique_obsmodes:
+    print(f"  {obsmode} : {transitmodel._obsmode_to_supersample(obsmode)}")
+
+print("\Fitting initial transit model")
+theta = transitmodel.optimize()
+planets = transitmodel.update_planet_parameters(theta)
+limbdark = transitmodel.update_limbdark_parameters(theta)
+
+print("\nFitting independent transit times")
+ttvmodel = TTimeTransitModel(litecurve, planets, limbdark)
+
+for n, p in enumerate(planets):
+    print(f"\nPlanet {n} : fitting {np.sum(p.ephemeris.quality)} transit times")
+
+    ttime_new, ttime_err_new = ttvmodel.mazeh13_holczer16_method(n, quicklook_dir=quicklook_dir)
+
+    assert len(ttime_new) == len(ttime_err_new)
+    assert len(ttime_new) == len(p.ephemeris.ttime)
+
+    _nfit = np.sum(~np.isnan(ttime_new))
+    _ntot = np.sum(p.ephemeris.quality)
+
+    print(f"Planet {n} : {_nfit} of {_ntot} transit times ({_nfit / _ntot * 100:.1f}%) fit successfully")
+
+print("\nSampling with DynamicNestedSampler")
+results = transitmodel.sample(progress_every=10)
+
+filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_runplot.png')
+fig, ax = dynesty_runplot(results, koi_id, filepath=filepath)
+
+for n, p in enumerate(transitmodel.planets):
+    filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_traceplot_{n:02d}.png')
+    fig, ax = dynesty_traceplot(results, koi_id, n, filepath=filepath)
+
+    filepath=os.path.join(quicklook_dir, f'{koi_id}_dynesty_cornerplot_{n:02d}.png')
+    fig, ax = dynesty_cornerplot(results, koi_id, n, filepath=filepath, interactive=True)

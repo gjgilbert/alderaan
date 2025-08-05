@@ -183,13 +183,12 @@ class Ephemeris:
     def update_from_omc(self, omc):
         assert np.all(np.isclose(self._static_period, omc._static_period, rtol=1e-12)), "static periods do not match"
         assert np.all(np.isclose(self._static_epoch, omc._static_epoch, rtol=1e-12)), "static epochs do not match"
-        assert np.all(np.isclose(self._static_ephemeris, omc._static_ephemeris, rtol=1e-12)), "static ephemerides do not match"
 
         if len(self.ttime) != len(omc.xtime):
             warnings.warn(f"updated ephemeris has {len(omc.xtime)} transit times (was {len(self.ttimes)})")
         
         self.index = omc.index.copy()
-        self.ttime = omc._static_ephemeris + omc.ymod
+        self.ttime = self._static_epoch + self._static_period*self.index + omc.ymod
         self.error = omc.yerr.copy()
         self.quality = omc.quality.copy()
 

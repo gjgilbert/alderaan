@@ -383,7 +383,7 @@ class TTimeTransitModel(TransitModel):
         transit_obsmode = self.transit_obsmode[planet_no]
 
         for obsmode in self.unique_obsmodes:
-            print(f"Determining transit times using {obsmode} data")
+            print(f"  Determining transit times using {obsmode} data")
 
             exptime = self._exptime_lookup[obsmode]
             supersample = self._supersample_lookup[obsmode]
@@ -394,22 +394,22 @@ class TTimeTransitModel(TransitModel):
 
             
             for j, tc in enumerate(p.ephemeris.ttime):
-                if not overlap[planet_no][j] and p.ephemeris.quality[j] and (transit_obsmode[j] == obsmode):
+                if (not overlap[planet_no][j]) and (p.ephemeris.quality[j]) and (transit_obsmode[j] == obsmode):
+                    #print(f"  Transit {p.ephemeris.index[j]} : BKJD = {tc:.1f}")
+                    
                     # STEP 0: pull data near a single transit
-                    in_transit = np.abs(self.litecurve.time - tc) < p.duration / 2 + abs_window_size_buffer
-                    transit_window = np.abs(self.litecurve.time - tc) < transit_window_size / 2
-
+                    in_transit = np.abs(self.litecurve.time - tc) < p.duration / 2
+                    in_window = np.abs(self.litecurve.time - tc) < transit_window_size / 2
+                    
                     if np.sum(in_transit) > 0:
-                        print(f"  Transit {p.ephemeris.index[j]} : BKJD = {tc:.1f}")
-
-                        _t = lc.time[transit_window]
-                        _f_obs = lc.flux[transit_window]
-                        _f_err = lc.error[transit_window]
+                        _t = lc.time[in_window]
+                        _f_obs = lc.flux[in_window]
+                        _f_err = lc.error[in_window]
 
                         _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).flatten()
 
                         # remove any residual out-of-transit trend
-                        use = ~in_transit[transit_window]
+                        use = ~in_transit[in_window]
                         try:
                             _f_obs /= poly.polyval(_t, poly.polyfit(_t[use], _f_obs[use], 1))
                         except TypeError:
