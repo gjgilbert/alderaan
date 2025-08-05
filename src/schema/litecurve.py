@@ -134,8 +134,10 @@ class LiteCurve:
         self.error = np.array(lklc.flux_err.value, dtype=float)
         self.cadno = np.array(lklc.cadenceno.value, dtype=int)
         self.quarter = np.array(lklc.quarter, dtype=int)
-        self.season = np.array(lklc.season, dtype=int)
         self.obsmode = np.array([obsmode]*len(self.cadno), dtype=str)
+        self.quality = np.array(lklc.quality.value, dtype=int)
+        self.season = np.array(lklc.season, dtype=int)
+        
         
         # remove cadences flagged by Kepler project pipeline
         self = self._remove_flagged_cadences(lklc.quality)
