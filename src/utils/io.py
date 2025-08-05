@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 import numpy as np
 import pandas as pd
+from pandas.testing import assert_frame_equal
 from src.schema.ephemeris import Ephemeris
 
 __all__ = ['parse_koi_catalog',
@@ -95,3 +96,19 @@ def parse_holczer16_catalog(filepath, koi_id, num_planets):
             ephemerides.append(Ephemeris(index=index[use], ttime=ttime[use], error=error[use]))
 
     return ephemerides
+
+
+def copy_input_target_catalog(filepath_master, filepath_copy):
+    df_master = pd.read_csv(filepath_master, index_col=0)
+    
+    if os.path.exists(filepath_copy):
+        df_copy = pd.read_csv(filepath_copy, index_col=0)
+
+        try:
+            assert_frame_equal(df_master, df_copy, check_like=True)
+        except AssertionError:
+            print(f"AssertionError: existing file {filepath_copy} does not match active file {filepath_master}")
+
+    else:
+        os.makedirs(os.path.dirname(filepath_copy), exist_ok=True)
+        df_master.to_csv(filepath_copy)
