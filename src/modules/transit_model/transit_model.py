@@ -15,7 +15,7 @@ import numpy as np
 import numpy.polynomial.polynomial as poly
 from scipy.optimize import least_squares
 from src.modules.base import BaseAlg
-from src.modules.transit_model.dynesty import prior_transform
+from src.modules.transit_model.dynesty import prior_transform, throttled_print_fn
 from src.utils.astro import bin_data, estimate_transit_depth
 
 from batman import _rsky
@@ -190,7 +190,7 @@ class ShapeTransitModel(TransitModel):
         return lnlike
     
 
-    def sample(self, checkpoint_file=None, checkpoint_every=60, progress=10):
+    def sample(self, checkpoint_file=None, checkpoint_every=60, progress_every=10):
         ndim = 5 * self.npl + 2
         sampler = dynesty.DynamicNestedSampler(
             self.ln_likelihood, 
@@ -204,7 +204,8 @@ class ShapeTransitModel(TransitModel):
         sampler.run_nested(
             checkpoint_file=checkpoint_file,
             checkpoint_every=checkpoint_every,
-            print_progress=progress,
+            print_progress=True,
+            print_func=throttled_print_fn(progress_every),
         )
         
         return sampler.results

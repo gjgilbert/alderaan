@@ -363,9 +363,8 @@ for n, p in enumerate(planets):
     print(f"Planet {n} : {_nfit} of {_ntot} transit times ({_nfit / _ntot * 100:.1f}%) fit successfully")
 
 
-
-'''print("\nSampling with DynamicNestedSampler")
-results = transitmodel.sample(progress=True)
+print("\nSampling with DynamicNestedSampler")
+results = transitmodel.sample(progress_every=10)
 
 filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_runplot.png')
 fig, ax = dynesty_runplot(results, koi_id, filepath=filepath)
@@ -375,6 +374,6 @@ for n, p in enumerate(transitmodel.planets):
     fig, ax = dynesty_traceplot(results, koi_id, n, filepath=filepath)
 
     filepath=os.path.join(quicklook_dir, f'{koi_id}_dynesty_cornerplot_{n:02d}.png')
-    fig, ax = dynesty_cornerplot(results, koi_id, n, filepath=filepath, interactive=True)'''
+    fig, ax = dynesty_cornerplot(results, koi_id, n, filepath=filepath, interactive=True)
 
 print("passing")

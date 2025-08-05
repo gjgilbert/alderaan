@@ -124,3 +124,15 @@ def _norm_ppf(u, mu, sig, eps=1e-12):
             transformed samples from Normal distribution
     """
     return mu + sig * np.sqrt(2) * erfinv((2 * u - 1) / (1 + eps))
+
+
+def throttled_print_fn(interval=10):
+    last = [0]
+
+    def callback(results, niter, ncall, *args, **kwargs):
+        now = time.time()
+        if now - last[0] >= interval:
+            print_fn(results, niter, ncall, *args, **kwargs)
+            last[0] = now
+
+    return callback
