@@ -94,7 +94,7 @@ koi_id = catalog.koi_id[0]
 kic_id = int(catalog.kic_id[0])
 
 # load lightcurves
-litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP', quarters=[2])
+litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP', quarters=[2,3,4])
 
 t_min = litecurve_master.time.min()
 t_max = litecurve_master.time.max()
@@ -271,9 +271,12 @@ for j, detrender in enumerate(detrenders):
                 progressbar=False
             )
 
+# recombine litecurves
+litecurve = LiteCurve(litecurves)
+
 # quicklook litecurve
 filepath = os.path.join(quicklook_dir, f"{target}_litecurve_detrended.png")
-_ = plot_litecurve(LiteCurve(litecurves), target, planets, filepath)
+_ = plot_litecurve(litecurve, target, planets, filepath)
 
 # end-of-block cleanup
 sys.stdout.flush()
@@ -290,7 +293,7 @@ print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
 
 print("\n\nQUALITY CONTROL BLOCK")
 
-qc = QualityControl(LiteCurve(litecurves), planets)
+qc = QualityControl(litecurve, planets)
 
 # check for transits with poor photometric coverage
 with warnings.catch_warnings(record=True) as catch:
@@ -335,7 +338,6 @@ print('\n\nTRANSIT MODEL BLOCK\n')
 
 limbdark = [catalog.limbdark_1[0], catalog.limbdark_2[0]]
 transitmodel = ShapeTransitModel(litecurve, planets, limbdark)
-#ttvmodel = TTimeTransitModel(litecurve, planets, limbdark)
 
 print("Supersample factor")
 for obsmode in transitmodel.unique_obsmodes:
@@ -361,7 +363,6 @@ for n, p in enumerate(planets):
     _ntot = np.sum(p.ephemeris.quality)
 
     print(f"Planet {n} : {_nfit} of {_ntot} transit times ({_nfit / _ntot * 100:.1f}%) fit successfully")
-
 
 print("\nSampling with DynamicNestedSampler")
 results = transitmodel.sample(progress_every=10)

@@ -40,7 +40,6 @@ class OMC:
     def _set_static_references(self, ephemeris):
         self._static_period = ephemeris._static_period.copy()
         self._static_epoch = ephemeris._static_epoch.copy()
-        self._static_ephemeris = ephemeris._static_ephemeris.copy()
 
 
     def quick_flag_outliers(self, sigma_cut=5.0):

@@ -34,13 +34,14 @@ class QualityControl(BaseAlg):
             quality[n] = np.zeros(len(p.ephemeris.ttime), dtype='bool')
 
             for i, tc in enumerate(p.ephemeris.ttime):
+
                 in_transit = np.abs(lc.time - tc) / p.duration < 0.5
                 near_transit = np.abs(lc.time - tc) / p.duration < 1.5
 
-                enough_pts_in = np.sum(in_transit) > 0.5 * count_expected[i]
-                enough_pts_near = np.sum(near_transit) > 1.5 * count_expected[i]
+                enough_pts_in = np.sum(in_transit) >= 0.5 * count_expected[i]
+                enough_pts_near = np.sum(near_transit) >= 1.5 * count_expected[i]
 
-                quality[n][i] = enough_pts_in & enough_pts_near
+                quality[n][i] = enough_pts_in and enough_pts_near
 
             f_quality = np.sum(quality[n]) / len(quality[n])
 
@@ -51,7 +52,7 @@ class QualityControl(BaseAlg):
 
             
     def check_rms(self, rel_size=None, abs_size=None, sigma_cut=5.0):
-        if (rel_size is None) & (abs_size is None):
+        if (rel_size is None) and (abs_size is None):
             raise ValueError("either rel_size or abs_size must be provided")
         
         if rel_size is None:
@@ -76,7 +77,7 @@ class QualityControl(BaseAlg):
             quality[n] = np.ones(len(p.ephemeris.ttime), dtype='bool')
 
             for om in np.unique(np.array(obsmode[n])):
-                use = (obsmode[n]== om) & ~overlap[n]
+                use = (obsmode[n]== om) & overlap[n]
                 rms_mu = np.nanmedian(rms[use])
                 rms_sd = mad_std(rms[use], ignore_nan=True)
 
