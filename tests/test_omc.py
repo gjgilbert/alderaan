@@ -2,41 +2,131 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from aesara_theano_fallback import aesara as theano
+import astropy
 from astropy.stats import mad_std
+from datetime import datetime
+import gc
+import matplotlib.pyplot as plt
 import numpy as np
 from src.utils.io import parse_koi_catalog, parse_holczer16_catalog
 from src.schema.planet import Planet
 from src.schema.ephemeris import Ephemeris
+from src.schema.litecurve import LiteCurve
 from src.modules.omc import OMC
+from src.modules.quicklook import plot_litecurve, plot_omc
+import shutil
+from timeit import default_timer as timer
 import warnings
 
-warnings.simplefilter('always', UserWarning)
+# #################### #
+# Initialization Block #
+########################
 
-koi_id = 'K00148'
+# flush buffer
+sys.stdout.flush()
+sys.stderr.flush()
+
+# filter warnings
+warnings.simplefilter('always', UserWarning)
+warnings.filterwarnings(
+    action='ignore', category=astropy.units.UnitsWarning, module='astropy'
+)
+
+# start program timer
+global_start_time = timer()
+
+print("")
+print("+" * shutil.get_terminal_size().columns)
+print("ALDERAAN Pipeline")
+print(f"Initialized {datetime.now().strftime('%d-%b-%Y at %H:%M:%S')}")
+print("+" * shutil.get_terminal_size().columns)
+print("")
+
+# hard-code inputs
+mission = 'Kepler'
+target = 'K00148'
+run_id = 'develop'
+
+project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))
+data_dir = os.path.join(project_dir, 'tests/testdata/')
+catalog_csv = os.path.join(project_dir, 'tests/catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
+
+print("")
+print(f"   MISSION : {mission}")
+print(f"   TARGET  : {target}")
+print(f"   RUN ID  : {run_id}")
+print("")
+print(f"   Project directory : {project_dir}")
+print(f"   Data directory    : {data_dir}")
+print(f"   Input catalog     : {catalog_csv}")
+print("")
+print(f"   theano cache : {theano.config.compiledir}")
+print("")
+
+# build directory structure
+outputs_dir = os.path.join(project_dir, 'outputs')
+os.makedirs(outputs_dir, exist_ok=True)
+
+results_dir = os.path.join(outputs_dir, 'results', run_id, target)
+os.makedirs(results_dir, exist_ok=True)
+
+quicklook_dir = os.path.join(outputs_dir, 'quicklook', run_id, target)
+os.makedirs(quicklook_dir, exist_ok=True)
+
+# ######### #
+# I/O Block #
+# ######### #
+
+print('\n\nI/O BLOCK\n')
 
 # load KOI catalog
-filepath = '/Users/research/projects/alderaan/Catalogs/kepler_dr25_gaia_dr2_crossmatch.csv'
-catalog = parse_koi_catalog(filepath, koi_id)
+catalog = parse_koi_catalog(catalog_csv, target)
 
 assert np.all(np.diff(catalog.period) > 0), "Planets should be ordered by ascending period"
 
 NPL = int(catalog.npl[0])
-planets = [None]*NPL
+koi_id = catalog.koi_id[0]
+kic_id = int(catalog.kic_id[0])
 
-print(f"{NPL} planets loaded for {koi_id}")
+# load lightcurves
+litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP')
 
-for i in range(NPL):
-    planets[i] = Planet(catalog, koi_id, i)
-    print(i, planets[i].period)
+t_min = litecurve_master.time.min()
+t_max = litecurve_master.time.max()
+if t_min < 0:
+    raise ValueError("Lightcurve has negative timestamps...this will cause problems")
+
+# split litecurves by quarter
+litecurves = litecurve_master.split_quarters()
+
+for j, litecurve in enumerate(litecurves):
+    assert len(np.unique(litecurve.quarter)) == 1, "expected one quarter per litecurve"
+    assert len(np.unique(litecurve.obsmode)) == 1, "expected one obsmode per litecurve"
+
+print(f"{len(litecurves)} litecurves loaded for {target}")
+
+# initialize planets (catch no ephemeris warning)
+with warnings.catch_warnings(record=True) as catch:
+    warnings.simplefilter('always', category=UserWarning)
+    planets = [None]*NPL
+    for n in range(NPL):
+        planets[n] = Planet(catalog, target, n)
+
+print(f"\n{NPL} planets loaded for {target}")
+print([np.round(p.period,6) for p in planets])
+
+# update planet ephemerides
+for n, p in enumerate(planets):
+    if p.ephemeris is None:
+        _ephemeris = Ephemeris(period=p.period, epoch=p.epoch, t_min=t_min, t_max=t_max)
+        planets[n] = p.update_ephemeris(_ephemeris)
 
 # load Holczer+2016 catalog
-filepath = '/Users/research/projects/alderaan/Catalogs/holczer_2016_kepler_ttvs.txt'
+filepath = os.path.join(project_dir, 'Catalogs/holczer_2016_kepler_ttvs.txt')
 holczer_ephemerides = parse_holczer16_catalog(filepath, koi_id, NPL)
 
-print(f"{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
-
-for i, ephem in enumerate(holczer_ephemerides):
-    print(i, ephem.period)
+print(f"\n{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
 
 # match Holczer ephemerides to Planets
 count = 0
@@ -46,112 +136,80 @@ for n, p in enumerate(planets):
         match = np.isclose(ephem.period, p.period, rtol=0.01, atol=p.duration)
 
         if match:
+            print(f"  Planet {n} : {p.period:.6f} --> {ephem.period:.6f}")
             planets[n] = p.update_ephemeris(ephem)
             count += 1
 
-print(f"{count} matching ephemerides found for {NPL} planets")
+print(f"{count} matching ephemerides found ({len(holczer_ephemerides)} expected)")
 
-for n, p in enumerate(planets):
-    print(n, p.period)
+# quicklook litecurve
+filepath = os.path.join(quicklook_dir, f"{target}_litecurve_raw.png")
+_ = plot_litecurve(litecurve_master, target, planets, filepath)
+
+# end-of-block cleanup
+sys.stdout.flush()
+sys.stderr.flush()
+plt.close('all')
+gc.collect()
+
+print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
+
+
+# ######### #
+# OMC Block #
+# ######### #
+
+print('\n\nOMC BLOCK (initialization)\n')
+print("regularizing ephemerides")
 
 # initialize OMC object for each planet
 omc_list = []
 for n, p in enumerate(planets):
     omc_list.append(OMC(p.ephemeris))
 
-# identify significant frequencies
-if NPL == 1:
-    critical_fap = 0.1
-elif NPL > 1:
-    critical_fap = 0.99
-
+# fit a regularized model
 for n, p in enumerate(planets):
-    omc = omc_list[n]
-    omc.peakfreq, omc.peakfap = omc.identify_significant_frequencies(critical_fap)
-
-    print(n, p.period, omc.peakfreq, omc.peakfap)
-
-# in multi-planet systems, check for closely matching, low significance frequencies
-if NPL > 1:
-    freqs = [None]*NPL
-    faps = [None]*NPL
-    close = [False]*NPL
-
-    for i in range(NPL):
-        if omc_list[i].peakfreq is not None:
-            freqs[i] = omc_list[i].peakfreq
-            faps[i] = omc_list[i].peakfap
-        else:
-            freqs[i] = np.nan
-            faps[i] = np.nan
-
-    for i in range(NPL):
-        if faps[i] > 0.1:
-            df_min = 1 / (omc_list[i].xtime.max() - omc_list[i].xtime.min())
-            for j in range(i+1, NPL):
-                df_ij = np.abs(freqs[i]-freqs[j])
-                if df_ij < df_min:
-                    close[i] = True
-                    close[j] = True
-
-    for i in range(NPL):
-        if (faps[i] > 0.1) & (not close[i]):
-            omc_list[i].peakfreq = None
-            omc_list[i].peakfap = None
-
-for n, p in enumerate(planets):
-    if omc_list[n].peakfreq is not None:
-        print(f"Planet {n}: periodic signal found at Pttv = {1/omc_list[n].peakfreq:.1f} d")
-    else:
-        print(f"Planet {n}: no significant periodic component found")
-
-# perform OMC model selection
-for n, p in enumerate(planets):
-    print(f"\nPlanet {n}: P = {p.period:.1f}")
-
     omc = omc_list[n]
     npts = np.sum(omc.quality)
 
-    trace = {}
-    dof = {}
-
-    # polynomial model | require 2^N transits
-    max_polyorder = np.max([1,np.min([3, int(np.log2(npts))-1])])
-    for polyorder in range(1, max_polyorder+1):
-        trace[f'poly{polyorder}'] = omc.sample(omc.poly_model(polyorder))
-        dof[f'poly{polyorder}'] = polyorder + 1
-    
-    # sinusoidal model | require at least 8 transits
-    if npts >= 8:
-        trace['sinusoid'] = omc.sample(omc.sin_model())
-        dof['sinusoid'] = 3
+    _period = np.copy(p.period)
 
     # Matern-3/2 model | don't use GP on very noisy data
     if (npts >= 8) & (np.median(omc.yerr) <= 0.5 * mad_std(omc.yobs)):
-        trace['matern32'] = omc.sample(omc.matern32_model())
-        dof['matern32'] = np.nanmedian(trace['matern32']["dof"])
+        with warnings.catch_warnings(record=True) as catch:
+            warnings.simplefilter('always', category=RuntimeWarning)
+            trace = omc.sample(omc.matern32_model())
 
-    # model selection
-    best_model = omc.select_best_model(trace, dof)
+    # Polynomial model | require 2^N transits
+    else:
+        polyorder = np.max([1, np.min([3, int(np.log2(npts))-1])])
+        with warnings.catch_warnings(record=True) as catch:
+            warnings.simplefilter('always', category=RuntimeWarning)
+            trace = omc.sample(omc.poly_model(polyorder))
 
-    print(f"Adopting {best_model} ephemeris")
+    if len(catch) > 0:
+        print(f"{len(catch)} RuntimeWarnings caught during sampling")
 
-    # calculate outlier probability using a gaussian mixture model
-    ymod = np.nanmedian(trace[best_model]['pred'], 0)
-    out_prob, out = omc.calculate_outlier_probability(ymod)
-
-    print(f"{np.sum(out)} outliers found out of {len(out)} transit times ({np.sum(out)/len(out)*100:.1f}%)")
-    print(f"measured error: {(np.median(omc.yerr[~out])*24*60):.1f} min")
-    print(f"residual RMS: {(mad_std(omc.yobs[~out] - ymod[~out])*24*60):.1f}")
-
-    # update OMC
-    omc.ymod = ymod
-    omc.quality = ~out
-    omc.out_prob = out_prob
+    # update ephemeris
+    omc.ymod = np.nanmedian(trace['pred'], 0)
     omc_list[n] = omc
 
-    # update Ephemeris
     p.ephemeris = p.ephemeris.update_from_omc(omc)
+    p.ephemeris = p.ephemeris.interpolate('spline', full=True)
     planets[n] = p.update_ephemeris(p.ephemeris)
+
+    # make quicklook plot
+    filepath = os.path.join(quicklook_dir, f"{target}_omc_initial.png")
+    _ = plot_omc(omc_list, target, filepath)
+
+    print(f"Planet {n} : {_period:.6f} --> {planets[n].period:.6f}")
+
+# end-of-block cleanup
+sys.stdout.flush()
+sys.stderr.flush()
+plt.close('all')
+gc.collect()
+
+print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
 
 print("passing")

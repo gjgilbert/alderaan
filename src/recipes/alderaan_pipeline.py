@@ -21,7 +21,7 @@ from src.modules.detrend import GaussianProcessDetrender
 from src.modules.omc import OMC
 from src.modules.quality_control import QualityControl
 from src.modules.quicklook import plot_litecurve, plot_omc
-from src.utils.io import parse_koi_catalog, parse_holczer16_catalog
+from src.utils.io import parse_koi_catalog, parse_holczer16_catalog, copy_input_target_catalog
 from timeit import default_timer as timer
 import warnings
 
@@ -54,8 +54,9 @@ mission = 'Kepler'
 target = 'K00148'
 run_id = 'develop'
 
-data_dir = '/Users/research/data/MAST_downloads/'
-catalog_csv = os.path.join(project_dir, 'Catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
+project_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')), '')
+data_dir = os.path.join(project_dir, 'tests/testdata/')
+catalog_csv = os.path.join(project_dir, 'tests/catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
 
 print("")
 print(f"   MISSION : {mission}")
@@ -64,7 +65,7 @@ print(f"   RUN ID  : {run_id}")
 print("")
 print(f"   Project directory : {project_dir}")
 print(f"   Data directory    : {data_dir}")
-print(f"   Input catalog     : {catalog_csv}")
+print(f"   Input catalog     : {os.path.basename(catalog_csv)}")
 print("")
 print(f"   theano cache : {theano.config.compiledir}")
 print("")
@@ -78,6 +79,11 @@ os.makedirs(results_dir, exist_ok=True)
 
 quicklook_dir = os.path.join(outputs_dir, 'quicklook', run_id, target)
 os.makedirs(quicklook_dir, exist_ok=True)
+
+# copy input catalog into results directory
+catalog_csv_copy = os.path.join(outputs_dir, 'results', run_id, f'{run_id}.csv')
+copy_input_target_catalog(catalog_csv, catalog_csv_copy)
+
 
 # ######### #
 # I/O Block #
@@ -365,8 +371,6 @@ for n, p in enumerate(planets):
     assert len(coverage[n]) == len(p.ephemeris.ttime)
     assert len(good_rms[n]) == len(p.ephemeris.ttime)
 
-    planets[n].quality = coverage[n] & good_rms[n]
-
     _nbad = np.sum(~coverage[n])
     _ntot = len(coverage[n])
     print(f"    {np.sum(_nbad)} of {_ntot} transits ({int(100*_nbad/_ntot)}%) rejected for insufficent photometric coverage")
@@ -375,6 +379,7 @@ for n, p in enumerate(planets):
     _ntot = len(good_rms[n])
     print(f"    {np.sum(_nbad)} of {_ntot} transits ({int(100*_nbad/_ntot)}%) rejected for high photometric noise")
     
+    planets[n].ephemeris.quality = coverage[n] & good_rms[n]
 
 # end-of-block cleanup
 sys.stdout.flush()

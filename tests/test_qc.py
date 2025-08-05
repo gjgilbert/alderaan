@@ -190,7 +190,7 @@ for n, p in enumerate(planets):
     assert len(coverage[n]) == len(p.ephemeris.ttime)
     assert len(good_rms[n]) == len(p.ephemeris.ttime)
 
-    planets[n].quality = coverage[n] & good_rms[n]
+    planets[n].ephemeris.quality = coverage[n] & good_rms[n]
 
     _nbad = np.sum(~coverage[n])
     _ntot = len(coverage[n])
