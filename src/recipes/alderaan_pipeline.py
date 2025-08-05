@@ -1,8 +1,9 @@
 import os
 import sys
 
-project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-sys.path.insert(0, project_dir)
+base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+if base_path not in sys.path:
+    sys.path.insert(0, base_path)
 
 from aesara_theano_fallback import aesara as theano
 import astropy
@@ -22,7 +23,7 @@ from src.modules.omc import OMC
 from src.modules.transit_model.transit_model import ShapeTransitModel, TTimeTransitModel
 from src.modules.quality_control import QualityControl
 from src.modules.quicklook import plot_litecurve, plot_omc, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
-from src.utils.io import parse_koi_catalog, parse_holczer16_catalog, copy_input_target_catalog
+from src.utils.io import expand_config_path, parse_koi_catalog, parse_holczer16_catalog, copy_input_target_catalog
 from timeit import default_timer as timer
 import warnings
 
@@ -50,21 +51,28 @@ print(f"Initialized {datetime.now().strftime('%d-%b-%Y at %H:%M:%S')}")
 print("+" * shutil.get_terminal_size().columns)
 print("")
 
-# hard-code inputs
-mission = 'Kepler'
-target = 'K00148'
-run_id = 'develop'
+# read inputs from config
+from configparser import ConfigParser
 
-project_dir = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')), '')
-data_dir = os.path.join(project_dir, 'tests/testdata/')
-catalog_csv = os.path.join(project_dir, 'tests/catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
+config = ConfigParser()
+config.read(os.path.join(base_path, 'configs/default_config.cfg'))
+
+mission = config['TARGET']['mission']
+target = config['TARGET']['target']
+run_id = config['RUN']['run_id']
+
+data_dir =  expand_config_path(config['PATHS']['data_dir'])
+outputs_dir = expand_config_path(config['PATHS']['outputs_dir'])
+catalog_dir = expand_config_path(config['PATHS']['catalog_dir'])
+
+catalog_csv = os.path.join(catalog_dir, str(config['PATHS']['catalog_csv']))
 
 print("")
 print(f"   MISSION : {mission}")
 print(f"   TARGET  : {target}")
 print(f"   RUN ID  : {run_id}")
 print("")
-print(f"   Project directory : {project_dir}")
+print(f"   Base path         : {base_path}")
 print(f"   Data directory    : {data_dir}")
 print(f"   Input catalog     : {os.path.basename(catalog_csv)}")
 print("")
@@ -72,7 +80,6 @@ print(f"   theano cache : {theano.config.compiledir}")
 print("")
 
 # build directory structure
-outputs_dir = os.path.join(project_dir, 'outputs')
 os.makedirs(outputs_dir, exist_ok=True)
 
 results_dir = os.path.join(outputs_dir, 'results', run_id, target)
@@ -135,7 +142,7 @@ for n, p in enumerate(planets):
         planets[n] = p.update_ephemeris(_ephemeris)
 
 # load Holczer+2016 catalog
-filepath = os.path.join(project_dir, 'Catalogs/holczer_2016_kepler_ttvs.txt')
+filepath = os.path.join(catalog_dir, 'holczer_2016_kepler_ttvs.txt')
 holczer_ephemerides = parse_holczer16_catalog(filepath, koi_id, NPL)
 
 print(f"\n{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
@@ -407,7 +414,7 @@ print("Supersample factor")
 for obsmode in transitmodel.unique_obsmodes:
     print(f"  {obsmode} : {transitmodel._obsmode_to_supersample(obsmode)}")
 
-print("\Fitting initial transit model")
+print("\nFitting initial transit model")
 theta = transitmodel.optimize()
 planets = transitmodel.update_planet_parameters(theta)
 limbdark = transitmodel.update_limbdark_parameters(theta)

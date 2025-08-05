@@ -1,15 +1,23 @@
 import os
 import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from pathlib import Path
+
+base_path = Path(__file__).resolve().parents[2]
+if str(base_path) not in sys.path:
+    sys.path.insert(0, str(base_path))
 
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
 from src.schema.ephemeris import Ephemeris
 
-__all__ = ['parse_koi_catalog',
-           'parse_holczer16_catalog'
+__all__ = ['expand_config_path', 
+           'parse_koi_catalog',
+           'parse_holczer16_catalog',
           ]
+
+def expand_config_path(path_str):
+    return os.path.join(str(Path(path_str.format(base_path=base_path)).resolve()),'')
 
 
 def parse_koi_catalog(filepath, koi_id):
@@ -112,3 +120,5 @@ def copy_input_target_catalog(filepath_master, filepath_copy):
     else:
         os.makedirs(os.path.dirname(filepath_copy), exist_ok=True)
         df_master.to_csv(filepath_copy)
+
+
