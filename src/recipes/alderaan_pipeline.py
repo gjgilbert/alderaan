@@ -428,7 +428,6 @@ for n, p in enumerate(planets):
 
     print(f"Planet {n} : {_nfit} of {_ntot} transit times ({_nfit / _ntot * 100:.1f}%) fit successfully")
 
-
 print("\nSampling with DynamicNestedSampler")
 results = transitmodel.sample(progress_every=10)
 

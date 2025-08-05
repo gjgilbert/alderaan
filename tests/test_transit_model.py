@@ -94,7 +94,7 @@ koi_id = catalog.koi_id[0]
 kic_id = int(catalog.kic_id[0])
 
 # load lightcurves
-litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP', quarters=[2,3,4])
+litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP', quarters=[2])
 
 t_min = litecurve_master.time.min()
 t_max = litecurve_master.time.max()
@@ -343,7 +343,7 @@ print("Supersample factor")
 for obsmode in transitmodel.unique_obsmodes:
     print(f"  {obsmode} : {transitmodel._obsmode_to_supersample(obsmode)}")
 
-print("\Fitting initial transit model")
+print("\nFitting initial transit model")
 theta = transitmodel.optimize()
 planets = transitmodel.update_planet_parameters(theta)
 limbdark = transitmodel.update_limbdark_parameters(theta)
