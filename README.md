@@ -3,7 +3,7 @@
 
 The pipeline is currently capable of processing photometric lightcurve data from the *Kepler* Space Telescope, but in the future will be extended to handle data from *K2* and *TESS*.
 
-Detrending and transit fitting are optimized for high-fidelity measurements of [P, t0, Rp/Rs, b, T14] and for inference of dynamical transit timing variations (TTVs). Autocorrelated noise arising from instrumental and astrophysical sources is handled using a combination of Gaussian Processes (GP) regression, Fourier analysis, and narrow bandstop filters. Sampling is performed either Dynamic Nested Sampling.
+Detrending and transit fitting are optimized for high-fidelity measurements of [P, t0, Rp/Rs, b, T14] and for inference of dynamical transit timing variations (TTVs). Autocorrelated noise arising from instrumental and astrophysical sources is handled using a combination of Gaussian Processes (GP) regression, Fourier analysis, and narrow bandstop filters. Sampling is performed using dynamic nested sampling.
 
 The core scientific dependencies for this software are  ``astropy``, ``batman``, ``celerite``, ``dynesty``, ``numpy``, ``PyMC3``, and ``scipy``.
 
@@ -26,14 +26,22 @@ $ pip install alderaan
 ```
 
 
-
-
 # Running the pipeline
 
-To test running the pipeline, navigate into <LOCAL_DIR> and run the following commmand
+To test running the pipeline, run the following commmand:
 
 ```
-$ python tests/test_transit_model.py
+$ alderaan run -c config.cfg -r recipe.rcp -m Kepler -t K00148
 ```
 
-The test is hard-coded to use data from K00148. All the necessary data is in the directory /tests/testdata and /tests/catalogs. `test_transit_model.py` will autmoatically pull from these directories.
+
+# Attribution
+If you make use of `alderaan` in your work, please cite [Gilbert, Petigura, & Entrican (2025)](https://ui.adsabs.harvard.edu/abs/2025PNAS..12205295G/abstract).
+
+Please also cite the following core dependencies:
+* `astropy` [Astropy Collaboration et al. (2022)](https://ui.adsabs.harvard.edu/abs/2022ApJ...935..167A/abstract)
+* `batman` [Kreidberg (2015)](https://ui.adsabs.harvard.edu/abs/2015ascl.soft10002K/abstract)
+* `celerite` [Speagle (2020)](https://ui.adsabs.harvard.edu/abs/2020MNRAS.493.3132S/abstract)
+* `numpy` [Harris et al, (2020)](https://ui.adsabs.harvard.edu/abs/2020Natur.585..357H/abstract)
+* `PyMC3` [Salvatier, Wiecki, & Fonnesbeck (2016)](https://ui.adsabs.harvard.edu/abs/2016ascl.soft10016S/abstract)
+* `scipy` [Virtanen et al. (2020)](https://ui.adsabs.harvard.edu/abs/2016ascl.soft10016S/abstract)
