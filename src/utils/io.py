@@ -1,3 +1,9 @@
+__all__ = ['expand_config_path', 
+           'parse_koi_catalog',
+           'parse_holczer16_catalog',
+          ]
+
+
 import os
 import sys
 from pathlib import Path
@@ -11,10 +17,6 @@ import pandas as pd
 from pandas.testing import assert_frame_equal
 from src.schema.ephemeris import Ephemeris
 
-__all__ = ['expand_config_path', 
-           'parse_koi_catalog',
-           'parse_holczer16_catalog',
-          ]
 
 def expand_config_path(path_str):
     return os.path.join(str(Path(path_str.format(base_path=base_path)).resolve()),'')
@@ -120,5 +122,3 @@ def copy_input_target_catalog(filepath_master, filepath_copy):
     else:
         os.makedirs(os.path.dirname(filepath_copy), exist_ok=True)
         df_master.to_csv(filepath_copy)
-
-
