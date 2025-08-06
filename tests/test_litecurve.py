@@ -17,14 +17,9 @@ warnings.filterwarnings(
 data_dir = 'testdata/'
 kic_id = 5735762
 
-litecurve_raw = LiteCurve()._from_kplr_pdcsap(data_dir, kic_id, 'long cadence')
+litecurve = LiteCurve()._from_kplr_pdcsap(data_dir, kic_id, 'long cadence')
 
-litecurve_list = litecurve_raw.split_quarters()
-for i, lc in enumerate(litecurve_list):
-    lc = lc._remove_flagged_cadences(lc.quality, bitmask='default')
-
-litecurve_clean = LiteCurve()._from_list(litecurve_list)
-if np.min(litecurve_clean.time) < 0:
+if np.min(litecurve.time) < 0:
     raise ValueError("Lightcurve has negative timestamps...this will cause problems")
 
 print("passing")
