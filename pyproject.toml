@@ -43,7 +43,7 @@ dev = [
   "notebook==6.4.13"
 ]
 
-[tool.setuptools.packages.find]
+[tool.setuptools.packages]
 find = {}
 
 [tool.setuptools.dynamic]
