@@ -22,7 +22,7 @@ warnings.filterwarnings(
 koi_id = 'K00148'
 
 # load KOI catalog
-filepath = '/data/user/gjgilbert/projects/alderaan/Catalogs/kepler_dr25_gaia_dr2_crossmatch.csv'
+filepath = 'catalogs/kepler_dr25_gaia_dr2_crossmatch.csv'
 catalog = parse_koi_catalog(filepath, koi_id)
 
 assert np.all(np.diff(catalog.period) > 0), "Planets should be ordered by ascending period"
@@ -39,7 +39,7 @@ for i in range(NPL):
 
 
 # load lightcurves
-data_dir = '/data/user/gjgilbert/data/MAST_downloads/'
+data_dir = 'testdata/'
 kic_id = catalog.kic_id[0]
 
 litecurve_master_raw = LiteCurve().load_kplr_pdcsap(data_dir, kic_id, 'long cadence')
