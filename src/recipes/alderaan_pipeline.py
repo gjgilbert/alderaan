@@ -7,7 +7,7 @@ if base_path not in sys.path:
 
 from aesara_theano_fallback import aesara as theano
 import argparse
-import astropy
+from astropy.units import UnitsWarning
 from astropy.stats import mad_std
 from celerite2.backprop import LinAlgError
 from configparser import ConfigParser
@@ -38,7 +38,7 @@ def initialize_pipeline():
     # filter warnings
     warnings.simplefilter('always', UserWarning)
     warnings.filterwarnings(
-        action='ignore', category=astropy.units.UnitsWarning, module='astropy'
+        action='ignore', category=UnitsWarning, module='astropy'
     )
 
     # start timer
