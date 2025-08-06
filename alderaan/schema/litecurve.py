@@ -8,7 +8,7 @@ from astropy.io import fits
 import glob
 import lightkurve as lk
 import numpy as np
-from src.constants import kepler_lcit, kepler_scit
+from alderaan.constants import kepler_lcit, kepler_scit
 
 
 class LiteCurve:

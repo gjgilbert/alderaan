@@ -9,12 +9,12 @@ from datetime import datetime
 import gc
 import matplotlib.pyplot as plt
 import numpy as np
-from src.utils.io import parse_koi_catalog, parse_holczer16_catalog
-from src.schema.planet import Planet
-from src.schema.ephemeris import Ephemeris
-from src.schema.litecurve import LiteCurve
-from src.modules.omc import OMC
-from src.modules.quicklook import plot_litecurve, plot_omc
+from alderaan.utils.io import parse_koi_catalog, parse_holczer16_catalog
+from alderaan.schema.planet import Planet
+from alderaan.schema.ephemeris import Ephemeris
+from alderaan.schema.litecurve import LiteCurve
+from alderaan.modules.omc import OMC
+from alderaan.modules.quicklook import plot_litecurve, plot_omc
 import shutil
 from timeit import default_timer as timer
 import warnings

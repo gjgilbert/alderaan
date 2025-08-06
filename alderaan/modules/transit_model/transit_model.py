@@ -14,9 +14,9 @@ from matplotlib.ticker import FormatStrFormatter
 import numpy as np
 import numpy.polynomial.polynomial as poly
 from scipy.optimize import least_squares
-from src.modules.base import BaseAlg
-from src.modules.transit_model.dynesty import prior_transform, throttled_print_fn
-from src.utils.astro import bin_data, estimate_transit_depth
+from alderaan.modules.base import BaseAlg
+from alderaan.modules.transit_model.dynesty import prior_transform, throttled_print_fn
+from alderaan.utils.astro import bin_data, estimate_transit_depth
 
 from batman import _rsky
 from batman import _quadratic_ld

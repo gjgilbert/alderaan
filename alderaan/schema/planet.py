@@ -5,7 +5,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
-from src.schema.ephemeris import Ephemeris
+from alderaan.schema.ephemeris import Ephemeris
 import warnings
 
 

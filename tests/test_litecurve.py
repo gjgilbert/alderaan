@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 import astropy
 import numpy as np
-from src.schema.litecurve import LiteCurve
+from alderaan.schema.litecurve import LiteCurve
 import warnings
 
 warnings.simplefilter('always', UserWarning)
