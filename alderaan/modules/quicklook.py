@@ -9,9 +9,9 @@ from astropy.stats import mad_std
 from dynesty import plotting as dyplot
 import matplotlib.pyplot as plt
 import numpy as np
-from src.schema.planet import Planet
-from src.schema.ephemeris import Ephemeris
-from src.modules.omc import OMC
+from alderaan.schema.planet import Planet
+from alderaan.schema.ephemeris import Ephemeris
+from alderaan.modules.omc import OMC
 
 
 def plot_omc(data, target, filepath=None, interactive=False):

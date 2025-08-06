@@ -5,9 +5,9 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
-from src.constants import kepler_lcit, kepler_scit
-from src.schema.litecurve import LiteCurve
-from src.schema.planet import Planet
+from alderaan.constants import kepler_lcit, kepler_scit
+from alderaan.schema.litecurve import LiteCurve
+from alderaan.schema.planet import Planet
 
 
 class BaseAlg():
