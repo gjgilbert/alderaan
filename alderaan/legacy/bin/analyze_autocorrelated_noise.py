@@ -1,0 +1,751 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# # Analyze Autocorrelated Noise
+
+
+import os
+import sys
+import json
+import shutil
+import warnings
+import argparse
+from datetime import datetime
+from timeit import default_timer as timer
+
+from aesara_theano_fallback import aesara as theano
+from astropy.stats import mad_std
+from astropy.units import UnitsWarning
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+import numpy.polynomial.polynomial as poly
+import pymc3_ext as pmx
+from scipy import stats
+
+
+# #### Flush buffer and silence extraneous warnings
+
+
+# flush buffer to avoid mixed outputs from progressbar
+sys.stdout.flush()
+
+# turn off FutureWarnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+# supress UnitsWarnings (this code doesn't use astropy units)
+warnings.filterwarnings(action="ignore", category=UnitsWarning, module="astropy")
+
+
+# #### Initialize timer
+
+
+print("")
+print("+" * shutil.get_terminal_size().columns)
+print("ALDERAAN Detrending and TTV Estimation")
+print(f"Initialized {datetime.now().strftime('%d-%b-%Y at %H:%M:%S')}")
+print("+" * shutil.get_terminal_size().columns)
+print("")
+
+# start program timer
+global_start_time = timer()
+
+
+# #### Parse inputs
+
+
+try:
+    parser = argparse.ArgumentParser(
+        description="Inputs for ALDERAAN transit fiting pipeline"
+    )
+    parser.add_argument(
+        "--mission",
+        default=None,
+        type=str,
+        required=True,
+        help="Mission name; can be 'Kepler' or 'Simulated'",
+    )
+    parser.add_argument(
+        "--target",
+        default=None,
+        type=str,
+        required=True,
+        help="Target name; format should be K00000 or S00000",
+    )
+    parser.add_argument(
+        "--run_id", default=None, type=str, required=True, help="run identifier"
+    )
+    parser.add_argument(
+        "--project_dir",
+        default=None,
+        type=str,
+        required=True,
+        help="Project directory for accessing lightcurve data and saving outputs",
+    )
+    parser.add_argument(
+        "--data_dir",
+        default=None,
+        type=str,
+        required=True,
+        help="Data directory for accessing MAST lightcurves",
+    )
+    parser.add_argument(
+        "--catalog",
+        default=None,
+        type=str,
+        required=True,
+        help="CSV file containing input planetary parameters",
+    )
+    parser.add_argument(
+        "--verbose",
+        default=False,
+        type=bool,
+        required=False,
+        help="'True' to enable verbose logging",
+    )
+    parser.add_argument(
+        "--iplot",
+        default=False,
+        type=bool,
+        required=False,
+        help="'True' to enable interactive matplotlib backend; default 'agg'",
+    )
+
+    args = parser.parse_args()
+    MISSION = args.mission
+    TARGET = args.target
+    PROJECT_DIR = args.project_dir
+    DATA_DIR = args.data_dir
+    CATALOG = args.catalog
+    RUN_ID = args.run_id
+    VERBOSE = args.verbose
+    IPLOT = args.iplot
+
+except SystemExit:
+    warnings.warn("No arguments were parsed from the command line")
+
+
+print("")
+print(f"   MISSION : {MISSION}")
+print(f"   TARGET  : {TARGET}")
+print(f"   RUN ID  : {RUN_ID}")
+print("")
+print(f"   Project directory : {PROJECT_DIR}")
+print(f"   Data directory    : {DATA_DIR}")
+print(f"   Input catalog     : {CATALOG}")
+print("")
+print(f"   theano cache : {theano.config.compiledir}")
+print("")
+
+
+# #### Build directory structure
+
+
+# directories in which to place pipeline outputs for this run
+RESULTS_DIR = os.path.join(PROJECT_DIR, "Results", RUN_ID, TARGET)
+FIGURE_DIR = os.path.join(PROJECT_DIR, "Figures", RUN_ID, TARGET)
+
+os.makedirs(RESULTS_DIR, exist_ok=True)
+os.makedirs(FIGURE_DIR, exist_ok=True)
+
+sys.path.append(PROJECT_DIR)
+
+
+# #### Import ALDERAAN routines
+
+
+import alderaan.io as io
+import alderaan.detrend as detrend
+import alderaan.noise as noise
+from alderaan.astro import make_transit_mask
+from alderaan.constants import scit, lcit
+from alderaan.plotting import plot_omc, plot_acf, plot_synthetic_noise
+from alderaan.utils import boxcar_smooth
+
+
+# #### Set matplotlib backends
+
+
+if not IPLOT:
+    mpl.use("agg")
+
+if np.any(np.array(["agg", "png", "svg", "pdf", "ps"]) == mpl.get_backend()):
+    IPLOT = False
+
+
+# MAIN SCRIPT BEGINS HERE
+def main():
+    # # ################
+    # # ----- DATA I/O -----
+    # # ################
+
+    print("\nLoading data...\n")
+
+    # ## Read in planet and star properties
+
+    path = os.path.join(RESULTS_DIR, f"{TARGET}_transit_parameters.csv")
+    catalog = io.parse_catalog(path, MISSION, TARGET)
+
+    KOI_ID = catalog.koi_id.to_numpy()[0]
+    KIC_ID = catalog.kic_id.to_numpy()[0]
+
+    NPL = catalog.npl.to_numpy()[0]
+
+    PERIODS = catalog.period.to_numpy()
+    DEPTHS = catalog.depth.to_numpy() * 1e-6
+    DURS = catalog.duration.to_numpy() / 24
+
+    if np.any(np.diff(PERIODS) <= 0):
+        raise ValueError("Planets should be ordered by ascending period")
+
+    # ## Read in detrended lightcurves
+    # #### These can be generated by running the script "detrend_and_estimate_ttvs.py"
+
+    if os.path.exists(os.path.join(RESULTS_DIR, f"{TARGET}_lc_detrended.fits")):
+        lc = io.load_detrended_lightcurve(
+            os.path.join(RESULTS_DIR, f"{TARGET}_lc_detrended.fits")
+        )
+        lc.season = lc.quarter % 4
+    else:
+        lc = None
+
+    if os.path.exists(os.path.join(RESULTS_DIR, f"{TARGET}_sc_detrended.fits")):
+        sc = io.load_detrended_lightcurve(
+            os.path.join(RESULTS_DIR, f"{TARGET}_sc_detrended.fits")
+        )
+        sc.season = sc.quarter % 4
+    else:
+        sc = None
+
+    # ## Read in quick transit times
+    # #### These can be generated by running the script "detrend_and_estimate_ttvs.py"
+
+    epochs = np.zeros(NPL)
+    periods = np.zeros(NPL)
+    linear_ephemeris = [None] * NPL
+
+    transit_inds = []
+    indep_transit_times = []
+    regular_transit_times = []
+
+    for n in range(NPL):
+        fname_in = os.path.join(RESULTS_DIR, f"{TARGET}_{n:02d}_quick.ttvs")
+        data_in = np.genfromtxt(fname_in)
+
+        transit_inds.append(np.array(data_in[:, 0], dtype="int"))
+        indep_transit_times.append(np.array(data_in[:, 1], dtype="float"))
+        regular_transit_times.append(np.array(data_in[:, 2], dtype="float"))
+
+        pfit = poly.polyfit(transit_inds[n], regular_transit_times[n], 1)
+
+        epochs[n] = pfit[1]
+        periods[n] = pfit[0]
+        linear_ephemeris[n] = poly.polyval(transit_inds[n], pfit)
+
+    fig, ax = plot_omc(linear_ephemeris, indep_transit_times, regular_transit_times)
+    fig.savefig(os.path.join(FIGURE_DIR, TARGET + f"_omc.png"), bbox_inches="tight")
+    if IPLOT:
+        plt.show()
+    else:
+        plt.close()
+
+    # # ####################
+    # # --- PRELIMINARIES ---
+    # # ####################
+
+    print("\nRunning preliminaries...\n")
+
+    # ## Establish time baseline
+
+    time_min = []
+    time_max = []
+
+    if sc is not None:
+        time_min.append(sc.time.min())
+        time_max.append(sc.time.max())
+
+    if lc is not None:
+        time_min.append(lc.time.min())
+        time_max.append(lc.time.max())
+
+    TIME_START = np.min(time_min)
+    TIME_END = np.max(time_max)
+
+    # put epochs in range (TIME_START, TIME_START + PERIOD)
+    for n in range(NPL):
+        if epochs[n] < TIME_START:
+            adj = 1 + (TIME_START - epochs[n]) // periods[n]
+            epochs[n] += adj * periods[n]
+
+        if epochs[n] > (TIME_START + periods[n]):
+            adj = (epochs[n] - TIME_START) // periods[n]
+            epochs[n] -= adj * periods[n]
+
+    # ## Estimate TTV scatter w/ uncertainty buffer
+
+    ttv_scatter = np.zeros(NPL)
+    ttv_buffer = np.zeros(NPL)
+
+    for n in range(NPL):
+        # estimate TTV scatter
+        ttv_scatter[n] = mad_std(indep_transit_times[n] - regular_transit_times[n])
+
+        # based on scatter in independent times, set threshold so not even one outlier is expected
+        N = len(transit_inds[n])
+        eta = np.max([3.0, stats.norm.interval((N - 1) / N)[1]])
+
+        ttv_buffer[n] = eta * ttv_scatter[n] + lcit
+
+    # ## Make masks of various widths
+
+    if sc is not None:
+        sc_wide_mask = np.zeros((NPL, len(sc.time)), dtype="bool")
+        sc_narrow_mask = np.zeros((NPL, len(sc.time)), dtype="bool")
+        sc_regular_mask = np.zeros((NPL, len(sc.time)), dtype="bool")
+
+        for n in range(NPL):
+            tts = regular_transit_times[n]
+            wide_size = np.max([3 / 24, 3.5 * DURS[n]]) + 2 * ttv_buffer[n]
+            narrow_size = 0.5 * DURS[n] + ttv_buffer[n]
+            regular_size = np.max([3 / 24, 1.5 * DURS[n]]) + 2 * ttv_buffer[n]
+
+            sc_wide_mask[n] = make_transit_mask(sc.time, tts, wide_size)
+            sc_narrow_mask[n] = make_transit_mask(sc.time, tts, narrow_size)
+            sc_regular_mask[n] = make_transit_mask(sc.time, tts, regular_size)
+
+        sc.mask = sc_regular_mask.sum(0) > 0
+
+    else:
+        sc_wide_mask = None
+        sc_narrow_mask = None
+        sc_regular_mask = None
+
+    if lc is not None:
+        lc_wide_mask = np.zeros((NPL, len(lc.time)), dtype="bool")
+        lc_narrow_mask = np.zeros((NPL, len(lc.time)), dtype="bool")
+        lc_regular_mask = np.zeros((NPL, len(lc.time)), dtype="bool")
+
+        for n in range(NPL):
+            tts = regular_transit_times[n]
+            wide_size = np.max([3 / 24, 5.5 * DURS[n]]) + 2 * ttv_buffer[n]
+            narrow_size = 0.5 * DURS[n] + ttv_buffer[n]
+            regular_size = np.max([3 / 24, 1.5 * DURS[n]]) + 2 * ttv_buffer[n]
+
+            lc_wide_mask[n] = make_transit_mask(lc.time, tts, wide_size)
+            lc_narrow_mask[n] = make_transit_mask(lc.time, tts, narrow_size)
+            lc_regular_mask[n] = make_transit_mask(lc.time, tts, regular_size)
+
+        lc.mask = lc_regular_mask.sum(0) > 0
+
+    else:
+        lc_wide_mask = None
+        lc_narrow_mask = None
+
+    # ## Determine what data type each season has
+
+    season_dtype = []
+
+    if sc is not None:
+        sc_seasons = np.unique(sc.quarter % 4)
+    else:
+        sc_seasons = np.array([])
+
+    if lc is not None:
+        lc_seasons = np.unique(lc.quarter % 4)
+    else:
+        lc_seasons = np.array([])
+
+    for z in range(4):
+        if np.isin(z, sc_seasons):
+            season_dtype.append("short")
+        elif np.isin(z, lc_seasons):
+            season_dtype.append("long")
+        else:
+            season_dtype.append("none")
+
+    # # ####################################
+    # # ----- AUTOCORRELATION ANALYSIS -----
+    # # ####################################
+
+    # ## Generate empirical ACF and filter high-frequency ringing
+
+    print("\nGenerating empirical autocorrelation function...\n")
+    print("Season data types:", season_dtype, "\n")
+
+    # set cutoff between low and high frequency signals
+    fcut = 2 / lcit
+    fmin = 2 / (5 * (DURS.max() + lcit))
+
+    # short cadency Nyquist freqency
+    fnyq = 1 / (2 * scit)
+
+    # now estimate the ACF
+    acf_lag = []
+    acf_emp = []
+    acf_mod = []
+    acf_freqs = []
+
+    for z in range(4):
+        if season_dtype[z] == "none":
+            acf_lag.append(None)
+            acf_emp.append(None)
+            acf_mod.append(None)
+            acf_freqs.append(None)
+
+        else:
+            if season_dtype[z] == "short":
+                npts = int(
+                    np.min([5 * (1 / 24 + DURS.max()), 2 / 3 * periods.min()]) / scit
+                )
+                use = sc.season == z
+                m_ = sc.mask[use]
+
+                if np.sum(use) > 0:
+                    t_ = sc.time[use][~m_]
+                    f_ = sc.flux[use][~m_]
+                    c_ = sc.cadno[use][~m_]
+
+            if season_dtype[z] == "long":
+                npts = int(
+                    np.min([5 * (1 / 24 + DURS.max()), 2 / 3 * periods.min()]) / lcit
+                )
+                use = lc.season == z
+                m_ = lc.mask[use]
+
+                if np.sum(use) > 0:
+                    t_ = lc.time[use][~m_]
+                    f_ = lc.flux[use][~m_]
+                    c_ = lc.cadno[use][~m_]
+
+            if np.sum(use) == 0:
+                acf_lag.append(None)
+                acf_emp.append(None)
+                acf_mod.append(None)
+                acf_freqs.append(None)
+
+            else:
+                # generate the empirical acf (if generate_acf fails, use very low amplitude white noise)
+                try:
+                    xcor, acor = noise.generate_acf(t_, f_, c_, npts)
+                except Exception:
+                    try:
+                        npts = int(2 / 3 * npts)
+                        xcor, acor = noise.generate_acf(t_, f_, c_, npts)
+                    except Exception:
+                        xcor = 1 + np.arange(npts, dtype="float")
+                        acor = (
+                            np.random.normal(size=len(xcor))
+                            * np.std(f_)
+                            * np.finfo(float).eps
+                        )
+
+                if season_dtype[z] == "long":
+                    xcor = xcor * lcit
+                    method = "smooth"
+                    window_length = 3
+
+                if season_dtype[z] == "short":
+                    xcor = xcor * scit
+                    method = "savgol"
+                    window_length = None
+
+                # model the acf
+                acor_emp, acor_mod, xf, yf, freqs = noise.model_acf(
+                    xcor,
+                    acor,
+                    fcut,
+                    fmin=fmin,
+                    method=method,
+                    window_length=window_length,
+                )
+
+                # make some plots
+                fig = plot_acf(xcor, acor_emp, acor_mod, xf, yf, freqs, TARGET, z)
+                fig.savefig(
+                    os.path.join(FIGURE_DIR, TARGET + f"_acf_season_{z}.png"),
+                    bbox_inches="tight",
+                )
+                if IPLOT:
+                    plt.show()
+                else:
+                    plt.close()
+
+                # filter out high-frequency components in short cadence data
+                if season_dtype[z] == "short":
+                    fring = list(freqs[(freqs > fcut) * (freqs < fnyq)])
+                    bw = 1 / (lcit - scit) - 1 / (lcit + scit)
+
+                    if len(fring) > 0:
+                        # apply the notch filter
+                        flux_filtered = detrend.filter_ringing(sc, 15, fring, bw)
+
+                        # search for addtional ringing frequencies
+                        try:
+                            xcor, acor = noise.generate_acf(
+                                t_, flux_filtered[use][~m_], c_, npts
+                            )
+                            xcor = xcor * scit
+                        except Exception:
+                            pass
+
+                        new_freqs = noise.model_acf(
+                            xcor, acor, fcut, fmin=fmin, method="savgol"
+                        )[4]
+                        new_fring = new_freqs[(new_freqs > fcut) * (new_freqs < fnyq)]
+
+                        for nf in new_fring:
+                            if np.sum(np.abs(fring - nf) < bw) == 0:
+                                fring.append(nf)
+
+                        # re-apply the notch filter with the new list of ringing frequencies
+                        flux_filtered = detrend.filter_ringing(sc, 15, fring, bw)
+
+                        # update the LiteCurve
+                        sc.flux[use] = flux_filtered[use]
+                        f_ = sc.flux[use][~m_]
+
+                    # re-run the ACF modeling on the filtered lightcurve
+                    try:
+                        xcor, acor = noise.generate_acf(t_, f_, c_, npts)
+                        xcor = xcor * scit
+                    except Exception:
+                        pass
+
+                    acor_emp, acor_mod, xf, yf, freqs = noise.model_acf(
+                        xcor, acor, fcut, fmin=fmin, method="savgol"
+                    )
+
+                # add to list
+                acf_lag.append(xcor)
+                acf_emp.append(acor_emp)
+                acf_mod.append(acor_mod)
+                acf_freqs.append(freqs)
+
+    # ## Save filtered lightcurves
+
+    print("\nSaving detrended lightcurves...\n")
+
+    if lc is not None:
+        lc.to_fits(
+            TARGET,
+            os.path.join(RESULTS_DIR, f"{TARGET}_lc_filtered.fits"),
+            cadence="LONG",
+        )
+    else:
+        print("No long cadence data")
+
+    if sc is not None:
+        sc.to_fits(
+            TARGET,
+            os.path.join(RESULTS_DIR, f"{TARGET}_sc_filtered.fits"),
+            cadence="SHORT",
+        )
+    else:
+        print("No short cadence data")
+
+    # ## Generate synthetic noise
+
+    print("\nGenerating synthetic noise...\n")
+
+    synth_time = []
+    synth_red = []
+    synth_white = []
+
+    for z in range(4):
+        print(f"SEASON {z} - {season_dtype[z]}")
+
+        if season_dtype[z] == "none":
+            synth_time.append(None)
+            synth_red.append(None)
+            synth_white.append(None)
+
+        else:
+            if season_dtype[z] == "short":
+                npts = np.min([int(2 * DURS.max() / scit), len(acf_emp[z])])
+                use = sc.season == z
+                m_ = sc.mask[use]
+
+                if np.sum(use) > 0:
+                    t_ = sc.time[use][~m_]
+                    f_ = sc.flux[use][~m_]
+
+            if season_dtype[z] == "long":
+                npts = np.min([int(5 * DURS.max() / lcit), len(acf_emp[z])])
+                use = lc.season == z
+                m_ = lc.mask[use]
+
+                if np.sum(use) > 0:
+                    t_ = lc.time[use][~m_]
+                    f_ = lc.flux[use][~m_]
+
+            if np.sum(use) == 0:
+                synth_time.append(None)
+                synth_red.append(None)
+                synth_white.append(None)
+
+            else:
+                if season_dtype[z] == "long":
+                    vector_length = 5 * len(acf_lag[z])
+                if season_dtype[z] == "short":
+                    vector_length = 2 * len(acf_lag[z])
+
+                # pull and split high/low frequencies
+                freqs = np.copy(acf_freqs[z])
+
+                low_freqs = freqs[freqs <= fcut]
+                high_freqs = freqs[freqs > fcut]
+
+                # generate some synthetic correlated noise
+                clipped_acf = (acf_mod[z][:npts]) * np.linspace(1, 0, npts)
+
+                x, red_noise, white_noise = noise.generate_synthetic_noise(
+                    acf_lag[z][:npts], clipped_acf, vector_length, np.std(f_)
+                )
+
+                # hacky fix for zero red noise
+                if np.var(red_noise) == 0:
+                    red_noise = 1e-6 * boxcar_smooth(white_noise, 5)
+
+                # add to list
+                synth_time.append(x)
+                synth_red.append(red_noise)
+                synth_white.append(white_noise)
+
+                # plot the synethic noise
+                fig = plot_synthetic_noise(x, white_noise, red_noise, TARGET, z, DEPTHS)
+                # plt.savefig(os.path.join(FIGURE_DIR, TARGET + f'_synthetic_noise_season_{z}.png'), bbox_inches='tight')
+                if IPLOT:
+                    plt.show()
+                else:
+                    plt.close()
+
+    # ## Fit a GP to the synthetic noise
+
+    print("\nFitting a GP to synthetic noise...\n")
+
+    gp_priors = []
+
+    for z in range(4):
+        print(f"SEASON {z}")
+
+        if season_dtype[z] == "none":
+            gp_priors.append(None)
+
+        else:
+            srz = synth_red[z]
+
+            # pull and split high/low frequencies
+            freqs = np.copy(acf_freqs[z])
+
+            if freqs is not None:
+                low_freqs = freqs[freqs <= fcut]
+                high_freqs = freqs[freqs > fcut]
+
+                if len(low_freqs) > 0:
+                    lf = low_freqs[0]
+                else:
+                    lf = None
+
+                if len(high_freqs) > 0:
+                    warnings.warn("there are remaining high-frequency noise components")
+
+            else:
+                lf = None
+
+            # fit a GP model to the synthetic noise
+            try:
+                gp_model = noise.build_sho_model(
+                    synth_time[z],
+                    srz + np.random.normal(srz) * np.std(srz) * 0.1,
+                    var_method="fit",
+                    fmax=2 / lcit,
+                    f0=lf,
+                )
+
+                with gp_model:
+                    gp_map = gp_model.test_point
+
+                    for mv in gp_model.vars:
+                        gp_map = pmx.optimize(start=gp_map, vars=[mv], verbose=VERBOSE)
+
+                    gp_map = pmx.optimize(start=gp_map, verbose=VERBOSE)
+
+                    try:
+                        gp_trace = pmx.sample(
+                            tune=6000,
+                            draws=1500,
+                            start=gp_map,
+                            chains=2,
+                            target_accept=0.9,
+                            progressbar=VERBOSE,
+                        )
+                    except Exception:
+                        gp_trace = pmx.sample(
+                            tune=12000,
+                            draws=1500,
+                            start=gp_map,
+                            chains=2,
+                            target_accept=0.95,
+                            progressbar=VERBOSE,
+                        )
+
+            except Exception:
+                gp_model = noise.build_sho_model(
+                    synth_time[z],
+                    srz + np.random.normal(srz) * np.std(srz) * 0.1,
+                    var_method="local",
+                    fmax=2 / lcit,
+                    f0=lf,
+                    Q0=1 / np.sqrt(2),
+                )
+
+                with gp_model:
+                    gp_map = gp_model.test_point
+
+                    for mv in gp_model.vars:
+                        gp_map = pmx.optimize(start=gp_map, vars=[mv], verbose=VERBOSE)
+
+                    gp_map = pmx.optimize(start=gp_map, verbose=VERBOSE)
+
+                    try:
+                        gp_trace = pmx.sample(
+                            tune=12000,
+                            draws=1500,
+                            start=gp_map,
+                            chains=2,
+                            target_accept=0.95,
+                            progressbar=VERBOSE,
+                        )
+                    except Exception:
+                        gp_trace = gp_map
+
+            # track the priors
+            gp_priors.append(noise.make_gp_prior_dict(gp_trace))
+
+    # ## Save GP posteriors for use as priors during simulatenous transit fit
+
+    print("\nSaving GP posteriors...\n")
+
+    for z in range(4):
+        if gp_priors[z] is not None:
+            for k in gp_priors[z].keys():
+                gp_priors[z][k] = list(gp_priors[z][k])
+
+            fname_out = os.path.join(RESULTS_DIR, f"{TARGET}_noise_gp_priors_{z}.txt")
+
+            with open(fname_out, "w") as file:
+                json.dump(gp_priors[z], file)
+
+    # ## Exit program
+
+    print("")
+    print("+" * shutil.get_terminal_size().columns)
+    print(
+        f"Analysis of autocorrelated noise complete {datetime.now().strftime('%d-%b-%Y at %H:%M:%S')}"
+    )
+    print(f"Total runtime = {(timer()-global_start_time)/60:.1f} min")
+    print("+" * shutil.get_terminal_size().columns)
+
+
+if __name__ == "__main__":
+    main()
