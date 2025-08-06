@@ -67,21 +67,23 @@ def main():
 
     # read inputs from config
     parser = argparse.ArgumentParser()
+    parser.add_argument('-m', '--mission', required=True, type=str, help='Observing mission')
+    parser.add_argument('-t', '--target', required=True, type=str, help='Target ID for star')
     parser.add_argument('-c', '--config', required=True, type=str, help='Path to config file')
     args = parser.parse_args()
 
     config = ConfigParser()
     config.read(os.path.join(base_path, args.config))
 
-    mission = config['TARGET']['mission']
-    target = config['TARGET']['target']
+    mission = args.mission
+    target = args.target
     run_id = config['RUN']['run_id']
 
     data_dir =  expand_config_path(config['PATHS']['data_dir'])
     outputs_dir = expand_config_path(config['PATHS']['outputs_dir'])
     catalog_dir = expand_config_path(config['PATHS']['catalog_dir'])
 
-    catalog_csv = os.path.join(catalog_dir, str(config['PATHS']['catalog_csv']))
+    catalog_csv = os.path.join(catalog_dir, str(config['ARGS']['catalog_csv']))
 
     print("")
     print(f"   MISSION : {mission}")
