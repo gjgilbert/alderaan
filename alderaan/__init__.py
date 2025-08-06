@@ -1,6 +1,1 @@
-import os
-
-PACKAGEDIR = os.path.abspath(os.path.dirname(__file__))
-
-from .version import __version__
-from .constants import *
+__version__ = "0.2.0"

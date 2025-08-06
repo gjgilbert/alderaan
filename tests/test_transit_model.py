@@ -14,15 +14,15 @@ import gc
 import matplotlib.pyplot as plt
 import numpy as np
 import shutil
-from src.constants import *
-from src.schema.planet import Planet
-from src.schema.ephemeris import Ephemeris
-from src.schema.litecurve import LiteCurve
-from src.modules.detrend import GaussianProcessDetrender
-from src.modules.transit_model.transit_model import ShapeTransitModel, TTimeTransitModel
-from src.modules.quality_control import QualityControl
-from src.modules.quicklook import plot_litecurve, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
-from src.utils.io import expand_config_path, parse_koi_catalog, parse_holczer16_catalog
+from alderaan.constants import *
+from alderaan.schema.planet import Planet
+from alderaan.schema.ephemeris import Ephemeris
+from alderaan.schema.litecurve import LiteCurve
+from alderaan.modules.detrend import GaussianProcessDetrender
+from alderaan.modules.transit_model.transit_model import ShapeTransitModel, TTimeTransitModel
+from alderaan.modules.quality_control import QualityControl
+from alderaan.modules.quicklook import plot_litecurve, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
+from alderaan.utils.io import expand_config_path, parse_koi_catalog, parse_holczer16_catalog
 from timeit import default_timer as timer
 import warnings
 
