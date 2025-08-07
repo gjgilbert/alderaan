@@ -134,7 +134,7 @@ for n, p in enumerate(planets):
         planets[n] = p.update_ephemeris(_ephemeris)
 
 # load Holczer+2016 catalog
-filepath = os.path.join(project_dir, 'Catalogs/holczer_2016_kepler_ttvs.txt')
+filepath = os.path.join(project_dir, '../tests/catalogs/holczer_2016_kepler_ttvs.txt')
 holczer_ephemerides = parse_holczer16_catalog(filepath, koi_id, NPL)
 
 print(f"\n{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
