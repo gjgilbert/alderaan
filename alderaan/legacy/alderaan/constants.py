@@ -16,5 +16,8 @@ RHOSUN_GCM3 = (
     3 * apc.M_sun / (4 * pi * apc.R_sun**3)
 ).value / 1000  # solar density [g/cm^3]
 
-kepler_lcit = 29.4243885 / 60 / 24  # Kepler long cadence integration time + readout time [days]
-kepler_scit = 58.848777 / 3600 / 24 # Kepler short cadence integration time + readout time [days]
+LCIT = 29.4243885  # Kepler long cadence integration time + readout time [min]
+SCIT = 58.848777  # Kepler short cadence integration time + readout time [sec]
+
+lcit = LCIT / 60 / 24  # Kepler long cadence integration time + readout time [days]
+scit = SCIT / 3600 / 24  # Kepler short cadence integration time + readout time [days]

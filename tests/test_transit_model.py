@@ -1,6 +1,9 @@
 import os
 import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
+
+base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if base_path not in sys.path:
+    sys.path.insert(0, base_path)
 
 from aesara_theano_fallback import aesara as theano
 import astropy
@@ -11,15 +14,15 @@ import gc
 import matplotlib.pyplot as plt
 import numpy as np
 import shutil
-from src.constants import *
-from src.schema.planet import Planet
-from src.schema.ephemeris import Ephemeris
-from src.schema.litecurve import LiteCurve
-from src.modules.detrend import GaussianProcessDetrender
-from src.modules.transit_model.transit_model import ShapeTransitModel, TTimeTransitModel
-from src.modules.quality_control import QualityControl
-from src.modules.quicklook import plot_litecurve, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
-from src.utils.io import parse_koi_catalog, parse_holczer16_catalog
+from alderaan.constants import *
+from alderaan.schema.planet import Planet
+from alderaan.schema.ephemeris import Ephemeris
+from alderaan.schema.litecurve import LiteCurve
+from alderaan.modules.detrend import GaussianProcessDetrender
+from alderaan.modules.transit_model.transit_model import ShapeTransitModel, TTimeTransitModel
+from alderaan.modules.quality_control import QualityControl
+from alderaan.modules.quicklook import plot_litecurve, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
+from alderaan.utils.io import expand_config_path, parse_koi_catalog, parse_holczer16_catalog
 from timeit import default_timer as timer
 import warnings
 
@@ -47,29 +50,35 @@ print(f"Initialized {datetime.now().strftime('%d-%b-%Y at %H:%M:%S')}")
 print("+" * shutil.get_terminal_size().columns)
 print("")
 
-# hard-code inputs
-mission = 'Kepler'
-target = 'K00148'
-run_id = 'develop'
+# read inputs from config
+from configparser import ConfigParser
 
-project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))
-data_dir = os.path.join(project_dir, 'tests/testdata/')
-catalog_csv = os.path.join(project_dir, 'tests/catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
+config = ConfigParser()
+config.read(os.path.join(base_path, 'configs/default_config.cfg'))
+
+mission = config['TARGET']['mission']
+target = config['TARGET']['target']
+run_id = config['RUN']['run_id']
+
+data_dir =  expand_config_path(config['PATHS']['data_dir'])
+outputs_dir = expand_config_path(config['PATHS']['outputs_dir'])
+catalog_dir = expand_config_path(config['PATHS']['catalog_dir'])
+
+catalog_csv = os.path.join(catalog_dir, str(config['PATHS']['catalog_csv']))
 
 print("")
 print(f"   MISSION : {mission}")
 print(f"   TARGET  : {target}")
 print(f"   RUN ID  : {run_id}")
 print("")
-print(f"   Project directory : {project_dir}")
+print(f"   Base path         : {base_path}")
 print(f"   Data directory    : {data_dir}")
-print(f"   Input catalog     : {catalog_csv}")
+print(f"   Input catalog     : {os.path.basename(catalog_csv)}")
 print("")
 print(f"   theano cache : {theano.config.compiledir}")
 print("")
 
 # build directory structure
-outputs_dir = os.path.join(project_dir, 'outputs')
 os.makedirs(outputs_dir, exist_ok=True)
 
 results_dir = os.path.join(outputs_dir, 'results', run_id, target)
@@ -77,6 +86,9 @@ os.makedirs(results_dir, exist_ok=True)
 
 quicklook_dir = os.path.join(outputs_dir, 'quicklook', run_id, target)
 os.makedirs(quicklook_dir, exist_ok=True)
+
+# copy input catalog into results directory
+catalog_csv_copy = os.path.join(outputs_dir, 'results', run_id, f'{run_id}.csv')
 
 # ######### #
 # I/O Block #
@@ -128,7 +140,7 @@ for n, p in enumerate(planets):
         planets[n] = p.update_ephemeris(ephemeris)
 
 # load Holczer+2016 catalog
-filepath = os.path.join(project_dir, 'tests/catalogs/holczer_2016_kepler_ttvs.txt')
+filepath = os.path.join(catalog_dir, 'holczer_2016_kepler_ttvs.txt')
 holczer_ephemerides = parse_holczer16_catalog(filepath, koi_id, NPL)
 
 print(f"\n{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
@@ -271,9 +283,12 @@ for j, detrender in enumerate(detrenders):
                 progressbar=False
             )
 
+# recombine litecurves
+litecurve = LiteCurve(litecurves)
+
 # quicklook litecurve
 filepath = os.path.join(quicklook_dir, f"{target}_litecurve_detrended.png")
-_ = plot_litecurve(LiteCurve(litecurves), target, planets, filepath)
+_ = plot_litecurve(litecurve, target, planets, filepath)
 
 # end-of-block cleanup
 sys.stdout.flush()
@@ -290,7 +305,7 @@ print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
 
 print("\n\nQUALITY CONTROL BLOCK")
 
-qc = QualityControl(LiteCurve(litecurves), planets)
+qc = QualityControl(litecurve, planets)
 
 # check for transits with poor photometric coverage
 with warnings.catch_warnings(record=True) as catch:
@@ -335,13 +350,12 @@ print('\n\nTRANSIT MODEL BLOCK\n')
 
 limbdark = [catalog.limbdark_1[0], catalog.limbdark_2[0]]
 transitmodel = ShapeTransitModel(litecurve, planets, limbdark)
-#ttvmodel = TTimeTransitModel(litecurve, planets, limbdark)
 
 print("Supersample factor")
 for obsmode in transitmodel.unique_obsmodes:
     print(f"  {obsmode} : {transitmodel._obsmode_to_supersample(obsmode)}")
 
-print("\Fitting initial transit model")
+print("\nFitting initial transit model")
 theta = transitmodel.optimize()
 planets = transitmodel.update_planet_parameters(theta)
 limbdark = transitmodel.update_limbdark_parameters(theta)
@@ -361,7 +375,6 @@ for n, p in enumerate(planets):
     _ntot = np.sum(p.ephemeris.quality)
 
     print(f"Planet {n} : {_nfit} of {_ntot} transit times ({_nfit / _ntot * 100:.1f}%) fit successfully")
-
 
 print("\nSampling with DynamicNestedSampler")
 results = transitmodel.sample(progress_every=10)

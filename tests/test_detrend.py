@@ -6,12 +6,12 @@ import astropy
 from astropy.stats import mad_std
 from celerite2.backprop import LinAlgError
 import numpy as np
-from src.constants import *
-from src.schema.ephemeris import Ephemeris
-from src.schema.litecurve import LiteCurve
-from src.schema.planet import Planet
-from src.modules.detrend import GaussianProcessDetrender
-from src.utils.io import parse_koi_catalog
+from alderaan.constants import *
+from alderaan.schema.ephemeris import Ephemeris
+from alderaan.schema.litecurve import LiteCurve
+from alderaan.schema.planet import Planet
+from alderaan.modules.detrend import GaussianProcessDetrender
+from alderaan.utils.io import parse_koi_catalog
 import warnings
 
 warnings.simplefilter('always', UserWarning)
