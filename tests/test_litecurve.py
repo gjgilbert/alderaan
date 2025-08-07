@@ -14,7 +14,7 @@ warnings.filterwarnings(
     action='ignore', category=astropy.units.UnitsWarning, module='astropy'
 )
 
-data_dir = 'testdata/'
+data_dir = 'testdata/MAST_downloads/'
 kic_id = 5735762
 
 litecurve = LiteCurve().from_kplr_pdcsap(data_dir, kic_id, 'long cadence')
