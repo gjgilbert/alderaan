@@ -39,25 +39,25 @@ class LiteCurve:
         
         else:
             raise TypeError("Unsupported init signature")
-
-
-    def _set_empty_attribute_arrays(self):
-        self.time = np.array([]).astype(float)
-        self.flux = np.array([]).astype(float)
-        self.error = np.array([]).astype(float)
-        self.cadno = np.array([]).astype(int)
-        self.visit = np.array([]).astype(int)
-        self.obsmode = np.array([]).astype(str)
-        self.quality = np.array([]).astype(bool)
-
-        return self    
+    
+    @classmethod
+    def _set_empty_attribute_arrays(cls):
+        lc_instance = cls.__new__(cls)
+        lc_instance.time = np.array([]).astype(float)
+        lc_instance.flux = np.array([]).astype(float)
+        lc_instance.error = np.array([]).astype(float)
+        lc_instance.cadno = np.array([]).astype(int)
+        lc_instance.visit = np.array([]).astype(int)
+        lc_instance.obsmode = np.array([]).astype(str)
+        lc_instance.quality = np.array([]).astype(bool)
+        return lc_instance
 
     
     @classmethod
     def _from_list(cls, litecurve_list):
         
         lc_instance = cls()
-        lc_instance = instance._set_empty_attribute_arrays()
+        lc_instance = lc_instance._set_empty_attribute_arrays()
 
         for i, lc in enumerate(litecurve_list):
             for k in lc_instance.__dict__.keys():
@@ -182,3 +182,4 @@ class LiteCurve:
         self.quality = np.ones(len(self.time), dtype=bool)
 
         return self
+    
