@@ -188,7 +188,9 @@ class LiteCurve:
         self.quality = np.ones(len(self.time), dtype=bool)
 
         return self
-    
+
+
+        
 
     @classmethod
     def from_k2(cls, data_dir, target_id, obsmode, visits=None):
