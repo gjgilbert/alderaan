@@ -1,18 +1,20 @@
 # ALDERAAN
-**ALDERAAN** is a pipeline for **A**utomated **L**ightcurve **D**etrending, **E**xoplanet **R**ecovery, and **A**nalysis of **A**utocorrelated **N**oise.
+**A**utomated **L**ightcurve **D**etrending, **E**xoplanet **R**ecovery, and **A**nalysis of **A**utocorrelated **N**oise
 
-The pipeline is currently capable of processing photometric lightcurve data from the *Kepler* Space Telescope, but in the future will be extended to handle data from *K2* and *TESS*.
+ALDERAAN is a fast and reliable pipeline for processing exoplanet transit photometry. The pipeline is currently capable of handling data from the *Kepler* Space Telescope, but in the near future will be extended to handle data from *K2* and *TESS*.
 
-Detrending and transit fitting are optimized for high-fidelity measurements of [P, t0, Rp/Rs, b, T14] and for inference of dynamical transit timing variations (TTVs). Autocorrelated noise arising from instrumental and astrophysical sources is handled using a combination of Gaussian Processes (GP) regression, Fourier analysis, and narrow bandstop filters. Sampling is performed using dynamic nested sampling.
+Detrending and transit fitting are optimized for high-fidelity measurements of [P, t0, Rp/Rs, b, T14] and for inference of dynamical transit timing variations (TTVs). Noise arising from instrumental and astrophysical sources is handled using a combination of Gaussian Processes (GP) regression and autocorrelated frequency analysis. Model sampling is performed using dynamic nested sampling.
 
-# Installation instructions
+For detailed documentation, see [readthedocs.org](https://alderaan.readthedocs.io/en/latest/)
+
+## Installation instructions
 
 ALDERAAN requires a complex set of dependencies in order to run. To create a conda environment capable of running the ALDERAAN pipeline, copy environment.yml to your local machine and run:
 
 ```
 $ conda env create -n <ENV_NAME> -f environment.yml
-
 ```
+
 If <ENV_NAME> is not specified, the conda environment will be named "alderaan".
 
 You can then activate your environment and safely pip install the package:
@@ -23,7 +25,7 @@ $ pip install alderaan
 ```
 
 
-# Running the pipeline
+## Running the pipeline
 
 To test running the pipeline, run the following commmand:
 
@@ -32,7 +34,7 @@ $ alderaan run -c config.cfg -r recipe.rcp -m Kepler -t K00148
 ```
 
 
-# Attribution
+## Attribution
 If you make use of `alderaan` in your work, please cite [Gilbert, Petigura, & Entrican (2025)](https://ui.adsabs.harvard.edu/abs/2025PNAS..12205295G/abstract).
 
 Please also cite the following core dependencies:
