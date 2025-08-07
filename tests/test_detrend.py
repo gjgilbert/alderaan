@@ -42,7 +42,7 @@ for i in range(NPL):
 data_dir = 'testdata/'
 kic_id = catalog.kic_id[0]
 
-litecurve_master = LiteCurve()._from_kplr_pdcsap(data_dir, kic_id, 'long cadence')
+litecurve_master = LiteCurve().from_kplr_pdcsap(data_dir, kic_id, 'long cadence')
 
 # check for negative timestamps
 t_min = litecurve_master.time.min()

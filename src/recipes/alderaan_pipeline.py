@@ -101,7 +101,7 @@ koi_id = catalog.koi_id[0]
 kic_id = int(catalog.kic_id[0])
 
 # load lightcurves
-litecurve_master = LiteCurve(data_dir, kic_id, 'Kepler long cadence', data_source='Kepler PDCSAP')
+litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP')
 
 t_min = litecurve_master.time.min()
 t_max = litecurve_master.time.max()
@@ -253,9 +253,9 @@ oscillation_periods = np.zeros(len(detrenders))
 for j, detrender in enumerate(detrenders):
     obsmode = detrender.litecurve.obsmode[0]
 
-    if obsmode == 'Kepler short cadence':
+    if obsmode == 'short cadence':
         min_period = np.max([5 * np.max(detrender.durs), 91 * kepler_scit])
-    elif obsmode == 'Kepler long cadence':
+    elif obsmode == 'long cadence':
         min_period = np.max([5 * np.max(detrender.durs), 13 * kepler_lcit])
     else:
         raise ValueError(f"unsuported obsmode: {obsmode}")
@@ -274,11 +274,11 @@ for j, detrender in enumerate(detrenders):
     # set detrender arguments based on observing mode
     obsmode = detrender.litecurve.obsmode[0]
 
-    if obsmode == 'Kepler short cadence':
+    if obsmode == 'short cadence':
         min_period = np.max([5 * np.max(detrender.durs), 91 * kepler_scit])
         gap_tolerance = np.max([int(np.min(detrender.durs) / kepler_scit * 5 / 2), 91])
         jump_tolerance = 5.0
-    elif obsmode == 'Kepler long cadence':
+    elif obsmode == 'long cadence':
         min_period = np.max([5 * np.max(detrender.durs), 13 * kepler_lcit])
         gap_tolerance = np.max([int(np.min(detrender.durs) / kepler_lcit * 5 / 2), 13])
         jump_tolerance = 5.0

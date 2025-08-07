@@ -79,10 +79,16 @@ class LiteCurve:
                 
         Arguments:
             data_dir (str) : path to where data are stored
-            target_id (int) : KIC, TIC, or EPIC number
-            obsmode (str) : 'Kepler short cadence' or 'Kepler long cadence' or 'TESS short cadence' or 'TESS long cadence'
-            visits (list) : optional, list of visits to load. For Kepler: quarters, for K2: campaigns, for TESS: sectors
+            target_id (int) : KIC number
+            obsmode (str) : 'short cadence' or 'long cadence'
+            visits (list) : optional, list of visits (Kepler quarters) to load.
         """
+
+        # create instance of litecurve
+        lc_instance = cls()
+        lc_instance.mission = "Kepler"
+
+
         # sanitize inputs
         if visits is None:
             visits = np.arange(18, dtype=int) # hard coded for Kepler
@@ -134,8 +140,6 @@ class LiteCurve:
         # stitch into a single LightCurve
         lklc = lk_col_clean.stitch()
 
-        # create instance of litecurve
-        lc_instance = cls()
 
         # set LiteCurve attributes
         lc_instance.time = np.array(lklc.time.value, dtype=float)
@@ -163,8 +167,10 @@ class LiteCurve:
         litecurve_list = []
         for v in visits:
             litecurve = LiteCurve()
-            for k in litecurve.__dict__.keys():
-                if type(litecurve.__dict__[k]) is np.ndarray:
+            for k in self.__dict__.keys():
+            # for k in litecurve.__dict__.keys():
+                # if type(litecurve.__dict__[k]) is np.ndarray:
+                if type(self.__dict__[k]) is np.ndarray:
                     litecurve.__setattr__(k, self.__dict__[k][self.visit == v])
             litecurve_list.append(litecurve)
 
@@ -183,3 +189,7 @@ class LiteCurve:
 
         return self
     
+
+    @classmethod
+    def from_k2(cls, data_dir, target_id, obsmode, visits=None):
+        pass
