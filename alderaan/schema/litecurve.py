@@ -11,6 +11,25 @@ import numpy as np
 from alderaan.constants import kepler_lcit, kepler_scit
 
 
+class KeplerLiteCurve(LiteCurve):
+    def __init__(self):
+        super()
+
+        self.quarter = visit.copy()
+        # delete self.visit
+
+    
+    def split_quarters(*args, quarters=None):
+        pass
+        # super LiteCurve.split_visits(viists --> quarters)
+
+
+    def load_kepler_pdcsap():
+        pass
+        # super __LiteCurve_load_from_nasa()
+        # etc.
+
+
 class LiteCurve:
     """LiteCurve
     """
