@@ -1,12 +1,15 @@
 
 import os
 
+import requests
+from bs4 import BeautifulSoup
 import logging
 import pandas as pd
 import re
 import subprocess
 import tempfile
 import urllib.request
+import datetime
 
 
 class KeplerCatalog:
@@ -24,7 +27,6 @@ class KeplerCatalog:
             if not match.empty:
                 kic_ids.append(str(match['kic_id'].values[0]))
         return kic_ids
-
 
 class KeplerDataFetcher:
     def __init__(self, kic_id, get_kepler_data_py_path, output_dir, log_file='kepler_fetcher.log'):
@@ -45,8 +47,7 @@ class KeplerDataFetcher:
         logging.info("=" * 60)
         logging.info(f"Starting processing for KIC {self.kic_id}")
 
-    def fetch_fits_urls(self):
-        fits_urls = []
+    def get_parent_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             command = [
                 "python", self.script_path,
@@ -60,58 +61,79 @@ class KeplerDataFetcher:
             sh_path = os.path.join(tmpdir, "get_kepler_data.sh")
             with open(sh_path, "r") as f:
                 for line in f:
-                    match = re.search(r"(http.*kplr\d+-\d+_llc)", line)
+                    match = re.search(r"(http.*/)(kplr\d+-\d+_llc\.fits)", line)
                     if match:
-                        fits_urls.append(match.group(1))
+                        return match.group(1)  # parent directory URL
+        raise RuntimeError("Could not find a valid parent directory URL.")
 
-        logging.info(f"🔎 Parsed {len(fits_urls)} expected .fits URLs")
-        return fits_urls
+    def download_llc_fits_from_directory(self, base_url):
 
-    def check_and_download(self, base_urls):
+        response = requests.get(base_url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        fits_links = [
+            a['href'] for a in soup.find_all('a', href=True)
+            if a['href'].endswith("_llc.fits") or a['href'].endswith("_slc.fits")
+        ]
+
         missing = []
-        for base_url in base_urls:
-            fits_url = base_url + ".fits"
-            local_filename = os.path.join(self.output_dir, os.path.basename(fits_url))
-            if not os.path.exists(local_filename):
-                logging.info(f"Downloading missing file: {fits_url}")
-                try:
-                    urllib.request.urlretrieve(fits_url, local_filename)
-                except Exception as e:
-                    logging.error(f"Download failed for {fits_url}: {e}")
-                    missing.append(fits_url)
+        for link in fits_links:
+            fits_url = base_url + link
+            local_path = os.path.join(self.output_dir, link)
+            if os.path.exists(local_path):
+                logging.info(f"Already exists: {link}")
+                continue
+
+            logging.info(f"Downloading: {fits_url}")
+            try:
+                r = requests.get(fits_url)
+                r.raise_for_status()
+                with open(local_path, "wb") as f:
+                    f.write(r.content)
+            except Exception as e:
+                logging.error(f"Failed to download {fits_url}: {e}")
+                missing.append(fits_url)
         return missing
 
     def run(self, max_retries=2):
-        base_urls = self.fetch_fits_urls()
+        base_url = self.get_parent_url()
         for attempt in range(max_retries):
-            missing = self.check_and_download(base_urls)
+            missing = self.download_llc_fits_from_directory(base_url)
             if not missing:
-                logging.info(f"All files for KIC {self.kic_id} downloaded successfully.")
+                logging.info(f"All _llc.fits and _slc.fits files downloaded for KIC {self.kic_id}.")
                 return True
             else:
                 logging.warning(f"Retrying {len(missing)} files... (Attempt {attempt + 2})")
-                base_urls = [url[:-5] for url in missing]
         logging.error(f"Final missing files for KIC {self.kic_id}: {missing}")
         return missing
 
-
 class KeplerDownloader:
     @staticmethod
-    def run_all(koi_ids, catalog_path, script_path, output_dir, project_root=".", log_file="kepler_fetcher.log"):
+    def run_all(koi_ids, catalog_path, script_path, output_dir, project_root="."):
         catalog = KeplerCatalog(project_root=project_root, catalog_dir=catalog_path)
         kic_ids = catalog.get_kic_ids(koi_ids)
 
         if not kic_ids:
             print("No matching KIC_IDs found for the given KOI_IDs.")
-            logging.warning("No KIC_IDs found for input KOI_IDs.")
             return
 
         for koi_id, kic_id in zip(koi_ids, kic_ids):
             print(f"Processing KOI_ID: {koi_id} → KIC_ID: {kic_id}")
-            fetcher = KeplerDataFetcher(kic_id=kic_id,
-                                        get_kepler_data_py_path=script_path,
-                                        output_dir=output_dir,
-                                        log_file=log_file)
+
+            # Generate a unique timestamp for the log filename
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_koi_id = koi_id.replace(" ", "_").replace("/", "_")
+            log_filename = f"kepler_fetcher_koi_id_{safe_koi_id}_{timestamp}.log"
+            log_file_path = os.path.join(output_dir, log_filename)
+
+            fetcher = KeplerDataFetcher(
+                kic_id=kic_id,
+                get_kepler_data_py_path=script_path,
+                output_dir=output_dir,
+                log_file=log_file_path
+            )
+
             result = fetcher.run(max_retries=2)
 
             if result is True:
