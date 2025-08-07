@@ -5,6 +5,8 @@ ALDERAAN is a fast and reliable pipeline for processing exoplanet transit photom
 
 Detrending and transit fitting are optimized for high-fidelity measurements of [P, t0, Rp/Rs, b, T14] and for inference of dynamical transit timing variations (TTVs). Noise arising from instrumental and astrophysical sources is handled using a combination of Gaussian Processes (GP) regression and autocorrelated frequency analysis. Model sampling is performed using dynamic nested sampling.
 
+For detailed documentation, see [readthedocs.org](https://alderaan.readthedocs.io/en/latest/)
+
 ## Installation instructions
 
 ALDERAAN requires a complex set of dependencies in order to run. To create a conda environment capable of running the ALDERAAN pipeline, copy environment.yml to your local machine and run:
