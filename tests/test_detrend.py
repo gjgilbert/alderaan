@@ -40,6 +40,7 @@ for i in range(NPL):
 
 # load lightcurves
 data_dir = 'testdata/MAST_downloads/'
+
 kic_id = catalog.kic_id[0]
 
 litecurve_master = LiteCurve().from_kplr_pdcsap(data_dir, kic_id, 'long cadence')
