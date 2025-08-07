@@ -12,6 +12,8 @@ from alderaan.constants import kepler_lcit, kepler_scit
 
 
 class LiteCurve:
+    """LiteCurve
+    """
     def __init__(self, *args, **kwargs):
         if len(args) == 0:
             self = self._set_empty_attribute_arrays()
@@ -71,11 +73,14 @@ class LiteCurve:
          * remove_nans()
          * normalize()
                 
-        Arguments:
+        Args:
             data_dir (str) : path to where data are stored
             kic_id (int) : Kepler Input Catalog (KIC) identification number
             obsmode (str) : 'short cadence' or 'long cadence'
             quarters (list) : optional, list of quarters to load
+
+        Returns:
+            LiteCurve : self
         """
         # sanitize inputs
         if quarters is None:
@@ -147,7 +152,25 @@ class LiteCurve:
         raise NotImplementedError("Loading ALDERAAN files not yet implemented")
     
     
+    def _remove_flagged_cadences(self, quality_flags, bitmask='default'):
+        qmask = lk.KeplerQualityFlags.create_quality_mask(
+            quality_flags, bitmask=bitmask
+        )
+        for k in self.__dict__.keys():
+            if type(self.__dict__[k]) is np.ndarray:
+                self.__setattr__(k, self.__dict__[k][qmask])
+
+        self.quality = np.ones(len(self.time), dtype=bool)
+
+        return self
+    
+
     def split_quarters(self):
+        """Split a single LiteCurve into a list of LiteCurves by quarter
+
+        Returns:
+            list : a list of LiteCurve objects
+        """
         quarters = np.unique(self.quarter)
 
         litecurve_list = []
@@ -160,15 +183,3 @@ class LiteCurve:
 
         return litecurve_list
     
-
-    def _remove_flagged_cadences(self, quality_flags, bitmask='default'):
-        qmask = lk.KeplerQualityFlags.create_quality_mask(
-            quality_flags, bitmask=bitmask
-        )
-        for k in self.__dict__.keys():
-            if type(self.__dict__[k]) is np.ndarray:
-                self.__setattr__(k, self.__dict__[k][qmask])
-
-        self.quality = np.ones(len(self.time), dtype=bool)
-
-        return self
