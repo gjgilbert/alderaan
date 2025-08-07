@@ -58,7 +58,7 @@ class BaseAlg():
     def _define_exptime_lookup(self):
         self._exptime_lookup = {
             'long cadence': kepler_lcit,
-            'short cadence': kepler_scit
+            'short cadence': kepler_scit,
         }
 
 

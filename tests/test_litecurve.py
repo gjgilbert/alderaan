@@ -14,18 +14,12 @@ warnings.filterwarnings(
     action='ignore', category=astropy.units.UnitsWarning, module='astropy'
 )
 
-data_dir = '/data/user/gjgilbert/data/MAST_downloads/'
+data_dir = 'testdata/MAST_downloads/'
 kic_id = 5735762
 
-litecurve_raw = LiteCurve().load_kplr_pdcsap(data_dir, kic_id, 'long cadence')
-litecurve_list = litecurve_raw.split_quarters()
+litecurve = LiteCurve().from_kplr_pdcsap(data_dir, kic_id, 'long cadence')
 
-for i, lc in enumerate(litecurve_list):
-    lc = lc.remove_flagged_cadences(bitmask='default')
-
-litecurve_clean = LiteCurve().from_list(litecurve_list)
-
-if np.min(litecurve_clean.time) < 0:
+if np.min(litecurve.time) < 0:
     raise ValueError("Lightcurve has negative timestamps...this will cause problems")
 
 print("passing")

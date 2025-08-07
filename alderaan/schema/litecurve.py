@@ -15,6 +15,7 @@ class LiteCurve:
     """LiteCurve
     """
     def __init__(self, *args, **kwargs):
+        
         if len(args) == 0:
             self = self._set_empty_attribute_arrays()
         
@@ -39,32 +40,37 @@ class LiteCurve:
         
         else:
             raise TypeError("Unsupported init signature")
+    
+    
+    @classmethod
+    def _set_empty_attribute_arrays(cls):
+        lc_instance = cls.__new__(cls)
+        lc_instance.time = np.array([]).astype(float)
+        lc_instance.flux = np.array([]).astype(float)
+        lc_instance.error = np.array([]).astype(float)
+        lc_instance.cadno = np.array([]).astype(int)
+        lc_instance.visit = np.array([]).astype(int)
+        lc_instance.obsmode = np.array([]).astype(str)
+        lc_instance.quality = np.array([]).astype(bool)
+        return lc_instance
 
-
-    def _set_empty_attribute_arrays(self):
-        self.time = np.array([]).astype(float)
-        self.flux = np.array([]).astype(float)
-        self.error = np.array([]).astype(float)
-        self.cadno = np.array([]).astype(int)
-        self.quarter = np.array([]).astype(int)
-        self.obsmode = np.array([]).astype(str)
-        self.quality = np.array([]).astype(bool)
-
-        return self    
-
-
-    def _from_list(self, litecurve_list):
-        self = self._set_empty_attribute_arrays()
+    
+    @classmethod
+    def from_list(cls, litecurve_list):
+        
+        lc_instance = cls()
+        lc_instance = lc_instance._set_empty_attribute_arrays()
 
         for i, lc in enumerate(litecurve_list):
-            for k in self.__dict__.keys():
-                if type(self.__dict__[k]) is np.ndarray:
-                    self.__setattr__(k, np.hstack([self.__dict__[k],lc.__dict__[k]]))
+            for k in lc_instance.__dict__.keys():
+                if type(lc_instance.__dict__[k]) is np.ndarray:
+                    lc_instance.__setattr__(k, np.hstack([lc_instance.__dict__[k],lc.__dict__[k]]))
 
-        return self
+        return lc_instance
     
 
-    def _from_kplr_pdcsap(self, data_dir, kic_id, obsmode, quarters=None):
+    @classmethod
+    def from_kplr_pdcsap(cls, data_dir, target_id, obsmode, visits=None):
         """
         Load photometric data from Kepler Project PDCSAP Flux lightcurves
         The raw fits files must be pre-downloaded from MAST servers and stored locally
@@ -75,45 +81,49 @@ class LiteCurve:
                 
         Args:
             data_dir (str) : path to where data are stored
-            kic_id (int) : Kepler Input Catalog (KIC) identification number
+            target_id (int) : KIC number
             obsmode (str) : 'short cadence' or 'long cadence'
-            quarters (list) : optional, list of quarters to load
-
+            visits (list) : optional, list of visits (Kepler quarters) to load.
         Returns:
             LiteCurve : self
         """
+
+        # create instance of litecurve
+        lc_instance = cls()
+        lc_instance.mission = "Kepler"
+
         # sanitize inputs
-        if quarters is None:
-            quarters = np.arange(18, dtype=int)
-        if isinstance(quarters, int):
-            quarters = [quarters]
+        if visits is None:
+            visits = np.arange(18, dtype=int) # hard coded for Kepler
+        if isinstance(visits, int):
+            visits = [visits]
 
         # load the raw MAST files using lightcurve
-        mast_files = glob.glob(data_dir + f"kplr{kic_id:09d}*.fits")
+        mast_files = glob.glob(data_dir + f"kplr{target_id:09d}*.fits") # hard-coded for Kepler
         mast_files.sort()
         
         mast_data_list = []
         for i, mf in enumerate(mast_files):
             with fits.open(mf) as hdu_list:
                 if hdu_list[0].header["OBSMODE"] == obsmode and np.isin(
-                    hdu_list[0].header["QUARTER"], quarters
+                    hdu_list[0].header["QUARTER"], visits # hard coded for Kepler
                 ):
                     mast_data_list.append(lk.read(mf))
 
         lk_col_raw = lk.LightCurveCollection(mast_data_list)
 
         # clean up the Collection data structure
-        quarters = []
+        visits = []
         for lkc in lk_col_raw:
-            quarters.append(lkc.quarter)
+            visits.append(lkc.quarter) # hard coded for Kepler
 
         lk_col_clean = []
-        for q in np.unique(quarters):
+        for v in np.unique(visits):
             lkc_list = []
             cadno = []
 
             for lkc in lk_col_raw:
-                if (lkc.quarter == q) * (lkc.targetid == kic_id):
+                if (lkc.quarter == v) * (lkc.targetid == target_id): # hard coded for kepler
                     lkc_list.append(lkc)
                     cadno.append(lkc.cadenceno.min())
 
@@ -123,8 +133,8 @@ class LiteCurve:
             # lk.stitch() also normalizes the lightkurves
             lkc = lk.LightCurveCollection(lkc_list).stitch().remove_nans()
             
-            lkc.quarter = lkc.quarter*np.ones(len(lkc.time), dtype='int')
-            lkc.season = lkc.quarter % 4
+            lkc.quarter = lkc.quarter*np.ones(len(lkc.time), dtype='int') # hard coded for kepler
+            lkc.season = lkc.quarter % 4 # hard coded for Kepler
             
             lk_col_clean.append(lkc)
 
@@ -134,24 +144,52 @@ class LiteCurve:
         lklc = lk_col_clean.stitch()
 
         # set LiteCurve attributes
-        self.time = np.array(lklc.time.value, dtype=float)
-        self.flux = np.array(lklc.flux.value, dtype=float)
-        self.error = np.array(lklc.flux_err.value, dtype=float)
-        self.cadno = np.array(lklc.cadenceno.value, dtype=int)
-        self.quarter = np.array(lklc.quarter, dtype=int)
-        self.season = np.array(lklc.season, dtype=int)
-        self.obsmode = np.array([obsmode]*len(self.cadno), dtype=str)
+        lc_instance.time = np.array(lklc.time.value, dtype=float)
+        lc_instance.flux = np.array(lklc.flux.value, dtype=float)
+        lc_instance.error = np.array(lklc.flux_err.value, dtype=float)
+        lc_instance.cadno = np.array(lklc.cadenceno.value, dtype=int)
+        lc_instance.visit = np.array(lklc.quarter, dtype=int) # hard coded for Kepler
+        lc_instance.obsmode = np.array([obsmode]*len(lc_instance.cadno), dtype=str)
+        lc_instance.quality = np.array(lklc.quality.value, dtype=int)
+        lc_instance.season = np.array(lklc.season, dtype=int)
         
         # remove cadences flagged by Kepler project pipeline
-        self = self._remove_flagged_cadences(lklc.quality)
+        lc_instance = lc_instance._remove_flagged_cadences(lklc.quality)
 
-        return self
+        return lc_instance
         
 
-    def _from_alderaan(self, data_dir, target_id):
+    @classmethod
+    def from_k2(cls, data_dir, target_id, obsmode, visits=None):
+        raise NotImplementedError("Loading K2 data not yet implemented")
+    
+    
+    @classmethod
+    def from_tess(cls, data_dir, target_id, obsmode, visits=None):
+        raise NotImplementedError("Loading TESS data not yet implemented")
+
+        
+    @classmethod
+    def from_alderaan(cls, data_dir, target_id):
         raise NotImplementedError("Loading ALDERAAN files not yet implemented")
     
     
+    def split_visits(self):
+        visits = np.unique(self.visit)
+
+        litecurve_list = []
+        for v in visits:
+            litecurve = LiteCurve()
+            for k in self.__dict__.keys():
+            # for k in litecurve.__dict__.keys():
+                # if type(litecurve.__dict__[k]) is np.ndarray:
+                if type(self.__dict__[k]) is np.ndarray:
+                    litecurve.__setattr__(k, self.__dict__[k][self.visit == v])
+            litecurve_list.append(litecurve)
+
+        return litecurve_list
+      
+
     def _remove_flagged_cadences(self, quality_flags, bitmask='default'):
         qmask = lk.KeplerQualityFlags.create_quality_mask(
             quality_flags, bitmask=bitmask
@@ -163,23 +201,3 @@ class LiteCurve:
         self.quality = np.ones(len(self.time), dtype=bool)
 
         return self
-    
-
-    def split_quarters(self):
-        """Split a single LiteCurve into a list of LiteCurves by quarter
-
-        Returns:
-            list : a list of LiteCurve objects
-        """
-        quarters = np.unique(self.quarter)
-
-        litecurve_list = []
-        for q in quarters:
-            litecurve = LiteCurve()
-            for k in litecurve.__dict__.keys():
-                if type(litecurve.__dict__[k]) is np.ndarray:
-                    litecurve.__setattr__(k, self.__dict__[k][self.quarter == q])
-            litecurve_list.append(litecurve)
-
-        return litecurve_list
-    
