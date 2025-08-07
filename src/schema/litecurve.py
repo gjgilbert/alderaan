@@ -52,16 +52,19 @@ class LiteCurve:
 
         return self    
 
-
-    def _from_list(self, litecurve_list):
-        self = self._set_empty_attribute_arrays()
+    
+    @classmethod
+    def _from_list(cls, litecurve_list):
+        
+        lc_instance = cls()
+        lc_instance = instance._set_empty_attribute_arrays()
 
         for i, lc in enumerate(litecurve_list):
-            for k in self.__dict__.keys():
-                if type(self.__dict__[k]) is np.ndarray:
-                    self.__setattr__(k, np.hstack([self.__dict__[k],lc.__dict__[k]]))
+            for k in lc_instance.__dict__.keys():
+                if type(lc_instance.__dict__[k]) is np.ndarray:
+                    lc_instance.__setattr__(k, np.hstack([lc_instance.__dict__[k],lc.__dict__[k]]))
 
-        return self
+        return lc_instance
     
 
     @classmethod
@@ -132,22 +135,22 @@ class LiteCurve:
         lklc = lk_col_clean.stitch()
 
         # create instance of litecurve
-        litecurve_instance = cls()
+        lc_instance = cls()
 
         # set LiteCurve attributes
-        litecurve_instance.time = np.array(lklc.time.value, dtype=float)
-        litecurve_instance.flux = np.array(lklc.flux.value, dtype=float)
-        litecurve_instance.error = np.array(lklc.flux_err.value, dtype=float)
-        litecurve_instance.cadno = np.array(lklc.cadenceno.value, dtype=int)
-        litecurve_instance.visit = np.array(lklc.quarter, dtype=int) # hard coded for Kepler
-        litecurve_instance.obsmode = np.array([obsmode]*len(litecurve_instance.cadno), dtype=str)
-        litecurve_instance.quality = np.array(lklc.quality.value, dtype=int)
-        litecurve_instance.season = np.array(lklc.season, dtype=int)
+        lc_instance.time = np.array(lklc.time.value, dtype=float)
+        lc_instance.flux = np.array(lklc.flux.value, dtype=float)
+        lc_instance.error = np.array(lklc.flux_err.value, dtype=float)
+        lc_instance.cadno = np.array(lklc.cadenceno.value, dtype=int)
+        lc_instance.visit = np.array(lklc.quarter, dtype=int) # hard coded for Kepler
+        lc_instance.obsmode = np.array([obsmode]*len(lc_instance.cadno), dtype=str)
+        lc_instance.quality = np.array(lklc.quality.value, dtype=int)
+        lc_instance.season = np.array(lklc.season, dtype=int)
         
         # remove cadences flagged by Kepler project pipeline
-        litecurve_instance = litecurve_instance._remove_flagged_cadences(lklc.quality)
+        lc_instance = lc_instance._remove_flagged_cadences(lklc.quality)
 
-        return litecurve_instance
+        return lc_instance
         
 
     def _from_alderaan(self, data_dir, target_id):
