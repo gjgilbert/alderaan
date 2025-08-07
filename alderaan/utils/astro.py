@@ -11,22 +11,21 @@ from alderaan.constants import pi
 
 
 def bin_data(time, data, binsize, bin_centers=None):
-    """
-    Parameters
-    ----------
-    time : ndarray
-        vector of time values
-    data : ndarray
-        corresponding vector of data values to be binned
-    binsize : float
-        bin size for output data, in same units as time
+    """Bin a 1D timeseries data array
 
-    Returns
-    -------
-    bin_centers : ndarray
-        center of each data (i.e. binned time)
-    binned_data : ndarray
-        data binned to selcted binsize
+    If bin_centers is not provided, bins will be linearly spaced
+    between (time.min(),time.max())
+
+    Args:
+        time (ndarray) : time values
+        data (ndarray) : corresponding data to be binned
+        binsize (float): bin size for output data, in same units as time
+        bin_centers (optional) : pre-defined bin centers
+
+    Returns:
+        tuple : a tuple containing:
+          - time_binned (array-like)
+          - data_binned (array-like)
     """
     if bin_centers is None:
         bin_centers = np.hstack(
@@ -44,18 +43,14 @@ def bin_data(time, data, binsize, bin_centers=None):
 
 
 def estimate_transit_depth(p, b):
-    """
-    Calculate approximate transit depth
-    See Mandel & Agol 2002
+    """Calculate approximate transit depth following Mandel & Agol (2002)
 
-    Parameters
-    ----------
-    p : planet-to-star radius ratio Rp/Rstar
-    b : impact parameter
+    Args:
+        p (array-like) : planet-to-star radius ratio Rp/Rstar
+        b (array-like) : impact parameter
 
-    Returns
-    -------
-    d : transit depth
+    Returns:
+        array-like : transit depth
     """
     # broadcasting
     p = p * np.ones(np.atleast_1d(b).shape)
