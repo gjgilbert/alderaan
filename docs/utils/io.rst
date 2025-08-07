@@ -1,4 +1,4 @@
-.. _utils.io
+.. _utils.io:
 
 io
 ==

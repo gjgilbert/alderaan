@@ -1,4 +1,4 @@
-.. module:: alderaan.utils.io
+.. module:: alderaan.utils.io:
 
 astro
 =====

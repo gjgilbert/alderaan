@@ -1,10 +1,19 @@
-alderaan documentation
-======================
+ALDERAAN
+========
+
+Automated Lightcurve Detrending, Exoplanet Recovery, and Analysis of Autocorrelated Noise
+
+Attribution
++++++++++++
+* Gilbert, Petigura, & Entrican (2025)
+* dependencies
+
+User Guide
+++++++++++
 
 .. toctree::
    :maxdepth: 2
-   :caption: API Reference
 
-   modules/index
-   schema/index
-   utils/index
+   installation
+   faq
+   api
