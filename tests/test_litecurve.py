@@ -17,7 +17,7 @@ warnings.filterwarnings(
 data_dir = 'testdata/'
 kic_id = 5735762
 
-litecurve = LiteCurve()._from_kplr_pdcsap(data_dir, kic_id, 'long cadence')
+litecurve = LiteCurve().from_kplr_pdcsap(data_dir, kic_id, 'long cadence')
 
 if np.min(litecurve.time) < 0:
     raise ValueError("Lightcurve has negative timestamps...this will cause problems")

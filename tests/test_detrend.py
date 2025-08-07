@@ -57,11 +57,11 @@ for n, p in enumerate(planets):
         _ephemeris = Ephemeris(period=p.period, epoch=p.epoch, t_min=t_min, t_max=t_max)
         planets[n] = p.update_ephemeris(_ephemeris)
 
-# split litecurves by quarter
-litecurves = litecurve_master.split_quarters()
+# split litecurves by visit
+litecurves = litecurve_master.split_visits()
 
 for j, litecurve in enumerate(litecurves):
-    assert len(np.unique(litecurve.quarter)) == 1, "expected one quarter per litecurve"
+    assert len(np.unique(litecurve.visit)) == 1, "expected one visit per litecurve"
     assert len(np.unique(litecurve.obsmode)) == 1, "expected one obsmode per litecurve"
 
 print(f"{len(litecurves)} litecurves loaded")
@@ -87,7 +87,7 @@ for j, detrender in enumerate(detrenders):
     
     npts_final = len(detrender.litecurve.time)
 
-    print(f"Quarter {litecurve.quarter[0]} : {npts_initial-npts_final} outliers rejected")
+    print(f"Visit {litecurve.visit[0]} : {npts_initial-npts_final} outliers rejected")
 
 # estimate oscillation periods
 oscillation_periods = np.zeros(len(detrenders))

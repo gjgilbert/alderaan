@@ -64,7 +64,8 @@ class LiteCurve:
         return self
     
 
-    def _from_kplr_pdcsap(self, data_dir, target_id, obsmode, visits=None):
+    # @classmethod
+    def from_kplr_pdcsap(cls, data_dir, target_id, obsmode, visits=None):
         """
         Load photometric data from Kepler Project PDCSAP Flux lightcurves
         The raw fits files must be pre-downloaded from MAST servers and stored locally
@@ -152,14 +153,14 @@ class LiteCurve:
     
     
     def split_visits(self):
-        visits = np.unique(self.visits)
+        visits = np.unique(self.visit)
 
         litecurve_list = []
         for v in visits:
             litecurve = LiteCurve()
             for k in litecurve.__dict__.keys():
                 if type(litecurve.__dict__[k]) is np.ndarray:
-                    litecurve.__setattr__(k, self.__dict__[k][self.visits == v])
+                    litecurve.__setattr__(k, self.__dict__[k][self.visit == v])
             litecurve_list.append(litecurve)
 
         return litecurve_list
