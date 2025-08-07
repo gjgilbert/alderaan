@@ -64,7 +64,7 @@ class LiteCurve:
         return self
     
 
-    # @classmethod
+    @classmethod
     def from_kplr_pdcsap(cls, data_dir, target_id, obsmode, visits=None):
         """
         Load photometric data from Kepler Project PDCSAP Flux lightcurves
@@ -131,21 +131,23 @@ class LiteCurve:
         # stitch into a single LightCurve
         lklc = lk_col_clean.stitch()
 
+        # create instance of litecurve
+        litecurve_instance = cls()
+
         # set LiteCurve attributes
-        self.time = np.array(lklc.time.value, dtype=float)
-        self.flux = np.array(lklc.flux.value, dtype=float)
-        self.error = np.array(lklc.flux_err.value, dtype=float)
-        self.cadno = np.array(lklc.cadenceno.value, dtype=int)
-        self.visit = np.array(lklc.quarter, dtype=int) # hard coded for Kepler
-        self.obsmode = np.array([obsmode]*len(self.cadno), dtype=str)
-        self.quality = np.array(lklc.quality.value, dtype=int)
-        self.season = np.array(lklc.season, dtype=int)
-        
+        litecurve_instance.time = np.array(lklc.time.value, dtype=float)
+        litecurve_instance.flux = np.array(lklc.flux.value, dtype=float)
+        litecurve_instance.error = np.array(lklc.flux_err.value, dtype=float)
+        litecurve_instance.cadno = np.array(lklc.cadenceno.value, dtype=int)
+        litecurve_instance.visit = np.array(lklc.quarter, dtype=int) # hard coded for Kepler
+        litecurve_instance.obsmode = np.array([obsmode]*len(litecurve_instance.cadno), dtype=str)
+        litecurve_instance.quality = np.array(lklc.quality.value, dtype=int)
+        litecurve_instance.season = np.array(lklc.season, dtype=int)
         
         # remove cadences flagged by Kepler project pipeline
-        self = self._remove_flagged_cadences(lklc.quality)
+        litecurve_instance = litecurve_instance._remove_flagged_cadences(lklc.quality)
 
-        return self
+        return litecurve_instance
         
 
     def _from_alderaan(self, data_dir, target_id):
