@@ -129,7 +129,7 @@ def main():
 
     # load lightcurves
     #litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP')
-    litecurve_master = LiteCurve().from_kplr_pdcsap(data_dir, kic_id, 'long cadence')
+    litecurve_master = LiteCurve().from_kplr_pdcsap(data_dir, kic_id, 'long cadence', visits=2)
 
     t_min = litecurve_master.time.min()
     t_max = litecurve_master.time.max()
@@ -357,7 +357,7 @@ def main():
                 )
 
     # recombine litecurves
-    litecurve = LiteCurve(litecurves)
+    litecurve = LiteCurve().from_list(litecurves)
 
     # quicklook litecurve
     filepath = os.path.join(quicklook_dir, f"{target}_litecurve_detrended.png")
