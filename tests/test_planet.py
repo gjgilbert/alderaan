@@ -3,9 +3,9 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
-from src.schema.ephemeris import Ephemeris
-from src.schema.planet import Planet
-from src.utils.io import parse_koi_catalog
+from alderaan.schema.ephemeris import Ephemeris
+from alderaan.schema.planet import Planet
+from alderaan.utils.io import parse_koi_catalog
 import warnings
 
 warnings.simplefilter('always', UserWarning)

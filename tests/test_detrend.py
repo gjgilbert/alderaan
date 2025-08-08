@@ -6,12 +6,12 @@ import astropy
 from astropy.stats import mad_std
 from celerite2.backprop import LinAlgError
 import numpy as np
-from src.constants import *
-from src.schema.ephemeris import Ephemeris
-from src.schema.litecurve import LiteCurve
-from src.schema.planet import Planet
-from src.modules.detrend import GaussianProcessDetrender
-from src.utils.io import parse_koi_catalog
+from alderaan.constants import *
+from alderaan.schema.ephemeris import Ephemeris
+from alderaan.schema.litecurve import LiteCurve
+from alderaan.schema.planet import Planet
+from alderaan.modules.detrend import GaussianProcessDetrender
+from alderaan.utils.io import parse_koi_catalog
 import warnings
 
 warnings.simplefilter('always', UserWarning)
@@ -22,7 +22,7 @@ warnings.filterwarnings(
 koi_id = 'K00148'
 
 # load KOI catalog
-filepath = '/data/user/gjgilbert/projects/alderaan/Catalogs/kepler_dr25_gaia_dr2_crossmatch.csv'
+filepath = 'testdata/catalogs/kepler_dr25_gaia_dr2_crossmatch.csv'
 catalog = parse_koi_catalog(filepath, koi_id)
 
 assert np.all(np.diff(catalog.period) > 0), "Planets should be ordered by ascending period"
@@ -39,16 +39,11 @@ for i in range(NPL):
 
 
 # load lightcurves
-data_dir = '/data/user/gjgilbert/data/MAST_downloads/'
+data_dir = 'testdata/MAST_downloads/'
+
 kic_id = catalog.kic_id[0]
 
-litecurve_master_raw = LiteCurve().load_kplr_pdcsap(data_dir, kic_id, 'long cadence')
-litecurve_list_raw = litecurve_master_raw.split_quarters()
-
-for i, lc in enumerate(litecurve_list_raw):
-    lc = lc.remove_flagged_cadences(bitmask='default')
-
-litecurve_master = LiteCurve().from_list(litecurve_list_raw)
+litecurve_master = LiteCurve().from_kplr_pdcsap(data_dir, kic_id, 'long cadence')
 
 # check for negative timestamps
 t_min = litecurve_master.time.min()
@@ -63,11 +58,11 @@ for n, p in enumerate(planets):
         _ephemeris = Ephemeris(period=p.period, epoch=p.epoch, t_min=t_min, t_max=t_max)
         planets[n] = p.update_ephemeris(_ephemeris)
 
-# split litecurves by quarter
-litecurves = litecurve_master.split_quarters()
+# split litecurves by visit
+litecurves = litecurve_master.split_visits()
 
 for j, litecurve in enumerate(litecurves):
-    assert len(np.unique(litecurve.quarter)) == 1, "expected one quarter per litecurve"
+    assert len(np.unique(litecurve.visit)) == 1, "expected one visit per litecurve"
     assert len(np.unique(litecurve.obsmode)) == 1, "expected one obsmode per litecurve"
 
 print(f"{len(litecurves)} litecurves loaded")
@@ -93,7 +88,7 @@ for j, detrender in enumerate(detrenders):
     
     npts_final = len(detrender.litecurve.time)
 
-    print(f"Quarter {litecurve.quarter[0]} : {npts_initial-npts_final} outliers rejected")
+    print(f"Visit {litecurve.visit[0]} : {npts_initial-npts_final} outliers rejected")
 
 # estimate oscillation periods
 oscillation_periods = np.zeros(len(detrenders))

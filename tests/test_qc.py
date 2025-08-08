@@ -11,16 +11,16 @@ import gc
 import matplotlib.pyplot as plt
 import numpy as np
 import shutil
-from src.constants import *
-from src.schema.ephemeris import Ephemeris
-from src.schema.litecurve import LiteCurve
-from src.schema.planet import Planet
-from src.modules.base import BaseAlg
-from src.modules.detrend import GaussianProcessDetrender
-from src.modules.omc import OMC
-from src.modules.quality_control import QualityControl
-from src.modules.quicklook import plot_litecurve, plot_omc
-from src.utils.io import parse_koi_catalog, parse_holczer16_catalog
+from alderaan.constants import *
+from alderaan.schema.ephemeris import Ephemeris
+from alderaan.schema.litecurve import LiteCurve
+from alderaan.schema.planet import Planet
+from alderaan.modules.base import BaseAlg
+from alderaan.modules.detrend import GaussianProcessDetrender
+from alderaan.modules.omc import OMC
+from alderaan.modules.quality_control import QualityControl
+from alderaan.modules.quicklook import plot_litecurve, plot_omc
+from alderaan.utils.io import parse_koi_catalog, parse_holczer16_catalog
 from timeit import default_timer as timer
 import warnings
 
