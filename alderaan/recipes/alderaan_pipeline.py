@@ -128,7 +128,8 @@ def main():
     kic_id = int(catalog.kic_id[0])
 
     # load lightcurves
-    litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP')
+    #litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP')
+    litecurve_master = LiteCurve().from_kplr_pdcsap(data_dir, kic_id, 'long cadence')
 
     t_min = litecurve_master.time.min()
     t_max = litecurve_master.time.max()
@@ -136,10 +137,10 @@ def main():
         raise ValueError("Lightcurve has negative timestamps...this will cause problems")
 
     # split litecurves by quarter
-    litecurves = litecurve_master.split_quarters()
+    litecurves = litecurve_master.split_visits()
 
     for j, litecurve in enumerate(litecurves):
-        assert len(np.unique(litecurve.quarter)) == 1, "expected one quarter per litecurve"
+        assert len(np.unique(litecurve.visit)) == 1, "expected one quarter per litecurve"
         assert len(np.unique(litecurve.obsmode)) == 1, "expected one obsmode per litecurve"
 
     print(f"{len(litecurves)} litecurves loaded for {target}")
@@ -267,7 +268,7 @@ def main():
         
         npts_final = len(detrender.litecurve.time)
 
-        print(f"  Quarter {detrender.litecurve.quarter[0]} : {npts_initial-npts_final} outliers rejected")
+        print(f"  Quarter {detrender.litecurve.visit[0]} : {npts_initial-npts_final} outliers rejected")
 
     # estimate oscillation periods
     oscillation_periods = np.zeros(len(detrenders))
