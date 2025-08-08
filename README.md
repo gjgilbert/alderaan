@@ -32,11 +32,13 @@ pip install alderaan
 
 ## Running the pipeline
 
-To test running the pipeline, run the following commmand:
+To run the pipeline, navigate into the ALDERAAN source directory and run the following commmand:
 
 ```
-$ alderaan run -c config.cfg -r recipe.rcp -m Kepler -t K00148
+$ python alderaan/pipelines/alderaan_pipeline.py -m Kepler -t K00148 -c configs/default_config.cfg 
 ```
+
+The flags -m (mission) -t (target) and -c (config) are required and set the pipeline run conditions.
 
 
 ## Attribution
