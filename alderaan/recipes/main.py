@@ -6,14 +6,14 @@ if base_path not in sys.path:
     sys.path.insert(0, base_path)
 
 import argparse
-from src.recipes.subrecipes import startup
-#from src.recipes.subrecipes import load_kepler_data
-
+from alderaan.recipes.subrecipes import startup
+from types import SimpleNamespace
 
 def main():
     print("starting main recipe")
 
-    startup.execute()
+    context = startup.execute()
+
 
 
 

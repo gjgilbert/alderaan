@@ -5,16 +5,18 @@ base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
 if base_path not in sys.path:
     sys.path.insert(0, base_path)
 
+from aesara_theano_fallback import aesara as theano
 import argparse
 from astropy.units import UnitsWarning
 from configparser import ConfigParser
 from datetime import datetime
 import shutil
-from src.utils.io import expand_config_path, copy_input_target_catalog
+from alderaan.utils.io import expand_config_path, copy_input_target_catalog
 from timeit import default_timer as timer
 import warnings
 
-def execute():
+
+def load_context():
     # flush buffer
     sys.stdout.flush()
     sys.stderr.flush()
@@ -80,7 +82,3 @@ def execute():
     # copy input catalog into results directory
     catalog_csv_copy = os.path.join(outputs_dir, 'results', run_id, f'{run_id}.csv')
     copy_input_target_catalog(catalog_csv, catalog_csv_copy)
-
-
-if __name__ == '__execute__':
-    execute()
