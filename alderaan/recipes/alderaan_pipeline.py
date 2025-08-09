@@ -16,16 +16,16 @@ import gc
 import matplotlib.pyplot as plt
 import numpy as np
 import shutil
-from alderaan.constants import *
-from alderaan.schema.ephemeris import Ephemeris
-from alderaan.schema.litecurve import LiteCurve
-from alderaan.schema.planet import Planet
-from alderaan.modules.detrend import GaussianProcessDetrender
-from alderaan.modules.omc import OMC
-from alderaan.modules.transit_model.transit_model import ShapeTransitModel, TTimeTransitModel
-from alderaan.modules.quality_control import QualityControl
-from alderaan.modules.quicklook import plot_litecurve, plot_omc, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
-from alderaan.utils.io import expand_config_path, parse_koi_catalog, parse_holczer16_catalog, copy_input_target_catalog
+from alderaan.src.constants import *
+from alderaan.src.schema.ephemeris import Ephemeris
+from alderaan.src.schema.litecurve import LiteCurve
+from alderaan.src.schema.planet import Planet
+from alderaan.src.modules.detrend import GaussianProcessDetrender
+from alderaan.src.modules.omc import OMC
+from alderaan.src.modules.transit_model.transit_model import ShapeTransitModel, TTimeTransitModel
+from alderaan.src.modules.quality_control import QualityControl
+from alderaan.src.modules.quicklook import plot_litecurve, plot_omc, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
+from alderaan.src.utils.io import expand_config_path, parse_koi_catalog, parse_holczer16_catalog, copy_input_target_catalog
 from timeit import default_timer as timer
 import warnings
 
