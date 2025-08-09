@@ -1,6 +1,7 @@
-__all__ = ['expand_config_path', 
+__all__ = ['resolve_config_path',
            'parse_koi_catalog',
            'parse_holczer16_catalog',
+           'copy_input_target_catalog',
           ]
 
 
@@ -14,7 +15,7 @@ from pandas.testing import assert_frame_equal
 from alderaan.ephemeris import Ephemeris
 
 
-def expand_config_path(path_str):
+def resolve_config_path(path_str, base_path):
     return os.path.join(str(Path(path_str.format(base_path=base_path)).resolve()),'')
 
 
