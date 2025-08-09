@@ -1,9 +1,5 @@
 __all__ = ['BaseAlg']
 
-import os
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 import numpy as np
 from alderaan.constants import kepler_lcit, kepler_scit
 from alderaan.litecurve import LiteCurve

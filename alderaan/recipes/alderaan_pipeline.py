@@ -1,10 +1,6 @@
 import os
 import sys
 
-base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-if base_path not in sys.path:
-    sys.path.insert(0, base_path)
-
 from aesara_theano_fallback import aesara as theano
 import argparse
 from astropy.units import UnitsWarning
