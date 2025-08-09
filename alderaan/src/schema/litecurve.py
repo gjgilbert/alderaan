@@ -21,7 +21,7 @@ class LiteCurve:
         
         elif len(args) == 1 and isinstance(args[0], list):
             if all([isinstance(lc, LiteCurve) for lc in args[0]]):
-                self = self._from_list(*args, **kwargs)
+                self = self.from_list(*args, **kwargs)
             else:
                 raise TypeError("Unexpected input types in list")
         
@@ -32,9 +32,9 @@ class LiteCurve:
                 data_source = kwargs.pop('data_source')
 
             if data_source == 'Kepler PDCSAP':
-                self = self._from_kplr_pdcsap(*args, **kwargs)
+                self = self.from_kplr_pdcsap(*args, **kwargs)
             elif data_source == 'ALDERAAN':
-                self = self._from_alderaan(*args, **kwargs)
+                self = self.from_alderaan(*args, **kwargs)
             else:
                 raise ValueError(f"Unsupported data_source: {data_source}")      
         
