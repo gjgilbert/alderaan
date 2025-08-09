@@ -7,9 +7,9 @@ from astropy.stats import mad_std
 from celerite2.backprop import LinAlgError
 import numpy as np
 from alderaan.constants import *
-from alderaan.schema.ephemeris import Ephemeris
-from alderaan.schema.litecurve import LiteCurve
-from alderaan.schema.planet import Planet
+from alderaan.ephemeris import Ephemeris
+from alderaan.litecurve import LiteCurve
+from alderaan.planet import Planet
 from alderaan.modules.detrend import GaussianProcessDetrender
 from alderaan.utils.io import parse_koi_catalog
 import warnings

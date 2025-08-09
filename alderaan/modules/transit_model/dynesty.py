@@ -8,6 +8,7 @@ from dynesty.utils import print_fn
 import io
 import numpy as np
 from scipy.special import erfinv
+from alderaan.utils.stats import uniform_ppf, loguniform_ppf, norm_ppf
 import time
 
 
@@ -60,71 +61,6 @@ def prior_transform(uniform_hypercube, fixed_durations):
     x[-1] = _uniform_ppf(u[-1], 0, 1)
 
     return x
-
-
-def _uniform_ppf(u, a, b):
-    """
-    Transform from U(0,1) --> Uniform(a,b)
-
-    Parameters
-    ----------
-        u : array-like
-            samples from standard uniform distribution U(0,1)
-        a : float
-            lower bound on transformed distribution U(a,b)
-        b : float
-            upper bound on transformed distribution U(a,b)
-
-    Returns
-    -------
-        x : array-like
-            transformed samples from uniform distribution
-    """
-    return u * (b - a) + a
-
-
-def _loguniform_ppf(u, a, b):
-    """
-    Transform from U(0,1) --> LogUniform(a,b)
-
-    Parameters
-    ----------
-        u : array-like
-            samples from standard uniform distribution U(0,1)
-        a : float
-            lower bound on transformed distribution lnU(a,b)
-        b : float
-            upper bound on transformed distribution lnU(a,b)
-
-    Returns
-    -------
-        x : array-like
-            transformed samples from log-uniform distribution
-    """
-    return np.exp(u * np.log(b) + (1 - u) * np.log(a))
-
-
-def _norm_ppf(u, mu, sig, eps=1e-12):
-    """
-    Transform from U(0,1) --> Normal(mu,sig)
-
-    Parameters
-    ----------
-        u : array-like
-            samples from standard uniform distribution U(0,1)
-        mu : float
-            mean of transformed distribution N(mu,sig)
-        sig : float
-            standard deviation of transformed distribution N(mu,sig)
-        eps : float (optional)
-            provides numerical stability in the inverse error function at edges
-
-    Returns
-    -------
-        x : array-like
-            transformed samples from Normal distribution
-    """
-    return mu + sig * np.sqrt(2) * erfinv((2 * u - 1) / (1 + eps))
 
 
 def throttled_print_fn(interval=10):

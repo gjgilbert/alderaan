@@ -12,9 +12,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import shutil
 from alderaan.constants import *
-from alderaan.schema.ephemeris import Ephemeris
-from alderaan.schema.litecurve import LiteCurve
-from alderaan.schema.planet import Planet
+from alderaan.ephemeris import Ephemeris
+from alderaan.litecurve import LiteCurve
+from alderaan.planet import Planet
 from alderaan.modules.base import BaseAlg
 from alderaan.modules.detrend import GaussianProcessDetrender
 from alderaan.modules.omc import OMC

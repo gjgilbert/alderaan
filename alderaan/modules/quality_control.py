@@ -6,8 +6,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from astropy.stats import mad_std
 import numpy as np
-from alderaan.src.constants import kepler_lcit, kepler_scit
-from alderaan.src.modules.base import BaseAlg
+from alderaan.constants import kepler_lcit, kepler_scit
+from alderaan.modules.base import BaseAlg
 import warnings
 
 

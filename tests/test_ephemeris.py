@@ -3,7 +3,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
-from alderaan.schema.ephemeris import Ephemeris, WarpEphemeris
+from alderaan.ephemeris import Ephemeris, WarpEphemeris
 import warnings
 
 warnings.simplefilter('always', UserWarning)

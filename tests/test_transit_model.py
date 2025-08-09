@@ -15,9 +15,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import shutil
 from alderaan.constants import *
-from alderaan.schema.planet import Planet
-from alderaan.schema.ephemeris import Ephemeris
-from alderaan.schema.litecurve import LiteCurve
+from alderaan.planet import Planet
+from alderaan.ephemeris import Ephemeris
+from alderaan.litecurve import LiteCurve
 from alderaan.modules.detrend import GaussianProcessDetrender
 from alderaan.modules.transit_model.transit_model import ShapeTransitModel, TTimeTransitModel
 from alderaan.modules.quality_control import QualityControl

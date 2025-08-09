@@ -10,9 +10,9 @@ import gc
 import matplotlib.pyplot as plt
 import numpy as np
 from alderaan.utils.io import parse_koi_catalog, parse_holczer16_catalog
-from alderaan.schema.planet import Planet
-from alderaan.schema.ephemeris import Ephemeris
-from alderaan.schema.litecurve import LiteCurve
+from alderaan.planet import Planet
+from alderaan.ephemeris import Ephemeris
+from alderaan.litecurve import LiteCurve
 from alderaan.modules.omc import OMC
 from alderaan.modules.quicklook import plot_litecurve, plot_omc
 import shutil

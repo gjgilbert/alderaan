@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 import numpy as np
-from alderaan.src.constants import pi
+from alderaan.constants import pi
 
 
 def bin_data(time, data, binsize, bin_centers=None):

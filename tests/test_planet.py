@@ -3,8 +3,8 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
-from alderaan.schema.ephemeris import Ephemeris
-from alderaan.schema.planet import Planet
+from alderaan.ephemeris import Ephemeris
+from alderaan.planet import Planet
 from alderaan.utils.io import parse_koi_catalog
 import warnings
 
