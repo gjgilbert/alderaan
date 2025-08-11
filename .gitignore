@@ -113,7 +113,6 @@ ENV/
 .mypy_cache/
 
 
-data/
 fig*
 tab*
 val*
