@@ -3,7 +3,13 @@
 Installation
 ++++++++++++
 
-ALDERAAN requires a complex set of dependencies in order to run. To create a conda environment capable of running the ALDERAAN pipeline, copy environment.yml to your local machine and run:
+ALDERAAN requires a complex set of dependencies in order to run. To create a conda environment capable of running the ALDERAAN pipeline, copy environment.yml from the `alderaan` github repository to your local machine:
+
+.. code-block:: console
+
+   curl -o ./environment.yml https://raw.githubusercontent.comefs/heads/develop/environment.yml
+
+Then run:
 
 .. code-block:: console
 
