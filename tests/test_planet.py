@@ -14,7 +14,7 @@ warnings.simplefilter('always', UserWarning)
 base_path = Path(__file__).resolve().parents[1]
 catalog_csv = os.path.join(base_path, 'alderaan/examples/catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
 
-koi_id = 'K00148'
+koi_id = 'K00137'   # Kepler-18
 catalog = parse_koi_catalog(catalog_csv, koi_id)
 
 assert np.all(np.diff(catalog.period) > 0), "Planets should be ordered by ascending period"
