@@ -3,6 +3,6 @@
 Planet
 ======
 
-.. automodule:: alderaan.schema.planet
+.. automodule:: alderaan.planet
    :members:
    

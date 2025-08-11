@@ -3,6 +3,6 @@
 Ephemeris
 =========
 
-.. automodule:: alderaan.schema.ephemeris
+.. automodule:: alderaan.ephemeris
    :members:
    

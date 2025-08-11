@@ -3,6 +3,6 @@
 Litecurve
 =========
 
-.. automodule:: schema.litecurve
+.. automodule:: alderaan.litecurve
    :members:
    

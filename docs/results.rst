@@ -3,6 +3,6 @@
 Results
 =======
 
-.. automodule:: alderaan.schema.results
+.. automodule:: alderaan.results
    :members:
    
