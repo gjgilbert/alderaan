@@ -9,8 +9,8 @@ from astropy.stats import mad_std
 from dynesty import plotting as dyplot
 import matplotlib.pyplot as plt
 import numpy as np
-from alderaan.schema.planet import Planet
-from alderaan.schema.ephemeris import Ephemeris
+from alderaan.planet import Planet
+from alderaan.ephemeris import Ephemeris
 from alderaan.modules.omc import OMC
 
 

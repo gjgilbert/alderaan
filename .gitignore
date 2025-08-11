@@ -1,9 +1,12 @@
+# ALDERAAN inputs/outputs
+outputs/
+
+# legacy ALDERAAN code
 Figures/
 Logs/
 Notebooks/
 Results/
 Simulations/
-outputs/
 
 build/
 
