@@ -21,7 +21,7 @@ Then run:
 conda env create -n <ENV_NAME> -f environment.yml
 ```
 
-If <ENV_NAME> is not specified, the conda environment will be named "alderaan".
+If <ENV_NAME> is not specified, the conda environment will be named "alderaan-env".
 
 You can then activate your environment and safely pip install the package:
 
