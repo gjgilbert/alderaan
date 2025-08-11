@@ -73,10 +73,9 @@ def main():
     config = ConfigParser()
     config.read(args.config)
 
-    base_path = Path(__file__).resolve().parents[2]
+    alderaan_base_path = Path(__file__).resolve().parents[2]
     for key, value in config["PATHS"].items():
-        config['PATHS'][key] = resolve_config_path(config['PATHS'][key], base_path)
-
+        config['PATHS'][key] = resolve_config_path(config['PATHS'][key], alderaan_base_path)
 
     mission = args.mission
     target = args.target

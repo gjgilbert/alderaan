@@ -1,10 +1,9 @@
 import os
 import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
-from alderaan.ephemeris import Ephemeris, WarpEphemeris
 import warnings
+from alderaan.ephemeris import Ephemeris
 
 warnings.simplefilter('always', UserWarning)
 
@@ -28,10 +27,4 @@ ephemeris = Ephemeris(period=period, epoch=epoch, t_min=0., t_max=1400.)
 print(ephemeris.period, ephemeris.epoch)
 print(len(ephemeris.index), len(ephemeris.ttime))
 
-# WarpEphemeris
-ephemeris = WarpEphemeris(index=index, ttime=ttime)
-
-print(ephemeris.period, ephemeris.epoch)
-print(ephemeris._static_period, ephemeris._static_epoch)
-
-print("passing")
+print("\npassing")
