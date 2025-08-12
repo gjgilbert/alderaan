@@ -12,84 +12,32 @@ from alderaan.constants import kepler_lcit, kepler_scit
 
 
 class KeplerLiteCurve(LiteCurve):
-    def __init__(self):
+    
+    # def __init__(self):
+    def __init__(self, data_dir, target_id, obsmode, quarters=None):
+        
         super()
 
         self.quarter = visit.copy()
         # delete self.visit
 
-    
+        super().__init__()
+        self.load_kplr_pdcsap(data_dir, target_id, obsmode, visits=self.quarter)
+
+
     def split_quarters(*args, quarters=None):
         pass
-        # super LiteCurve.split_visits(viists --> quarters)
+        # super LiteCurve.split_visits(vists --> quarters)
 
 
-    def load_kepler_pdcsap():
-        pass
-        # super __LiteCurve_load_from_nasa()
-        # etc.
+    # def load_kepler_pdcsap():
+    #     pass
+    #     # super __LiteCurve_load_from_nasa()
+    #     # etc.
 
-
-class LiteCurve:
-    """LiteCurve
-    """
-    def __init__(self, *args, **kwargs):
-        
-        if len(args) == 0:
-            self = self._set_empty_attribute_arrays()
-        
-        elif len(args) == 1 and isinstance(args[0], list):
-            if all([isinstance(lc, LiteCurve) for lc in args[0]]):
-                self = self._from_list(*args, **kwargs)
-            else:
-                raise TypeError("Unexpected input types in list")
-        
-        elif (len(args) > 1) and isinstance(args[0], str):
-            if 'data_source' not in kwargs:
-                raise ValueError("Missing required keyword argmument 'data_source")
-            else:
-                data_source = kwargs.pop('data_source')
-
-            if data_source == 'Kepler PDCSAP':
-                self = self._from_kplr_pdcsap(*args, **kwargs)
-            elif data_source == 'ALDERAAN':
-                self = self._from_alderaan(*args, **kwargs)
-            else:
-                raise ValueError(f"Unsupported data_source: {data_source}")      
-        
-        else:
-            raise TypeError("Unsupported init signature")
-    
-    
-    @classmethod
-    def _set_empty_attribute_arrays(cls):
-        lc_instance = cls.__new__(cls)
-        lc_instance.time = np.array([]).astype(float)
-        lc_instance.flux = np.array([]).astype(float)
-        lc_instance.error = np.array([]).astype(float)
-        lc_instance.cadno = np.array([]).astype(int)
-        lc_instance.visit = np.array([]).astype(int)
-        lc_instance.obsmode = np.array([]).astype(str)
-        lc_instance.quality = np.array([]).astype(bool)
-        return lc_instance
-
-    
-    @classmethod
-    def from_list(cls, litecurve_list):
-        
-        lc_instance = cls()
-        lc_instance = lc_instance._set_empty_attribute_arrays()
-
-        for i, lc in enumerate(litecurve_list):
-            for k in lc_instance.__dict__.keys():
-                if type(lc_instance.__dict__[k]) is np.ndarray:
-                    lc_instance.__setattr__(k, np.hstack([lc_instance.__dict__[k],lc.__dict__[k]]))
-
-        return lc_instance
-    
 
     @classmethod
-    def from_kplr_pdcsap(cls, data_dir, target_id, obsmode, visits=None):
+    def load_kplr_pdcsap(cls, data_dir, target_id, obsmode, visits=None):
         """
         Load photometric data from Kepler Project PDCSAP Flux lightcurves
         The raw fits files must be pre-downloaded from MAST servers and stored locally
@@ -177,6 +125,44 @@ class LiteCurve:
 
         return lc_instance
         
+
+
+
+class LiteCurve:
+    """LiteCurve
+    """
+    def __init__(self, *args, **kwargs):
+
+        self._set_empty_attributes()
+
+    
+    
+    @classmethod
+    def _set_empty_attribute_arrays(cls):
+        lc_instance = cls.__new__(cls)
+        lc_instance.time = np.array([]).astype(float)
+        lc_instance.flux = np.array([]).astype(float)
+        lc_instance.error = np.array([]).astype(float)
+        lc_instance.cadno = np.array([]).astype(int)
+        lc_instance.visit = np.array([]).astype(int)
+        lc_instance.obsmode = np.array([]).astype(str)
+        lc_instance.quality = np.array([]).astype(bool)
+        return lc_instance
+
+    
+    @classmethod
+    def from_list(cls, litecurve_list):
+        
+        lc_instance = cls()
+        lc_instance = lc_instance._set_empty_attribute_arrays()
+
+        for i, lc in enumerate(litecurve_list):
+            for k in lc_instance.__dict__.keys():
+                if type(lc_instance.__dict__[k]) is np.ndarray:
+                    lc_instance.__setattr__(k, np.hstack([lc_instance.__dict__[k],lc.__dict__[k]]))
+
+        return lc_instance
+    
 
     @classmethod
     def from_k2(cls, data_dir, target_id, obsmode, visits=None):
