@@ -1,22 +1,20 @@
 import os
 import sys
+import warnings
 
-base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
-if base_path not in sys.path:
-    sys.path.insert(0, base_path)
-
-from aesara_theano_fallback import aesara as theano
 import argparse
+from aesara_theano_fallback import aesara as theano
 from astropy.units import UnitsWarning
 from configparser import ConfigParser
 from datetime import datetime
 import shutil
-from alderaan.utils.io import expand_config_path, copy_input_target_catalog
 from timeit import default_timer as timer
-import warnings
 
+from alderaan.utils.io import resolve_config_path, copy_input_target_catalog
+from alderaan.recipes.context import capture_locals
 
-def load_context():
+@capture_locals
+def run(context):
     # flush buffer
     sys.stdout.flush()
     sys.stderr.flush()
@@ -45,15 +43,18 @@ def load_context():
     args = parser.parse_args()
 
     config = ConfigParser()
-    config.read(os.path.join(base_path, args.config))
+    config.read(args.config)
+
+    for key, value in config["PATHS"].items():
+        config['PATHS'][key] = resolve_config_path(config['PATHS'][key], context.BASE_PATH)
 
     mission = args.mission
     target = args.target
     run_id = config['RUN']['run_id']
 
-    data_dir =  expand_config_path(config['PATHS']['data_dir'])
-    outputs_dir = expand_config_path(config['PATHS']['outputs_dir'])
-    catalog_dir = expand_config_path(config['PATHS']['catalog_dir'])
+    data_dir =  config['PATHS']['data_dir']
+    outputs_dir = config['PATHS']['outputs_dir']
+    catalog_dir = config['PATHS']['catalog_dir']
 
     catalog_csv = os.path.join(catalog_dir, str(config['ARGS']['catalog_csv']))
 
@@ -62,7 +63,6 @@ def load_context():
     print(f"   TARGET  : {target}")
     print(f"   RUN ID  : {run_id}")
     print("")
-    print(f"   Base path         : {base_path}")
     print(f"   Data directory    : {data_dir}")
     print(f"   Config file       : {args.config}")
     print(f"   Input catalog     : {os.path.basename(catalog_csv)}")
@@ -82,3 +82,7 @@ def load_context():
     # copy input catalog into results directory
     catalog_csv_copy = os.path.join(outputs_dir, 'results', run_id, f'{run_id}.csv')
     copy_input_target_catalog(catalog_csv, catalog_csv_copy)
+
+
+if __name__ == '__run__':
+    run()
