@@ -23,24 +23,17 @@ def expand_config_path(path_str):
 
 
 def parse_koi_catalog(filepath, koi_id):
-    """
-    Read a Kepler Object of Interest Catalog and do some consistency checks
+    """Reads a Kepler Object of Interest Catalog and performs consistency checks
     
     Expected columns are:
-        kic_id
-        koi_id
-        npl
-        period
-        epoch
-        depth
-        duration
-        impact
-        ld_u1
-        ld_u2
+        [kic_id, koi_id, npl, period, epoch, depth, duration, impact, ld_u1, ld_u2]
 
-    Arguments:
+    Args:
         filepath (str) : path to csv file
         koi_id (str) : KOI identification number in the format, e.g., K01234
+
+    Returns:
+        pd.DataFrame: catalog of target star/planet properties
     """
     # read catalog from csv file
     catalog = pd.read_csv(filepath, index_col=0)
@@ -76,21 +69,19 @@ def parse_koi_catalog(filepath, koi_id):
 
 
 def parse_holczer16_catalog(filepath, koi_id, num_planets):
-    """
-    Reads transit time table from Holczer+2016
-    Loads data into a list of Ephemeris objects
+    """Reads transit time table from Holczer+2016 into a list of Ephemeris objects
 
     Automatically corrects for zero-point offsets between catalogs
       - Holczer+2016 used BJD - 2454900
       - Kepler Project used BJKD = BJD - 2454833
 
-    Arguments:
+    Args:
         filepath (str) : path to Holczer+2016 table
         koi_id (str) : KOI identification number in the format, e.g., K01234
         num_planets : total number of planets in the system
 
     Returns:
-        ephemerides : list of (0,num_planets) Ephemeris objects
+        list : list of (0,num_planets) Ephemeris objects
     """
     data = np.loadtxt(filepath, usecols=[0,1,2,3,4], dtype=str)
     ephemerides = []

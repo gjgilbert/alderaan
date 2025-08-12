@@ -11,8 +11,28 @@ import numpy as np
 from alderaan.constants import kepler_lcit, kepler_scit
 
 
-class LiteCurve:
+class KeplerLiteCurve(LiteCurve):
+    def __init__(self):
+        super()
 
+        self.quarter = visit.copy()
+        # delete self.visit
+
+    
+    def split_quarters(*args, quarters=None):
+        pass
+        # super LiteCurve.split_visits(viists --> quarters)
+
+
+    def load_kepler_pdcsap():
+        pass
+        # super __LiteCurve_load_from_nasa()
+        # etc.
+
+
+class LiteCurve:
+    """LiteCurve
+    """
     def __init__(self, *args, **kwargs):
         
         if len(args) == 0:
@@ -40,6 +60,7 @@ class LiteCurve:
         else:
             raise TypeError("Unsupported init signature")
     
+    
     @classmethod
     def _set_empty_attribute_arrays(cls):
         lc_instance = cls.__new__(cls)
@@ -54,7 +75,7 @@ class LiteCurve:
 
     
     @classmethod
-    def _from_list(cls, litecurve_list):
+    def from_list(cls, litecurve_list):
         
         lc_instance = cls()
         lc_instance = lc_instance._set_empty_attribute_arrays()
@@ -77,17 +98,18 @@ class LiteCurve:
          * remove_nans()
          * normalize()
                 
-        Arguments:
+        Args:
             data_dir (str) : path to where data are stored
             target_id (int) : KIC number
             obsmode (str) : 'short cadence' or 'long cadence'
             visits (list) : optional, list of visits (Kepler quarters) to load.
+        Returns:
+            LiteCurve : self
         """
 
         # create instance of litecurve
         lc_instance = cls()
         lc_instance.mission = "Kepler"
-
 
         # sanitize inputs
         if visits is None:
@@ -140,7 +162,6 @@ class LiteCurve:
         # stitch into a single LightCurve
         lklc = lk_col_clean.stitch()
 
-
         # set LiteCurve attributes
         lc_instance.time = np.array(lklc.time.value, dtype=float)
         lc_instance.flux = np.array(lklc.flux.value, dtype=float)
@@ -157,7 +178,18 @@ class LiteCurve:
         return lc_instance
         
 
-    def _from_alderaan(self, data_dir, target_id):
+    @classmethod
+    def from_k2(cls, data_dir, target_id, obsmode, visits=None):
+        raise NotImplementedError("Loading K2 data not yet implemented")
+    
+    
+    @classmethod
+    def from_tess(cls, data_dir, target_id, obsmode, visits=None):
+        raise NotImplementedError("Loading TESS data not yet implemented")
+
+        
+    @classmethod
+    def from_alderaan(cls, data_dir, target_id):
         raise NotImplementedError("Loading ALDERAAN files not yet implemented")
     
     
@@ -175,7 +207,7 @@ class LiteCurve:
             litecurve_list.append(litecurve)
 
         return litecurve_list
-    
+      
 
     def _remove_flagged_cadences(self, quality_flags, bitmask='default'):
         qmask = lk.KeplerQualityFlags.create_quality_mask(
@@ -188,10 +220,3 @@ class LiteCurve:
         self.quality = np.ones(len(self.time), dtype=bool)
 
         return self
-
-
-        
-
-    @classmethod
-    def from_k2(cls, data_dir, target_id, obsmode, visits=None):
-        pass

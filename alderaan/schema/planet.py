@@ -10,15 +10,14 @@ import warnings
 
 
 class Planet:
+    """Planet
+    """
     def __init__(self, 
                  catalog,
                  koi_id,
                  planet_no, 
                  ephemeris=None
                 ):
-        """
-        Docstring
-        """
         # read transit parameters from pandas dataframe
         self = self._from_dataframe(catalog, koi_id, planet_no)
 
@@ -45,6 +44,15 @@ class Planet:
     
 
     def update_ephemeris(self, ephemeris):
+        """
+        Update ephemeris and corresponding attributes (period & epoch)
+
+        Args:
+          ephemeris (Ephemeris)
+        
+        Returns:
+          Planet : self
+        """
         if not np.isclose(self.period, ephemeris.period, rtol=0.1):
             raise ValueError(f"New period ({ephemeris.period:.6f}) differs from old period ({self.period:.6f}) by more than 10%")
 

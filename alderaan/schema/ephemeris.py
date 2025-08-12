@@ -7,6 +7,8 @@ import warnings
 
 
 class Ephemeris:
+    """Ephemeris
+    """
     def __init__(self, 
                  period=None,
                  epoch=None,
@@ -17,9 +19,7 @@ class Ephemeris:
                  t_min=None,
                  t_max=None
                 ):
-        """
-        Docstring
-        """
+        
         # check inputs
         init_linear_ephem = (
             (period is not None) & 
@@ -84,6 +84,12 @@ class Ephemeris:
     def _adjust_epoch(self, t_min):
         """
         Put epoch in range (t_min, t_min + period)
+
+        Args:
+          t_min (float) : minimum time
+
+        Returns:
+          Ephemeris : self
         """
         if self.epoch < t_min:
             adj = 1 + (t_min - self.epoch) // self.period
@@ -113,7 +119,10 @@ class Ephemeris:
 
     def eval_linear_ephemeris(self, index=None):
         """
-        Calculate linear ephemeris from period and epoch 
+        Calculate linear ephemeris from period and epoch
+
+        Returns:
+          ndarray : transit times according to linear ephemeris
         """
         if index is None:
             index = self.index
@@ -124,6 +133,9 @@ class Ephemeris:
     def update_period_and_epoch(self):
         """
         Recompute linear ephemeris to ensure consistency
+
+        Returns:
+          Ephemeris : self
         """
         self.period, self.epoch = self.fit_linear_ephemeris()
 
@@ -132,8 +144,14 @@ class Ephemeris:
 
     def interpolate(self, method, full=False):
         """
-        Interpolate poor quality transit times
-        Optionally interpolate missing transit times
+        Interpolate poor quality transit times and optionally interpolate missing transit times
+
+        Args:
+          method (str) : 'linear' or 'spline'
+          full (bool) : True to interpolate missing transit times (default=False)
+
+        Returns:
+          Ephemeris : self
         """        
         if self.quality is not None:
             q = self.quality
