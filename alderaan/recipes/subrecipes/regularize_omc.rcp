@@ -1,0 +1,70 @@
+import os
+import sys
+import warnings
+
+from astropy.stats import mad_std
+import numpy as np
+from timeit import default_timer as timer
+
+from alderaan.modules.omc import OMC
+from alderaan.modules.quicklook import plot_omc
+from alderaan.utils.pipeline import capture_locals
+
+
+def run(context):
+    print('\n\nOMC BLOCK (initialization)\n')
+    print("regularizing ephemerides")
+
+    target = context.target
+    planets = context.planets
+
+    # initialize OMC object for each planet
+    omc_list = []
+    for n, p in enumerate(planets):
+        omc_list.append(OMC(p.ephemeris))
+
+    # fit a regularized model
+    for n, p in enumerate(planets):
+        omc = omc_list[n]
+        npts = np.sum(omc.quality)
+
+        _period = np.copy(p.period)
+
+        # Matern-3/2 model | don't use GP on very noisy data
+        if (npts >= 8) & (np.median(omc.yerr) <= 0.5 * mad_std(omc.yobs)):
+            with warnings.catch_warnings(record=True) as catch:
+                warnings.simplefilter('always', category=RuntimeWarning)
+                trace = omc.sample(omc.matern32_model())
+
+        # Polynomial model | require 2^N transits
+        else:
+            polyorder = np.max([1, np.min([3, int(np.log2(npts))-1])])
+            with warnings.catch_warnings(record=True) as catch:
+                warnings.simplefilter('always', category=RuntimeWarning)
+                trace = omc.sample(omc.poly_model(polyorder))
+
+        if len(catch) > 0:
+            print(f"{len(catch)} RuntimeWarnings caught during sampling")
+
+        # update ephemeris
+        omc.ymod = np.nanmedian(trace['pred'], 0)
+        omc_list[n] = omc
+
+        p.ephemeris = p.ephemeris.update_from_omc(omc)
+        p.ephemeris = p.ephemeris.interpolate('spline', full=True)
+        planets[n] = p.update_ephemeris(p.ephemeris)
+
+        # make quicklook plot
+        filepath = os.path.join(context.quicklook_dir, f"{target}_omc_initial.png")
+        _ = plot_omc(omc_list, target, filepath)
+
+        print(f"Planet {n} : {_period:.6f} --> {planets[n].period:.6f}")
+
+    print(f"\ncumulative runtime = {((timer()-context.global_start_time)/60):.1f} min")
+
+    # PyMC3 does not play well with automatic context capture; do manual capture
+    return {'planets': planets}
+
+
+if __name__ == '__run__':
+    run()

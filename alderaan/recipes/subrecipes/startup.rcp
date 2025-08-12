@@ -11,7 +11,7 @@ import shutil
 from timeit import default_timer as timer
 
 from alderaan.utils.io import resolve_config_path, copy_input_target_catalog
-from alderaan.recipes.context import capture_locals
+from alderaan.utils.pipeline import capture_locals
 
 @capture_locals
 def run(context):

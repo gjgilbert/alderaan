@@ -1,12 +1,13 @@
 __all__ = ['PipelineContext',
            'capture_locals',
-           'capture_context'
+           'invoke_subrecipe'
           ]
 
 import os
 import sys
+import gc
 import importlib.machinery
-import importlib.util
+import matplotlib.pyplot as plt
 from pathlib import Path
 import types
 
@@ -52,3 +53,12 @@ def invoke_subrecipe(context, subrecipe):
     vars_dict = module.run(context)
     for k, v in vars_dict.items():
         setattr(context, k, v)
+
+    _system_cleanup()
+
+
+def _system_cleanup():
+    sys.stdout.flush()
+    sys.stderr.flush()
+    plt.close('all')
+    gc.collect()
