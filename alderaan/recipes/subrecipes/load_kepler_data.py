@@ -1,19 +1,27 @@
 import os
 import sys
+import warnings
 
-base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
-if base_path not in sys.path:
-    sys.path.insert(0, base_path)
+import numpy as np
+from timeit import default_timer as timer
 
-from alderaan.schema.litecurve import LiteCurve
+from alderaan.ephemeris import Ephemeris
+from alderaan.litecurve import LiteCurve
+from alderaan.planet import Planet
+from alderaan.modules.quicklook import plot_litecurve
 from alderaan.utils.io import parse_koi_catalog, parse_holczer16_catalog
+from alderaan.recipes.context import capture_locals
+from alderaan.utils.system import cleanup
 
 
-def execute():
+@capture_locals
+def run(context):
     print('\n\nI/O BLOCK\n')
 
+    target = context.target
+
     # load KOI catalog
-    catalog = parse_koi_catalog(catalog_csv, target)
+    catalog = parse_koi_catalog(context.catalog_csv, target)
 
     assert np.all(np.diff(catalog.period) > 0), "Planets should be ordered by ascending period"
 
@@ -22,8 +30,7 @@ def execute():
     kic_id = int(catalog.kic_id[0])
 
     # load lightcurves
-    #litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP')
-    litecurve_master = LiteCurve().from_kplr_pdcsap(data_dir, kic_id, 'long cadence', visits=2)
+    litecurve_master = LiteCurve().from_kplr_pdcsap(context.data_dir, kic_id, 'long cadence')
 
     t_min = litecurve_master.time.min()
     t_max = litecurve_master.time.max()
@@ -56,7 +63,7 @@ def execute():
             planets[n] = p.update_ephemeris(_ephemeris)
 
     # load Holczer+2016 catalog
-    filepath = os.path.join(catalog_dir, 'holczer_2016_kepler_ttvs.txt')
+    filepath = os.path.join(context.catalog_dir, 'holczer_2016_kepler_ttvs.txt')
     holczer_ephemerides = parse_holczer16_catalog(filepath, koi_id, NPL)
 
     print(f"\n{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
@@ -76,15 +83,14 @@ def execute():
     print(f"{count} matching ephemerides found ({len(holczer_ephemerides)} expected)")
 
     # quicklook litecurve
-    filepath = os.path.join(quicklook_dir, f"{target}_litecurve_raw.png")
+    filepath = os.path.join(context.quicklook_dir, f"{target}_litecurve_raw.png")
     _ = plot_litecurve(litecurve_master, target, planets, filepath)
 
     # end-of-block cleanup
     cleanup()
 
-    print(f"\ncumulative runtime = {((timer()-global_start_time)/60):.1f} min")
+    print(f"\ncumulative runtime = {((timer()-context.global_start_time)/60):.1f} min")
 
 
-
-if __name__ == '__execute__':
-    execute()
+if __name__ == '__run__':
+    run()

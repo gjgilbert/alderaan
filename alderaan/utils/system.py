@@ -4,7 +4,7 @@ import gc
 import matplotlib.pyplot as plt
 
 
-def _system_cleanup():
+def cleanup():
     sys.stdout.flush()
     sys.stderr.flush()
     plt.close('all')
