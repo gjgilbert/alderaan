@@ -17,7 +17,7 @@ User Guide
 Attribution
 +++++++++++
 
-If you make use of ALDERAAN in your work, please cite `Gilbert, Petigura, & Entrican (2005) <https://ui.adsabs.harvard.edu/abs/2025PNAS..12205295G/abstract>`_.
+If you make use of ALDERAAN in your work, please cite `Gilbert, Petigura, & Entrican (2025) <https://ui.adsabs.harvard.edu/abs/2025PNAS..12205295G/abstract>`_.
 Please also cite the following core dependencies:
 
 - `astropy` `Astropy Collaboration et al. (2022) <https://ui.adsabs.harvard.edu/abs/2022ApJ...935..167A/abstract>`_ 

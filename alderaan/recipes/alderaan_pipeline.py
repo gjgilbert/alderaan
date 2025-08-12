@@ -1,10 +1,6 @@
 import os
 import sys
 
-base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-if base_path not in sys.path:
-    sys.path.insert(0, base_path)
-
 from aesara_theano_fallback import aesara as theano
 import argparse
 from astropy.units import UnitsWarning
@@ -15,19 +11,21 @@ from datetime import datetime
 import gc
 import matplotlib.pyplot as plt
 import numpy as np
+from pathlib import Path
 import shutil
-from alderaan.constants import *
-from alderaan.schema.ephemeris import Ephemeris
-from alderaan.schema.litecurve import LiteCurve
-from alderaan.schema.planet import Planet
-from alderaan.modules.detrend import GaussianProcessDetrender
-from alderaan.modules.omc import OMC
-from alderaan.modules.transit_model.transit_model import ShapeTransitModel, TTimeTransitModel
-from alderaan.modules.quality_control import QualityControl
-from alderaan.modules.quicklook import plot_litecurve, plot_omc, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
-from alderaan.utils.io import expand_config_path, parse_koi_catalog, parse_holczer16_catalog, copy_input_target_catalog
 from timeit import default_timer as timer
 import warnings
+
+from alderaan.constants import *
+from alderaan.ephemeris import Ephemeris
+from alderaan.litecurve import LiteCurve
+from alderaan.planet import Planet
+from alderaan.modules.detrend import GaussianProcessDetrender
+from alderaan.modules.omc import OMC
+from alderaan.modules.transit_model import ShapeTransitModel, TTimeTransitModel
+from alderaan.modules.quality_control import QualityControl
+from alderaan.modules.quicklook import plot_litecurve, plot_omc, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
+from alderaan.utils.io import resolve_config_path, parse_koi_catalog, parse_holczer16_catalog, copy_input_target_catalog
 
 
 def initialize_pipeline():
@@ -73,15 +71,19 @@ def main():
     args = parser.parse_args()
 
     config = ConfigParser()
-    config.read(os.path.join(base_path, args.config))
+    config.read(args.config)
+
+    alderaan_base_path = Path(__file__).resolve().parents[2]
+    for key, value in config["PATHS"].items():
+        config['PATHS'][key] = resolve_config_path(config['PATHS'][key], alderaan_base_path)
 
     mission = args.mission
     target = args.target
     run_id = config['RUN']['run_id']
 
-    data_dir =  expand_config_path(config['PATHS']['data_dir'])
-    outputs_dir = expand_config_path(config['PATHS']['outputs_dir'])
-    catalog_dir = expand_config_path(config['PATHS']['catalog_dir'])
+    data_dir =  config['PATHS']['data_dir']
+    outputs_dir = config['PATHS']['outputs_dir']
+    catalog_dir = config['PATHS']['catalog_dir']
 
     catalog_csv = os.path.join(catalog_dir, str(config['ARGS']['catalog_csv']))
 
@@ -90,7 +92,6 @@ def main():
     print(f"   TARGET  : {target}")
     print(f"   RUN ID  : {run_id}")
     print("")
-    print(f"   Base path         : {base_path}")
     print(f"   Data directory    : {data_dir}")
     print(f"   Config file       : {args.config}")
     print(f"   Input catalog     : {os.path.basename(catalog_csv)}")

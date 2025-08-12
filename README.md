@@ -9,13 +9,19 @@ For detailed documentation, see [readthedocs.org](https://alderaan.readthedocs.i
 
 ## Installation instructions
 
-ALDERAAN requires a complex set of dependencies in order to run. To create a conda environment capable of running the ALDERAAN pipeline, copy environment.yml to your local machine and run:
+ALDERAAN requires a complex set of dependencies in order to run. To create a conda environment capable of running the ALDERAAN pipeline, copy environment.yml from the `alderaan` github repository to your local machine:
+
+```
+curl -o ./environment.yml https://raw.githubusercontent.comefs/heads/develop/environment.yml
+```
+
+Then run:
 
 ```
 conda env create -n <ENV_NAME> -f environment.yml
 ```
 
-If <ENV_NAME> is not specified, the conda environment will be named "alderaan".
+If <ENV_NAME> is not specified, the conda environment will be named "alderaan-env".
 
 You can then activate your environment and safely pip install the package:
 
@@ -32,7 +38,7 @@ pip install alderaan
 
 ## Running the pipeline
 
-To run the pipeline, navigate into the ALDERAAN source directory and run the following commmand:
+To run the pipeline, navigate into the `alderaan` source directory and run the following commmand:
 
 ```
 python alderaan/pipelines/alderaan_pipeline.py -m Kepler -t K00148 -c configs/default_config.cfg 
