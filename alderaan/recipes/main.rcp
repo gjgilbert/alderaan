@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
 
-import os
-import sys
 from pathlib import Path
-
-from alderaan.recipes.context import PipelineContext, invoke_subrecipe
-#from alderaan.recipes.subrecipes import startup, load_kepler_data
+from alderaan.utils.pipeline import PipelineContext, invoke_subrecipe
 
 BASE_PATH = Path(__file__).resolve().parents[2]
 
@@ -17,6 +13,7 @@ def main():
 
         invoke_subrecipe(context, 'startup.rcp')
         invoke_subrecipe(context, 'load_kepler_data.rcp')
+        invoke_subrecipe(context, 'regularize_omc.rcp')
 
     print("\n\n\nexiting main pipeline")
 

@@ -10,8 +10,7 @@ from alderaan.litecurve import LiteCurve
 from alderaan.planet import Planet
 from alderaan.modules.quicklook import plot_litecurve
 from alderaan.utils.io import parse_koi_catalog, parse_holczer16_catalog
-from alderaan.recipes.context import capture_locals
-from alderaan.utils.system import cleanup
+from alderaan.utils.pipeline import capture_locals
 
 
 @capture_locals
@@ -30,7 +29,7 @@ def run(context):
     kic_id = int(catalog.kic_id[0])
 
     # load lightcurves
-    litecurve_master = LiteCurve().from_kplr_pdcsap(context.data_dir, kic_id, 'long cadence')
+    litecurve_master = LiteCurve().from_kplr_pdcsap(context.data_dir, kic_id, 'long cadence', visits=2)
 
     t_min = litecurve_master.time.min()
     t_max = litecurve_master.time.max()
@@ -85,9 +84,6 @@ def run(context):
     # quicklook litecurve
     filepath = os.path.join(context.quicklook_dir, f"{target}_litecurve_raw.png")
     _ = plot_litecurve(litecurve_master, target, planets, filepath)
-
-    # end-of-block cleanup
-    cleanup()
 
     print(f"\ncumulative runtime = {((timer()-context.global_start_time)/60):.1f} min")
 
