@@ -3,7 +3,12 @@ __all__ = ['PipelineContext',
            'capture_context'
           ]
 
+import os
 import sys
+import importlib.machinery
+import importlib.util
+from pathlib import Path
+import types
 
 
 class PipelineContext:
@@ -33,6 +38,17 @@ def capture_locals(func):
     return wrapper
 
 
-def capture_context(context, vars_dict):
+def invoke_subrecipe(context, subrecipe):
+    path = Path(os.path.join(context.BASE_PATH, 'alderaan/recipes/subrecipes', subrecipe))
+    name = path.stem
+
+    loader = importlib.machinery.SourceFileLoader(name, str(path))
+    module = types.ModuleType(name)
+    loader.exec_module(module)
+
+    if not hasattr(module, 'run'):
+        raise AttributeError(f"{name} has no function 'run'")
+
+    vars_dict = module.run(context)
     for k, v in vars_dict.items():
         setattr(context, k, v)

@@ -1,7 +1,11 @@
+#!/usr/bin/env python3
+
+import os
+import sys
 from pathlib import Path
 
-from alderaan.recipes.context import PipelineContext, capture_context
-from alderaan.recipes.subrecipes import startup, load_kepler_data
+from alderaan.recipes.context import PipelineContext, invoke_subrecipe
+#from alderaan.recipes.subrecipes import startup, load_kepler_data
 
 BASE_PATH = Path(__file__).resolve().parents[2]
 
@@ -11,9 +15,8 @@ def main():
     with PipelineContext() as context:
         context.BASE_PATH = BASE_PATH
 
-        capture_context(context, startup.run(context))
-        capture_context(context, load_kepler_data.run(context))
-
+        invoke_subrecipe(context, 'startup.rcp')
+        invoke_subrecipe(context, 'load_kepler_data.rcp')
 
     print("\n\n\nexiting main pipeline")
 
