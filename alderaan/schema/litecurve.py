@@ -25,16 +25,8 @@ class KeplerLiteCurve(LiteCurve):
         self.load_kplr_pdcsap(data_dir, target_id, obsmode, visits=self.quarter)
 
 
-    def split_quarters(*args, quarters=None):
-        pass
-        # super LiteCurve.split_visits(vists --> quarters)
-
-
-    # def load_kepler_pdcsap():
-    #     pass
-    #     # super __LiteCurve_load_from_nasa()
-    #     # etc.
-
+    def split_quarters(self):
+        return super().split_visits()
 
     @classmethod
     def load_kplr_pdcsap(cls, data_dir, target_id, obsmode, visits=None):
