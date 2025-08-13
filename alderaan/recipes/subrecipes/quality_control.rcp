@@ -1,0 +1,44 @@
+import os
+import sys
+import warnings
+
+import numpy as np
+from alderaan.modules.quality_control import QualityControl
+
+def run(context):
+    print("\n\nQUALITY CONTROL BLOCK")
+
+    # infer context
+    planets = context.planets
+    litecurve = context.litecurve
+
+    # start quality control
+    qc = QualityControl(litecurve, planets)
+
+    # check for transits with poor photometric coverage
+    with warnings.catch_warnings(record=True) as catch:
+        warnings.simplefilter('always', category=RuntimeWarning)
+        coverage = qc.check_coverage()
+
+    # check for transits with unusually high noise
+    with warnings.catch_warnings(record=True) as catch:
+        warnings.simplefilter('always', category=RuntimeWarning)
+        good_rms = qc.check_rms(rel_size=3.0, abs_size=2/24, sigma_cut=5.0)
+
+    for n, p in enumerate(planets):
+        print(f"\n  Planet {n}:")
+
+        assert len(coverage[n]) == len(p.ephemeris.ttime)
+        assert len(good_rms[n]) == len(p.ephemeris.ttime)
+
+        _nbad = np.sum(~coverage[n])
+        _ntot = len(coverage[n])
+        print(f"    {np.sum(_nbad)} of {_ntot} transits ({int(100*_nbad/_ntot)}%) rejected for insufficient photometric coverage")
+
+        _nbad = np.sum(~good_rms[n] & coverage[n])
+        _ntot = len(good_rms[n])
+        print(f"    {np.sum(_nbad)} of {_ntot} transits ({int(100*_nbad/_ntot)}%) rejected for high photometric noise")
+        
+        planets[n].ephemeris.quality = coverage[n] & good_rms[n]
+
+    return {'planets': planets}
