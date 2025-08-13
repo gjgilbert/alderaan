@@ -212,3 +212,107 @@ class KeplerLiteCurve(LiteCurve):
         lc_instance = lc_instance._remove_flagged_cadences(lklc.quality)
 
         return lc_instance
+
+
+
+class K2LiteCurve(LiteCurve):
+    
+    def __init__(self, data_dir, target_id, obsmode, campaigns=None):
+        
+        super().__init__()
+
+    def split_campaigns(self):
+
+        # this does not run.
+        # quarters = np.unique(self.visit)
+        # custmomize child method to take quarters?
+        return super().split_visits()
+
+    @classmethod
+    def load_K2_everest(cls, data_dir, target_id, obsmode, campaigns=None):
+        """
+        Load photometric data from K2 Everest Pipeline
+        
+        This function performs minimal detrending steps
+         * remove_nans()
+         * normalize()
+                
+        Args:
+            data_dir (str) : path to where data are stored
+            target_id (int) : KIC number
+            obsmode (str) : 'short cadence' or 'long cadence'
+            quarters (list) : optional, list of quarters (Kepler quarters) to load.
+        Returns:
+            LiteCurve : self
+        """
+
+        # create instance of litecurve
+        lc_instance = cls.__new__(cls)
+        super(cls, lc_instance).__init__()  # initialize base attributes
+        lc_instance.mission = "K2"
+
+        # sanitize inputs
+        if campaigns is None:
+            campaigns = np.arange(18, dtype=int) # Need to change "18" to right value for K2
+        if isinstance(campaigns, int):
+            campaigns = [campaigns]
+
+        # load the raw MAST files using lightcurve
+        mast_files = glob.glob(data_dir + f"kplr{target_id:09d}*.fits") # hard-coded for Kepler
+        mast_files.sort()
+        
+        mast_data_list = []
+        for i, mf in enumerate(mast_files):
+            with fits.open(mf) as hdu_list:
+                if hdu_list[0].header["OBSMODE"] == obsmode and np.isin(
+                    hdu_list[0].header["QUARTER"], quarters # hard coded for Kepler
+                ):
+                    mast_data_list.append(lk.read(mf))
+
+        lk_col_raw = lk.LightCurveCollection(mast_data_list)
+
+        # clean up the Collection data structure
+        campaigns = []
+        for lkc in lk_col_raw:
+            campaigns.append(lkc.campaigns) # LKC doesn't have campaigns keyword?
+
+        lk_col_clean = []
+        for v in np.unique(campaigns):
+            lkc_list = []
+            cadno = []
+
+            for lkc in lk_col_raw:
+                if (lkc.campaigns == v) * (lkc.targetid == target_id): # hard coded for kepler
+                    lkc_list.append(lkc)
+                    cadno.append(lkc.cadenceno.min())
+
+            order = np.argsort(cadno)
+            lkc_list = [lkc_list[j] for j in order]
+
+            # lk.stitch() also normalizes the lightkurves
+            lkc = lk.LightCurveCollection(lkc_list).stitch().remove_nans()
+            
+            lkc.campaigns = lkc.campaigns*np.ones(len(lkc.time), dtype='int') # hard coded for kepler
+            lkc.season = lkc.campaigns % 4 # hard coded for Kepler
+            
+            lk_col_clean.append(lkc)
+
+        lk_col_clean = lk.LightCurveCollection(lk_col_clean)
+
+        # stitch into a single LightCurve
+        lklc = lk_col_clean.stitch()
+
+        # set LiteCurve attributes
+        lc_instance.time = np.array(lklc.time.value, dtype=float)
+        lc_instance.flux = np.array(lklc.flux.value, dtype=float)
+        lc_instance.error = np.array(lklc.flux_err.value, dtype=float)
+        lc_instance.cadno = np.array(lklc.cadenceno.value, dtype=int)
+        lc_instance.visit = np.array(lklc.quarter, dtype=int) # hard coded for Kepler
+        lc_instance.obsmode = np.array([obsmode]*len(lc_instance.cadno), dtype=str)
+        lc_instance.quality = np.array(lklc.quality.value, dtype=int)
+        lc_instance.season = np.array(lklc.season, dtype=int)
+        
+        # remove cadences flagged by Kepler project pipeline
+        lc_instance = lc_instance._remove_flagged_cadences(lklc.quality)
+
+        return lc_instance
