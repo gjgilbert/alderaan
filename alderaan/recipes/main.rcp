@@ -25,6 +25,8 @@ def main():
             raise ValueError(f"Unsupported mission : {context.mission}")
         
         invoke_subrecipe(context, 'regularize_omc.rcp')
+        invoke_subrecipe(context, 'detrend_visits.rcp')
+        invoke_subrecipe(context, 'quality_control.rcp')
 
     print("\n\n\nexiting main pipeline")
 
