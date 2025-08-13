@@ -8,7 +8,6 @@ from astropy.units import UnitsWarning
 from configparser import ConfigParser
 from datetime import datetime
 import shutil
-from timeit import default_timer as timer
 
 from alderaan.utils.io import resolve_config_path, copy_input_target_catalog
 from alderaan.utils.pipeline import capture_locals
@@ -24,9 +23,6 @@ def run(context):
     warnings.filterwarnings(
         action='ignore', category=UnitsWarning, module='astropy'
     )
-
-    # start timer
-    global_start_time = timer()
 
     print("")
     print("+" * shutil.get_terminal_size().columns)
@@ -45,17 +41,17 @@ def run(context):
     config = ConfigParser()
     config.read(args.config)
 
-    for key, value in config["PATHS"].items():
-        config['PATHS'][key] = resolve_config_path(config['PATHS'][key], context.BASE_PATH)
+    for k, v in config["PATHS"].items():
+        config['PATHS'][k] = resolve_config_path(config['PATHS'][k], context.BASE_PATH)
 
     mission = args.mission
     target = args.target
     run_id = config['RUN']['run_id']
 
+    # TODO: fix ambiguous catalog variable naming
     data_dir =  config['PATHS']['data_dir']
     outputs_dir = config['PATHS']['outputs_dir']
     catalog_dir = config['PATHS']['catalog_dir']
-
     catalog_csv = os.path.join(catalog_dir, str(config['ARGS']['catalog_csv']))
 
     print("")
@@ -83,6 +79,4 @@ def run(context):
     catalog_csv_copy = os.path.join(outputs_dir, 'results', run_id, f'{run_id}.csv')
     copy_input_target_catalog(catalog_csv, catalog_csv_copy)
 
-
-if __name__ == '__run__':
-    run()
+    return

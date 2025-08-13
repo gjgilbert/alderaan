@@ -9,7 +9,11 @@ import gc
 import importlib.machinery
 import matplotlib.pyplot as plt
 from pathlib import Path
+from timeit import default_timer as timer
 import types
+
+import functools
+import inspect
 
 
 class PipelineContext:
@@ -20,26 +24,34 @@ class PipelineContext:
         pass
 
 
+
 def capture_locals(func):
+    @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        local_vars = {}
+        captured_locals = {}
+
         def tracer(frame, event, arg):
-            if event == 'return':
-                local_vars.update(frame.f_locals)
+            if event == 'return' and frame.f_code == func.__code__:
+                captured_locals.update(frame.f_locals)
             return tracer
 
         sys.setprofile(tracer)
         result = func(*args, **kwargs)
         sys.setprofile(None)
 
-        # Filter out private variables and function args if needed
-        filtered = {k: v for k, v in local_vars.items() if not k.startswith('_')}
-        return filtered
-    
+        # drop function args and private names
+        exclude = ['context', 'config', 'parser', 'args', 'kwargs', 'catch']
+        user_defined_locals = {}
+        for k, v in captured_locals.items():
+            if (k not in exclude  and not k.startswith('_') and len(k) >= 3):
+                user_defined_locals[k] = v
+
+        return user_defined_locals
+
     return wrapper
 
 
-def invoke_subrecipe(context, subrecipe):
+def invoke_subrecipe(context, subrecipe, cleanup=True, progress=True):
     path = Path(os.path.join(context.BASE_PATH, 'alderaan/recipes/subrecipes', subrecipe))
     name = path.stem
 
@@ -54,11 +66,11 @@ def invoke_subrecipe(context, subrecipe):
     for k, v in vars_dict.items():
         setattr(context, k, v)
 
-    _system_cleanup()
+    if cleanup:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        plt.close('all')
+        gc.collect()
 
-
-def _system_cleanup():
-    sys.stdout.flush()
-    sys.stderr.flush()
-    plt.close('all')
-    gc.collect()
+    if progress:
+        print(f"\ncumulative runtime = {((timer()-context.pipeline_start_time)/60):.1f} min")

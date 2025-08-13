@@ -4,7 +4,6 @@ import warnings
 
 from astropy.stats import mad_std
 import numpy as np
-from timeit import default_timer as timer
 
 from alderaan.modules.omc import OMC
 from alderaan.modules.quicklook import plot_omc
@@ -28,7 +27,7 @@ def run(context):
         omc = omc_list[n]
         npts = np.sum(omc.quality)
 
-        _period = np.copy(p.period)
+        _original_period = np.copy(p.period)
 
         # Matern-3/2 model | don't use GP on very noisy data
         if (npts >= 8) & (np.median(omc.yerr) <= 0.5 * mad_std(omc.yobs)):
@@ -55,16 +54,10 @@ def run(context):
         planets[n] = p.update_ephemeris(p.ephemeris)
 
         # make quicklook plot
-        filepath = os.path.join(context.quicklook_dir, f"{target}_omc_initial.png")
-        _ = plot_omc(omc_list, target, filepath)
+        _filepath = os.path.join(context.quicklook_dir, f"{target}_omc_initial.png")
+        _ = plot_omc(omc_list, target, _filepath)
 
-        print(f"Planet {n} : {_period:.6f} --> {planets[n].period:.6f}")
-
-    print(f"\ncumulative runtime = {((timer()-context.global_start_time)/60):.1f} min")
+        print(f"Planet {n} : {_original_period:.6f} --> {planets[n].period:.6f}")
 
     # PyMC3 does not play well with automatic context capture; do manual capture
     return {'planets': planets}
-
-
-if __name__ == '__run__':
-    run()

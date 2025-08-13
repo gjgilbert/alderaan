@@ -3,7 +3,6 @@ import sys
 import warnings
 
 import numpy as np
-from timeit import default_timer as timer
 
 from alderaan.ephemeris import Ephemeris
 from alderaan.litecurve import LiteCurve
@@ -39,9 +38,9 @@ def run(context):
     # split litecurves by quarter
     litecurves = litecurve_master.split_visits()
 
-    for j, litecurve in enumerate(litecurves):
-        assert len(np.unique(litecurve.visit)) == 1, "expected one quarter per litecurve"
-        assert len(np.unique(litecurve.obsmode)) == 1, "expected one obsmode per litecurve"
+    for j, lc in enumerate(litecurves):
+        assert len(np.unique(lc.visit)) == 1, "expected one quarter per litecurve"
+        assert len(np.unique(lc.obsmode)) == 1, "expected one obsmode per litecurve"
 
     print(f"{len(litecurves)} litecurves loaded for {target}")
 
@@ -62,31 +61,26 @@ def run(context):
             planets[n] = p.update_ephemeris(_ephemeris)
 
     # load Holczer+2016 catalog
-    filepath = os.path.join(context.catalog_dir, 'holczer_2016_kepler_ttvs.txt')
-    holczer_ephemerides = parse_holczer16_catalog(filepath, koi_id, NPL)
+    _filepath = os.path.join(context.catalog_dir, 'holczer_2016_kepler_ttvs.txt')
+    holczer_ephemerides = parse_holczer16_catalog(_filepath, koi_id, NPL)
 
     print(f"\n{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
 
     # match Holczer ephemerides to Planets
-    count = 0
-
+    _count = 0
     for n, p in enumerate(planets):
-        for ephem in holczer_ephemerides:
-            match = np.isclose(ephem.period, p.period, rtol=0.01, atol=p.duration)
+        for _ephem in holczer_ephemerides:
+            _match = np.isclose(_ephem.period, p.period, rtol=0.01, atol=p.duration)
 
-            if match:
-                print(f"  Planet {n} : {p.period:.6f} --> {ephem.period:.6f}")
-                planets[n] = p.update_ephemeris(ephem)
-                count += 1
+            if _match:
+                print(f"  Planet {n} : {p.period:.6f} --> {_ephem.period:.6f}")
+                planets[n] = p.update_ephemeris(_ephem)
+                _count += 1
 
-    print(f"{count} matching ephemerides found ({len(holczer_ephemerides)} expected)")
+    print(f"{_count} matching ephemerides found ({len(holczer_ephemerides)} expected)")
 
     # quicklook litecurve
-    filepath = os.path.join(context.quicklook_dir, f"{target}_litecurve_raw.png")
-    _ = plot_litecurve(litecurve_master, target, planets, filepath)
+    _filepath = os.path.join(context.quicklook_dir, f"{target}_litecurve_raw.png")
+    _ = plot_litecurve(litecurve_master, target, planets, _filepath)
 
-    print(f"\ncumulative runtime = {((timer()-context.global_start_time)/60):.1f} min")
-
-
-if __name__ == '__run__':
-    run()
+    return
