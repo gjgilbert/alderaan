@@ -93,10 +93,6 @@ class KeplerLiteCurve(LiteCurve):
     def __init__(self, data_dir, target_id, obsmode, quarters=None):
         
         super().__init__()
-        # self.quarter = self.visit.copy()
-        # delete self.visit
-        # self.visit = self.quarter.copy()
-
 
     def split_quarters(*args, quarters=None):
         pass

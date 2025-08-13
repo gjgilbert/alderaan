@@ -4,7 +4,6 @@ import sys
 import numpy as np
 from astropy.units import UnitsWarning
 from pathlib import Path
-from alderaan.schema.litecurve import KeplerLiteCurve
 import warnings
 
 from alderaan.litecurve import LiteCurve
