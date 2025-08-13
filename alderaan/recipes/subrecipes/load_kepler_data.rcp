@@ -14,8 +14,9 @@ from alderaan.utils.pipeline import capture_locals
 
 @capture_locals
 def run(context):
-    print('\n\nI/O BLOCK\n')
+    print("\n\nSUBRECIPE: LOAD KEPLER DATA\n")
 
+    # infer context
     target = context.target
 
     # load KOI catalog
@@ -26,6 +27,7 @@ def run(context):
     NPL = int(catalog.npl[0])
     koi_id = catalog.koi_id[0]
     kic_id = int(catalog.kic_id[0])
+    limbdark = [catalog.limbdark_1[0], catalog.limbdark_2[0]]
 
     # load lightcurves
     litecurve_master = LiteCurve().from_kplr_pdcsap(context.data_dir, kic_id, 'long cadence', visits=2)

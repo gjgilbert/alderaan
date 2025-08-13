@@ -15,18 +15,24 @@ def main():
         context.pipeline_start_time = timer()
 
         invoke_subrecipe(context, 'startup.rcp', progress=False)
-
         assert hasattr(context, "mission"), "undefined mission"
         assert hasattr(context, "target"), "undefined target"
 
         if context.mission == 'Kepler':
             invoke_subrecipe(context, 'load_kepler_data.rcp')
+        elif context.mission == 'K2':
+            raise NotImplementedError(f"K2 mission not yet implemented")
+        elif context.mission == 'TESS':
+            raise NotImplementedError(f"TESS mission not yet implemented")
         else:
             raise ValueError(f"Unsupported mission : {context.mission}")
         
         invoke_subrecipe(context, 'regularize_omc.rcp')
         invoke_subrecipe(context, 'detrend_visits.rcp')
         invoke_subrecipe(context, 'quality_control.rcp')
+        
+        invoke_subrecipe(context, 'quick_fit_transit_shape.rcp')        
+        invoke_subrecipe(context, 'quick_fit_transit_times.rcp')
 
     print("\n\n\nexiting main pipeline")
 

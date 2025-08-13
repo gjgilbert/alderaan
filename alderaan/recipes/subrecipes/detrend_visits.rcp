@@ -13,7 +13,7 @@ from alderaan.modules.quicklook import plot_litecurve
 
 
 def run(context):
-    print('\n\nDETRENDING BLOCK (1st pass)\n')
+    print('\n\nSUBRECIPE: DETREND VISITS\n')
 
     # infer context
     target = context.target

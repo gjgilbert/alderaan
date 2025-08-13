@@ -1,0 +1,31 @@
+import os
+import sys
+import warnings
+
+from alderaan.modules.transit_model import ShapeTransitModel
+
+def run(context):
+    print('\n\nSUBRECIPE: QUICK FIT TRANSIT SHAPE\n')
+
+    # infer context
+    planets = context.planets
+    litecurve = context.litecurve
+    limbdark = context.limbdark
+
+    # optimize transit parameters
+    transitmodel = ShapeTransitModel(litecurve, planets, limbdark)
+
+    print("Supersample factor")
+    for obsmode in transitmodel.unique_obsmodes:
+        print(f"  {obsmode} : {transitmodel._obsmode_to_supersample(obsmode)}")
+
+    print("\nFitting initial transit model")
+    theta = transitmodel.optimize()
+    planets = transitmodel.update_planet_parameters(theta)
+    limbdark = transitmodel.update_limbdark_parameters(theta)
+
+    return {'planets': planets,
+            'litecurve': litecurve,
+            'limbdark': limbdark
+            }
+
