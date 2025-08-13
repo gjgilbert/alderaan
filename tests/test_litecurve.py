@@ -1,13 +1,13 @@
 import os
 import sys
 
-
 import numpy as np
 from astropy.units import UnitsWarning
 from pathlib import Path
+import warnings
 
-from alderaan.schema.litecurve import LiteCurve
-from alderaan.schema.litecurve import KeplerLiteCurve
+from alderaan.litecurve import LiteCurve
+from alderaan.litecurve import KeplerLiteCurve
 
 
 warnings.simplefilter('always', UserWarning)

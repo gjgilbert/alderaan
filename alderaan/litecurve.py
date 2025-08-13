@@ -116,10 +116,6 @@ class KeplerLiteCurve(LiteCurve):
     def __init__(self, data_dir, target_id, obsmode, quarters=None):
         
         super().__init__()
-        # self.quarter = self.visit.copy()
-        # delete self.visit
-        # self.visit = self.quarter.copy()
-
 
     def split_quarters(self):
 
@@ -147,7 +143,6 @@ class KeplerLiteCurve(LiteCurve):
         """
 
         # create instance of litecurve
-        # lc_instance = cls(data_dir, target_id, obsmode, quarters=None)
         lc_instance = cls.__new__(cls)
         super(cls, lc_instance).__init__()  # initialize base attributes
         lc_instance.mission = "Kepler"
