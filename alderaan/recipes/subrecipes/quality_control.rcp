@@ -6,7 +6,7 @@ import numpy as np
 from alderaan.modules.quality_control import QualityControl
 
 def run(context):
-    print("\n\nQUALITY CONTROL BLOCK")
+    print("\n\nSUBRECIPE: QUALITY CONTROL\n")
 
     # infer context
     planets = context.planets
