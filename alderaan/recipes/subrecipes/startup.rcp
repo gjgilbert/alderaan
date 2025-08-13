@@ -48,11 +48,11 @@ def run(context):
     target = args.target
     run_id = config['RUN']['run_id']
 
-    # TODO: fix ambiguous catalog variable naming
     data_dir =  config['PATHS']['data_dir']
     outputs_dir = config['PATHS']['outputs_dir']
     catalog_dir = config['PATHS']['catalog_dir']
-    catalog_csv = os.path.join(catalog_dir, str(config['ARGS']['catalog_csv']))
+    catalog_name = str(config['ARGS']['catalog_csv'])
+    catalog_filepath = os.path.join(catalog_dir, catalog_name)
 
     print("")
     print(f"   MISSION : {mission}")
@@ -61,7 +61,7 @@ def run(context):
     print("")
     print(f"   Data directory    : {data_dir}")
     print(f"   Config file       : {args.config}")
-    print(f"   Input catalog     : {os.path.basename(catalog_csv)}")
+    print(f"   Input catalog     : {catalog_name}")
     print("")
     print(f"   theano cache : {theano.config.compiledir}")
     print("")
@@ -76,7 +76,7 @@ def run(context):
     os.makedirs(quicklook_dir, exist_ok=True)
 
     # copy input catalog into results directory
-    catalog_csv_copy = os.path.join(outputs_dir, 'results', run_id, f'{run_id}.csv')
-    copy_input_target_catalog(catalog_csv, catalog_csv_copy)
+    _copied_catalog_filepath = os.path.join(outputs_dir, 'results', run_id, f'{run_id}.csv')
+    copy_input_target_catalog(catalog_filepath, _copied_catalog_filepath)
 
     return

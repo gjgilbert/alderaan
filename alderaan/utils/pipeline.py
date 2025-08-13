@@ -5,15 +5,13 @@ __all__ = ['PipelineContext',
 
 import os
 import sys
+import functools
 import gc
 import importlib.machinery
 import matplotlib.pyplot as plt
 from pathlib import Path
 from timeit import default_timer as timer
 import types
-
-import functools
-import inspect
 
 
 class PipelineContext:
@@ -22,7 +20,6 @@ class PipelineContext:
 
     def __exit__(self, exc_type, exc_value, traceback):
         pass
-
 
 
 def capture_locals(func):

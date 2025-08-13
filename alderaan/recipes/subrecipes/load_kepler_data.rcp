@@ -19,7 +19,7 @@ def run(context):
     target = context.target
 
     # load KOI catalog
-    catalog = parse_koi_catalog(context.catalog_csv, target)
+    catalog = parse_koi_catalog(context.catalog_filepath, target)
 
     assert np.all(np.diff(catalog.period) > 0), "Planets should be ordered by ascending period"
 
