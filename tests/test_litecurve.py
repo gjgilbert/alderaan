@@ -1,22 +1,23 @@
 import os
 import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import astropy
+
 import numpy as np
+from astropy.units import UnitsWarning
+from pathlib import Path
+
 from alderaan.schema.litecurve import LiteCurve
 from alderaan.schema.litecurve import KeplerLiteCurve
-import warnings
+
 
 warnings.simplefilter('always', UserWarning)
-
-# supress UnitsWarnings (this code doesn't use astropy units)
 warnings.filterwarnings(
-    action='ignore', category=astropy.units.UnitsWarning, module='astropy'
+    action='ignore', category=UnitsWarning, module='astropy'
 )
 
-data_dir = 'testdata/MAST_downloads/'
-kic_id = 5735762
+base_path = Path(__file__).resolve().parents[1]
+data_dir = os.path.join(base_path, 'alderaan/examples/data/MAST_downloads/')
+kic_id = 8644288  # KOI-137 (Kepler-18)
 
 # No quarters
 litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence')
@@ -27,7 +28,4 @@ litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence', q
 # List quarters
 litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence', quarters=[1,2,3])
 
-if np.min(litecurve.time) < 0:
-    raise ValueError("Lightcurve has negative timestamps...this will cause problems")
-
-print("passing")
+print("\npassing")

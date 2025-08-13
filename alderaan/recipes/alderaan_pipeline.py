@@ -1,13 +1,9 @@
 import os
 import sys
 
-base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-if base_path not in sys.path:
-    sys.path.insert(0, base_path)
-
 from aesara_theano_fallback import aesara as theano
 import argparse
-import astropy
+from astropy.units import UnitsWarning
 from astropy.stats import mad_std
 from celerite2.backprop import LinAlgError
 from configparser import ConfigParser
@@ -15,19 +11,21 @@ from datetime import datetime
 import gc
 import matplotlib.pyplot as plt
 import numpy as np
+from pathlib import Path
 import shutil
-from alderaan.constants import *
-from alderaan.schema.ephemeris import Ephemeris
-from alderaan.schema.litecurve import LiteCurve
-from alderaan.schema.planet import Planet
-from alderaan.modules.detrend import GaussianProcessDetrender
-from alderaan.modules.omc import OMC
-from alderaan.modules.transit_model.transit_model import ShapeTransitModel, TTimeTransitModel
-from alderaan.modules.quality_control import QualityControl
-from alderaan.modules.quicklook import plot_litecurve, plot_omc, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
-from alderaan.utils.io import expand_config_path, parse_koi_catalog, parse_holczer16_catalog, copy_input_target_catalog
 from timeit import default_timer as timer
 import warnings
+
+from alderaan.constants import *
+from alderaan.ephemeris import Ephemeris
+from alderaan.litecurve import LiteCurve
+from alderaan.planet import Planet
+from alderaan.modules.detrend import GaussianProcessDetrender
+from alderaan.modules.omc import OMC
+from alderaan.modules.transit_model import ShapeTransitModel, TTimeTransitModel
+from alderaan.modules.quality_control import QualityControl
+from alderaan.modules.quicklook import plot_litecurve, plot_omc, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
+from alderaan.utils.io import resolve_config_path, parse_koi_catalog, parse_holczer16_catalog, copy_input_target_catalog
 
 
 def initialize_pipeline():
@@ -38,7 +36,7 @@ def initialize_pipeline():
     # filter warnings
     warnings.simplefilter('always', UserWarning)
     warnings.filterwarnings(
-        action='ignore', category=astropy.units.UnitsWarning, module='astropy'
+        action='ignore', category=UnitsWarning, module='astropy'
     )
 
     # start timer
@@ -73,15 +71,19 @@ def main():
     args = parser.parse_args()
 
     config = ConfigParser()
-    config.read(os.path.join(base_path, args.config))
+    config.read(args.config)
+
+    alderaan_base_path = Path(__file__).resolve().parents[2]
+    for key, value in config["PATHS"].items():
+        config['PATHS'][key] = resolve_config_path(config['PATHS'][key], alderaan_base_path)
 
     mission = args.mission
     target = args.target
     run_id = config['RUN']['run_id']
 
-    data_dir =  expand_config_path(config['PATHS']['data_dir'])
-    outputs_dir = expand_config_path(config['PATHS']['outputs_dir'])
-    catalog_dir = expand_config_path(config['PATHS']['catalog_dir'])
+    data_dir =  config['PATHS']['data_dir']
+    outputs_dir = config['PATHS']['outputs_dir']
+    catalog_dir = config['PATHS']['catalog_dir']
 
     catalog_csv = os.path.join(catalog_dir, str(config['ARGS']['catalog_csv']))
 
@@ -90,7 +92,6 @@ def main():
     print(f"   TARGET  : {target}")
     print(f"   RUN ID  : {run_id}")
     print("")
-    print(f"   Base path         : {base_path}")
     print(f"   Data directory    : {data_dir}")
     print(f"   Config file       : {args.config}")
     print(f"   Input catalog     : {os.path.basename(catalog_csv)}")
@@ -128,7 +129,8 @@ def main():
     kic_id = int(catalog.kic_id[0])
 
     # load lightcurves
-    litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP')
+    #litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP')
+    litecurve_master = LiteCurve().from_kplr_pdcsap(data_dir, kic_id, 'long cadence', visits=2)
 
     t_min = litecurve_master.time.min()
     t_max = litecurve_master.time.max()
@@ -136,10 +138,10 @@ def main():
         raise ValueError("Lightcurve has negative timestamps...this will cause problems")
 
     # split litecurves by quarter
-    litecurves = litecurve_master.split_quarters()
+    litecurves = litecurve_master.split_visits()
 
     for j, litecurve in enumerate(litecurves):
-        assert len(np.unique(litecurve.quarter)) == 1, "expected one quarter per litecurve"
+        assert len(np.unique(litecurve.visit)) == 1, "expected one quarter per litecurve"
         assert len(np.unique(litecurve.obsmode)) == 1, "expected one obsmode per litecurve"
 
     print(f"{len(litecurves)} litecurves loaded for {target}")
@@ -267,7 +269,7 @@ def main():
         
         npts_final = len(detrender.litecurve.time)
 
-        print(f"  Quarter {detrender.litecurve.quarter[0]} : {npts_initial-npts_final} outliers rejected")
+        print(f"  Quarter {detrender.litecurve.visit[0]} : {npts_initial-npts_final} outliers rejected")
 
     # estimate oscillation periods
     oscillation_periods = np.zeros(len(detrenders))
@@ -356,7 +358,7 @@ def main():
                 )
 
     # recombine litecurves
-    litecurve = LiteCurve(litecurves)
+    litecurve = LiteCurve().from_list(litecurves)
 
     # quicklook litecurve
     filepath = os.path.join(quicklook_dir, f"{target}_litecurve_detrended.png")

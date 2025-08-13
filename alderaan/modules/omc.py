@@ -1,9 +1,5 @@
 __all__ = ['OMC']
 
-import os
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 import aesara_theano_fallback.tensor as T
 from astropy.stats import mad_std
 from celerite2.theano import terms as GPterms

@@ -1,9 +1,12 @@
+# ALDERAAN inputs/outputs
+outputs/
+
+# legacy ALDERAAN code
 Figures/
 Logs/
 Notebooks/
 Results/
 Simulations/
-outputs/
 
 build/
 
@@ -110,7 +113,6 @@ ENV/
 .mypy_cache/
 
 
-data/
 fig*
 tab*
 val*
@@ -128,3 +130,6 @@ temp*
 
 # macOS
 *.DS_Store
+
+# VS Code
+.vscode

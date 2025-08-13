@@ -6,6 +6,8 @@ API Documentation
    :caption: Detailed API
 
    modules/index
-   recipes/index
-   schema/index
    utils/index
+   ephemeris
+   litecurve
+   planet
+   results
