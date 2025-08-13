@@ -14,8 +14,16 @@ def main():
         context.BASE_PATH = BASE_PATH
         context.pipeline_start_time = timer()
 
-        invoke_subrecipe(context, 'startup.rcp')
-        invoke_subrecipe(context, 'load_kepler_data.rcp')
+        invoke_subrecipe(context, 'startup.rcp', progress=False)
+
+        assert hasattr(context, "mission"), "undefined mission"
+        assert hasattr(context, "target"), "undefined target"
+
+        if context.mission == 'Kepler':
+            invoke_subrecipe(context, 'load_kepler_data.rcp')
+        else:
+            raise ValueError(f"Unsupported mission : {context.mission}")
+        
         invoke_subrecipe(context, 'regularize_omc.rcp')
 
     print("\n\n\nexiting main pipeline")
