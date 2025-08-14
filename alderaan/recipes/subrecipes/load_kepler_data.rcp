@@ -85,4 +85,13 @@ def run(context):
     _filepath = os.path.join(context.quicklook_dir, f"{target}_litecurve_raw.png")
     _ = plot_litecurve(litecurve_master, target, planets, _filepath)
 
+    # enforce (t_min, t_max) consistency on litecurve and planets
+    for n, p in enumerate(planets):
+        p.ephemeris.clip_range(t_min, t_max)
+        p.ephemeris.set_static_references()
+        planets[n] = p.update_ephemeris(p.ephemeris)
+
+
+        print(f"  Planet {n} : {len(p.ephemeris.ttime)} transits")
+
     return

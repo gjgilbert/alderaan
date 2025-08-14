@@ -49,7 +49,7 @@ def run(context):
         omc_list[n] = omc
 
         p.ephemeris = p.ephemeris.update_from_omc(omc)
-        p.ephemeris = p.ephemeris.interpolate('spline', full=True)
+        p.ephemeris = p.ephemeris.interpolate(full=True)
         planets[n] = p.update_ephemeris(p.ephemeris)
 
         # make quicklook plot

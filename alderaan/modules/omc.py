@@ -71,7 +71,7 @@ class OMC:
         model : pm.Model()
         """
         # quality mask
-        if ignore_bad:
+        if ignore_bad and self.quality is not None:
             q = self.quality
         else:
             q = np.ones(len(self.xtime), dtype=bool)
@@ -115,7 +115,7 @@ class OMC:
         model : pm.Model()
         """
         # quality mask
-        if ignore_bad:
+        if ignore_bad and self.quality is not None:
             q = self.quality
         else:
             q = np.ones(len(self.xtime), dtype=bool)
@@ -166,7 +166,7 @@ class OMC:
         model : pm.Model()
         """
         # quality mask
-        if ignore_bad:
+        if ignore_bad and self.quality is not None:
             q = self.quality
         else:
             q = np.ones(len(self.xtime), dtype=bool)

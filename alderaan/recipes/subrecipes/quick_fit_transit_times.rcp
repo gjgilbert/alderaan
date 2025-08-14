@@ -24,7 +24,7 @@ def run(context):
         ttime_new, ttime_err_new = ttvmodel.mazeh13_holczer16_method(n, quicklook_dir=context.quicklook_dir)
 
         assert len(ttime_new) == len(ttime_old)
-        assert len(ttime_new) == len(ttime_err_new)
+        assert len(ttime_err_new) == len(ttime_err_old)
 
         _nfit = np.sum(~np.isnan(ttime_new))
         _ntot = np.sum(p.ephemeris.quality)
@@ -34,7 +34,7 @@ def run(context):
         p.ephemeris.ttime = ttime_new.copy()
         p.ephemeris.error = ttime_err_new.copy()
         p.ephemeris.quality = ~np.isnan(ttime_new) & ~np.isnan(ttime_err_new)
-        p.ephemeris = p.ephemeris.interpolate(method='spline')
+        p.ephemeris = p.ephemeris.interpolate()
         planets[n].update_ephemeris(p.ephemeris)
 
     return {'planets': planets}
