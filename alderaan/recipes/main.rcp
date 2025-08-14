@@ -8,7 +8,7 @@ from alderaan.utils.pipeline import PipelineContext, invoke_subrecipe
 BASE_PATH = Path(__file__).resolve().parents[2]
 
 def main():
-    print("\n\n\nstarting main pipeline")
+    print("\n\n=== entering main pipeline ===\n\n")
 
     with PipelineContext() as context:
         context.BASE_PATH = BASE_PATH
@@ -34,7 +34,7 @@ def main():
         invoke_subrecipe(context, 'quick_fit_transit_shape.rcp')        
         invoke_subrecipe(context, 'quick_fit_transit_times.rcp')
 
-    print("\n\n\nexiting main pipeline")
+    print("\n\n=== exiting main pipeline ===\n\n")
 
 
 if __name__ == '__main__':

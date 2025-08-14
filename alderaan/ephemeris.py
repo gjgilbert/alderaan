@@ -2,12 +2,13 @@ __all__ = ['Ephemeris']
 
 from copy import deepcopy
 import numpy as np
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import interp1d
 import warnings
 
 
 class Ephemeris:
-    """Ephemeris
+    """
+    Ephemeris
     """
     def __init__(self, 
                  period=None,
@@ -40,11 +41,6 @@ class Ephemeris:
         if init_linear_ephem:
             self.period = period
             self.epoch = epoch
-            self.t_min = t_min
-            self.t_max = t_max
-
-            self._adjust_epoch(self.t_min)
-
             self.ttime = np.arange(self.epoch, t_max, self.period)
             self.index = np.array(np.round((self.ttime - self.epoch) / self.period), dtype=int)
             self.error = None
@@ -59,29 +55,45 @@ class Ephemeris:
 
             self.period, self.epoch = self.fit_linear_ephemeris()
 
-            if t_min is not None:
-                self.t_min = t_min
-            else:
-                self.t_min = self.ttime.min() - self.period / 2
-            if t_max is not None:
-                self.t_max = t_max
-            else:
-                self.t_max = self.ttime.max() + self.period / 2
+            if t_min is None:
+                t_min = self.ttime.min() - self.period / 2
+            if t_max is None:
+                t_max = self.ttime.max() + self.period / 2
 
         # clip vectors to range (t_min, t_max)
+        self.clip_range(t_min, t_max)
+
+        # put epoch in range (t_min, t_min + period)
+        self.adjust_epoch(t_min)
+
+
+    def clip_range(self, t_min, t_max, adjust_epoch=True):
+        """
+        Clip attribute arrays to range (t_min, t_max)
+
+        Args:
+            t_min (float) : minimum time
+            t_max (float) : maximum time
+
+        Returns:
+            Ephemeris : self
+        """
+        self.t_min = t_min
+        self.t_max = t_max
+
         use = (self.ttime >= self.t_min) & (self.ttime <= self.t_max)
         for k in self.__dict__.keys():
             if type(self.__dict__[k]) is np.ndarray:
                 self.__setattr__(k, self.__dict__[k][use])
 
-        # put epoch in range (t_min, t_min + period)
-        self._adjust_epoch(self.t_min)
+        if hasattr(self, 'index'):
+            self.index -= self.index[0]
 
-        # set static period, epoch, and ephemeris
-        self._set_static_references()
+        if adjust_epoch:
+            self.adjust_epoch(self.t_min)
 
 
-    def _adjust_epoch(self, t_min):
+    def adjust_epoch(self, t_min):
         """
         Put epoch in range (t_min, t_min + period)
 
@@ -97,24 +109,32 @@ class Ephemeris:
         if self.epoch > (t_min + self.period):
             adj = (self.epoch - t_min) // self.period
             self.epoch -= adj * self.period
+
+        if hasattr(self, 'index'):
+            self.index -= self.index[0]
     
     
-    def _set_static_references(self):
+    def set_static_references(self):
         assert not hasattr(self, '_static_period'), "attribute '_static_period' already exists"
-        self._static_period = np.copy(self.period)
+        self._static_period = deepcopy(self.period)
 
         assert not hasattr(self, '_static_epoch'), "attribute '_static_epoch' already exists"
-        self._static_epoch = np.copy(self.epoch)
+        self._static_epoch = deepcopy(self.epoch)
 
 
-    def fit_linear_ephemeris(self):
+    def fit_linear_ephemeris(self, ignore_bad=True):
         """
         Fit a linear ephmeris using unweighted least squares
         """
-        A = np.ones((len(self.index), 2))
-        A[:, 0] = self.index
+        if ignore_bad and self.quality is not None:
+            q = self.quality
+        else:
+            q = np.ones(len(self.index), dtype=bool)
 
-        return np.linalg.lstsq(A, self.ttime, rcond=None)[0]
+        A = np.ones((len(self.index[q]), 2))
+        A[:, 0] = self.index[q]
+
+        return np.linalg.lstsq(A, self.ttime[q], rcond=None)[0]
     
 
     def eval_linear_ephemeris(self, index=None):
@@ -142,51 +162,42 @@ class Ephemeris:
         return self
         
 
-    def interpolate(self, method, full=False):
+    def interpolate(self, full=False, reset_quality=True):
         """
         Interpolate poor quality transit times and optionally interpolate missing transit times
 
         Args:
-          method (str) : 'linear' or 'spline'
           full (bool) : True to interpolate missing transit times (default=False)
 
         Returns:
           Ephemeris : self
-        """        
+        """
+        assert self.index[0] == 0, f"index[0] = {self.index[0]}, expected zero-indexing"
+
         if self.quality is not None:
             q = self.quality
         else:
             q = np.ones(len(self.ttime), dtype=bool)
 
-        transit_exists = deepcopy(self.index)
-        index_full = np.arange(self.index.min(), self.index.max()+1, dtype=int)
-
-        if method == 'linear':
-            ttime_full = self.epoch + self.period*index_full
+        interpolator = interp1d(self.index[q], self.ttime[q], kind='linear', fill_value='extrapolate')
         
-        elif method == 'spline':
-            spline = CubicSpline(self.index[q],
-                                self.ttime[q], 
-                                extrapolate=True,
-                                bc_type='natural'
-                                )
+        index_full = np.arange(0, self.index.max()+1, dtype=int)
+        ttime_full = interpolator(index_full)
 
-            ttime_full = spline(index_full)
-
-        ttime_full[transit_exists[q]] = self.ttime[q]
-
-        error_full = np.zeros(len(ttime_full))*np.nan
         if self.error is not None:
-            error_full[transit_exists[q]] = self.error[q]
-
-        quality_full = np.ones(len(ttime_full), dtype=bool)
-        if self.quality is not None:
-            quality_full[transit_exists] = self.quality
+            error_full = np.nanmedian(self.error)*np.ones_like(index_full)
+            error_full[np.isin(index_full, self.index[q])] = self.error[q]
+        
+        if reset_quality:
+            quality_full = np.ones(len(index_full), dtype=bool)
+        else:
+            quality_full = np.zeros(len(index_full), dtype=bool)
+            quality_full[np.isin(index_full, self.index)] = q
         
         if full:
             keep = index_full
         else:
-            keep = transit_exists
+            keep = np.isin(index_full, self.index)
         
         self.index = index_full[keep]
         self.ttime = ttime_full[keep]
@@ -199,8 +210,8 @@ class Ephemeris:
     
     
     def update_from_omc(self, omc):
-        assert np.all(np.isclose(self._static_period, omc._static_period, rtol=1e-12)), "static periods do not match"
-        assert np.all(np.isclose(self._static_epoch, omc._static_epoch, rtol=1e-12)), "static epochs do not match"
+        assert np.allclose(self._static_period, omc._static_period, rtol=1e-12), "static periods do not match"
+        assert np.allclose(self._static_epoch, omc._static_epoch, rtol=1e-12), "static epochs do not match"
 
         if len(self.ttime) != len(omc.xtime):
             warnings.warn(f"updated ephemeris has {len(omc.xtime)} transit times (was {len(self.ttimes)})")
