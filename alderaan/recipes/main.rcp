@@ -31,7 +31,7 @@ def main():
         invoke_subrecipe(context, 'detrend_visits.rcp')
         invoke_subrecipe(context, 'quality_control.rcp')
         
-        invoke_subrecipe(context, 'quick_fit_transit_shape.rcp')        
+        invoke_subrecipe(context, 'quick_fit_transit_shape.rcp')
         invoke_subrecipe(context, 'quick_fit_transit_times.rcp')
 
     print("\n\n=== exiting main pipeline ===\n\n")

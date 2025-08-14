@@ -9,10 +9,11 @@ from alderaan.modules.omc import OMC
 from alderaan.modules.quicklook import plot_omc
 
 
-def run(context):
+def run(context, do_periodic=True):
     print('\n\nSUBRECIPE: REGULARIZE OMC\n')
 
     # infer context
+    NPL = context.NPL
     target = context.target
     planets = context.planets
 
@@ -20,6 +21,48 @@ def run(context):
     omc_list = []
     for n, p in enumerate(planets):
         omc_list.append(OMC(p.ephemeris))
+
+    # search for period signals
+    if do_periodic:
+        if NPL == 1:
+            critical_fap = 0.1
+        elif NPL > 1:
+            critical_fap = 0.99
+
+        freq = [None]*NPL
+        fap = [None]*NPL
+
+        for n, p in enumerate(planets):
+            freq[n], fap[n] = omc_list[n].identify_significant_frequencies(critical_fap)
+
+        # single planet systems : use direct search output (FAP < 0.1)
+        if NPL == 1:
+            pass
+
+        # multiplanet systems : compare marginal frequencies to find close matches
+        if NPL > 1:
+            close = np.zeros((NPL,NPL), dtype=bool)
+
+            for i in range(NPL):
+                df_min = 1 / (planets[i].ephemeris.ttime.max() - planets[i].ephemeris.ttime.min())
+                
+                for j in range(i+1, NPL):
+                    df_ij = np.abs(freq[i] - freq[j])
+                    
+                    if df_ij < df_min:
+                        close[i,j] = True
+                        close[j,i] = True
+
+            for i in range(NPL):
+                if not np.any(close[i]) and fap[i] > 0.1:
+                    freq[i] = None
+                    fap[i] = None
+
+        freq
+        fap
+            
+
+
 
     # fit a regularized model
     for n, p in enumerate(planets):
