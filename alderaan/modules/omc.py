@@ -2,11 +2,13 @@ __all__ = ['OMC']
 
 import aesara_theano_fallback.tensor as T
 from astropy.stats import mad_std
+from astropy.timeseries import LombScargle
 from celerite2.theano import terms as GPterms
 from celerite2.theano import GaussianProcess
 import numpy as np
 import pymc3 as pm
 import pymc3_ext as pmx
+from scipy import signal
 from scipy import stats
 from scipy.ndimage import uniform_filter, median_filter
 from sklearn.cluster import KMeans
@@ -238,7 +240,7 @@ class OMC:
         Arguments
         ---------
         critical_fap : float
-            false alarm probability threshold to consider a frequency significant (default=0.1)
+            false alarm probability threshold to consider a frequency significant
         """
         q = self.quality
         npts = np.sum(self.quality)
