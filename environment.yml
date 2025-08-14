@@ -19,6 +19,7 @@ dependencies:
   - h5py==3.9.0
   - lightkurve==2.1.1
   - matplotlib==3.7.2
+  - numba==0.55.1
   - numpy==1.21.6
   - pandas==1.5.3
   - pymc3==3.11.5
@@ -34,6 +35,5 @@ dependencies:
      - ipywidgets==8.1.3
      - ldtk==1.7.0
      - notebook==6.4.13
-     - numba==0.55.1
      - pylint==3.3.4
      - rebound==4.4.2
