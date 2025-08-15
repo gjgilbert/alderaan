@@ -126,7 +126,7 @@ def run(context, check_periodic=True):
         print(f"Planet {n} : {old_ephemeris.period:.6f} --> {new_ephemeris.period:.6f}")
 
     # make quicklook plot and return planets
-    _filepath = os.path.join(context.quicklook_dir, f"{target}_omc_initial.png")
+    _filepath = os.path.join(context.quicklook_dir, f"{target}_omc.png")
     _ = plot_omc(omc_list, target, _filepath)
 
     return {'planets': planets}
