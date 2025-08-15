@@ -248,7 +248,7 @@ class OMC:
         peakfreq = None
         peakfap = None
 
-        if npts > 8:
+        if npts >= 8:
             try:
                 xf, yf, freqs, faps = self.LS_estimator(self.xtime[q], self.yobs[q], fap=critical_fap)
 
@@ -347,14 +347,12 @@ class OMC:
 
     def select_best_model(self, traces, dofs, verbose=True):
         """
-        Arguments
-            traces : dict
-              dictionary of PyMC3 MultiTraces, model output from self.sample()
-            dofs : dict
-              degrees-of-freedom corresponding to each model trace
+        Args:
+            traces (dict): PyMC3 MultiTraces, output from omc.sample()
+            dofs (dict): degrees-of-freedom corresponding to each model trace
 
-        Returns
-            best_omc_model (str)
+        Returns:
+            str : name (dict key) of selected best model
         """
         q = self.quality
         npts = np.sum(self.quality)
@@ -373,28 +371,31 @@ class OMC:
         preferred_by_aic = min(aic, key=aic.get)
         preferred_by_bic = min(bic, key=bic.get)
 
-        if verbose:
-            print(f"AIC : {preferred_by_aic}, BIC : {preferred_by_bic}")
-
         # Case 1: AIC and BIC match recommendation
         if preferred_by_aic == preferred_by_bic:
-            best_omc_model = preferred_by_aic
+            best_omc_model_name = preferred_by_aic
 
         # Case 2: Select parametric models over Matern-3/2 GP
         elif np.any(np.array([preferred_by_aic, preferred_by_bic]) == 'matern32'):
             if preferred_by_aic == 'matern32':
-                best_omc_model = preferred_by_bic
+                best_omc_model_name = preferred_by_bic
             elif preferred_by_bic == 'matern32':
-                best_omc_model = preferred_by_aic
+                best_omc_model_name = preferred_by_aic
         
         # Case 3: Select model with more degrees of freedom
         else:
             if dofs[preferred_by_aic] >= dofs[preferred_by_bic]:
-                best_omc_model = preferred_by_aic
+                best_omc_model_name = preferred_by_aic
             elif dofs[preferred_by_aic] < dofs[preferred_by_bic]:
-                best_omc_model = preferred_by_bic
+                best_omc_model_name = preferred_by_bic
 
-        return best_omc_model
+        if verbose:
+            print("\bselecting best model")
+            print(f"  AIC : {preferred_by_aic}")
+            print(f"  BIC : {preferred_by_bic}")
+            print(f"  returning: {best_omc_model_name}")
+
+        return best_omc_model_name
 
 
     def calculate_outlier_probability(self, ymod):
