@@ -9,7 +9,7 @@ from alderaan.modules.omc import OMC
 from alderaan.modules.quicklook import plot_omc
 
 
-def run(context, do_periodic=True):
+def run(context, check_periodic=True):
     print('\n\nSUBRECIPE: REGULARIZE OMC\n')
 
     # infer context
@@ -23,7 +23,8 @@ def run(context, do_periodic=True):
         omc_list.append(OMC(p.ephemeris))
 
     # search for period signals
-    if do_periodic:
+    if check_periodic:
+        print("searching for periodic signals")
         if NPL == 1:
             critical_fap = 0.1
         elif NPL > 1:
@@ -58,34 +59,57 @@ def run(context, do_periodic=True):
                     freq[i] = None
                     fap[i] = None
 
-        freq
-        fap
-            
-
+        for n, p in enumerate(planets):
+            if freq[n] is not None:
+                print(f"  Planet {n} : periodic signal found at P = {1/freq[n]:.1f} days")
+            else:
+                print(f"  Planet {n} : no significant periodic component found")
 
 
     # fit a regularized model
     for n, p in enumerate(planets):
         omc = omc_list[n]
         npts = np.sum(omc.quality)
-
         _original_period = np.copy(p.period)
+
+        print(f"\nperforming omc model selection for Planet {n} ({npts} transits)")
+
+        traces = {}
+        dofs = {}
 
         # Matern-3/2 model | don't use GP on very noisy data
         if (npts >= 8) & (np.median(omc.yerr) <= 0.5 * mad_std(omc.yobs)):
+            print("\nmatern-3/2 model")
             with warnings.catch_warnings(record=True) as catch:
                 warnings.simplefilter('always', category=RuntimeWarning)
-                trace = omc.sample(omc.matern32_model())
+                traces['matern32'] = omc.sample(omc.matern32_model())
+                dofs['matern32'] = np.nanmedian(traces['matern32']['dof'])
 
-        # Polynomial model | require 2^N transits
-        else:
-            polyorder = np.max([1, np.min([3, int(np.log2(npts))-1])])
+        # Polynomial model | require 2^N transits, at most do 3rd order
+        max_polyorder = np.max([1, np.min([3, int(np.log2(npts))-1])])
+        for polyorder in range(1, max_polyorder+1):
+            print(f"\npolynomial (degree {polyorder}) model")
             with warnings.catch_warnings(record=True) as catch:
                 warnings.simplefilter('always', category=RuntimeWarning)
-                trace = omc.sample(omc.poly_model(polyorder))
+                traces[f'poly_{polyorder}'] = omc.sample(omc.poly_model(polyorder))
+                dofs[f'poly_{polyorder}'] = polyorder
 
+        # Sinusoidal model 
+        if check_periodic and npts >= 8 and freq[n] is not None:
+            print("\nsinusoid model")
+            with warnings.catch_warnings(record=True) as catch:
+                warnings.simplefilter('always', category=RuntimeWarning)
+                traces['sinusoid'] = omc.sample(omc.sin_model(ttv_period=1/freq[n]))
+                dofs['sinusoid'] = 3
+        
         if len(catch) > 0:
             print(f"{len(catch)} RuntimeWarnings caught during sampling")
+
+        best_omc_model_name = omc.select_best_model(traces, dofs)
+
+        print(f"\nPlanet {n} : adopting {best_omc_model_name} as omc model")
+        
+        trace = traces[best_omc_model_name]
 
         # update ephemeris
         omc.ymod = np.nanmedian(trace['pred'], 0)
