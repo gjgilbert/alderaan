@@ -3,10 +3,12 @@ import sys
 import warnings
 
 from astropy.stats import mad_std
+from copy import deepcopy
 import numpy as np
 
 from alderaan.modules.omc import OMC
 from alderaan.modules.quicklook import plot_omc
+from alderaan.utils.io import save_omc_ephemeris
 
 
 def run(context, check_periodic=True):
@@ -17,10 +19,12 @@ def run(context, check_periodic=True):
     target = context.target
     planets = context.planets
 
-    # initialize OMC object for each planet
+    # initialize OMC object and ttv_buffer tracker for each planet
     omc_list = []
     for n, p in enumerate(planets):
         omc_list.append(OMC(p.ephemeris))
+
+    ttv_buffer = np.zeros(NPL, dtype=float)
 
     # search for period signals
     if check_periodic:
@@ -48,16 +52,18 @@ def run(context, check_periodic=True):
                 df_min = 1 / (planets[i].ephemeris.ttime.max() - planets[i].ephemeris.ttime.min())
                 
                 for j in range(i+1, NPL):
-                    df_ij = np.abs(freq[i] - freq[j])
-                    
-                    if df_ij < df_min:
-                        close[i,j] = True
-                        close[j,i] = True
+                    if freq[i] is not None and freq[j] is not None:
+                        df_ij = np.abs(freq[i] - freq[j])
+                        
+                        if df_ij < df_min:
+                            close[i,j] = True
+                            close[j,i] = True
 
             for i in range(NPL):
-                if not np.any(close[i]) and fap[i] > 0.1:
-                    freq[i] = None
-                    fap[i] = None
+                if fap[i] is not None:
+                    if not np.any(close[i]) and fap[i] > 0.1:
+                        freq[i] = None
+                        fap[i] = None
 
         for n, p in enumerate(planets):
             if freq[n] is not None:
@@ -70,7 +76,7 @@ def run(context, check_periodic=True):
     for n, p in enumerate(planets):
         omc = omc_list[n]
         npts = np.sum(omc.quality)
-        _original_period = np.copy(p.period)
+        old_ephemeris = deepcopy(p.ephemeris)
 
         print(f"\nperforming omc model selection for Planet {n} ({npts} transits)")
 
@@ -92,7 +98,7 @@ def run(context, check_periodic=True):
             with warnings.catch_warnings(record=True) as catch:
                 warnings.simplefilter('always', category=RuntimeWarning)
                 traces[f'poly_{polyorder}'] = omc.sample(omc.poly_model(polyorder))
-                dofs[f'poly_{polyorder}'] = polyorder
+                dofs[f'poly_{polyorder}'] = 1 + polyorder
 
         # Sinusoidal model 
         if check_periodic and npts >= 8 and freq[n] is not None:
@@ -105,25 +111,22 @@ def run(context, check_periodic=True):
         if len(catch) > 0:
             print(f"{len(catch)} RuntimeWarnings caught during sampling")
 
-        best_omc_model_name = omc.select_best_model(traces, dofs)
-
-        print(f"\nPlanet {n} : adopting {best_omc_model_name} as omc model")
+        # perform model selection routine and update objects
+        omc.ymod, best_omc_model_name = omc.select_best_model(traces, dofs)
+        print(f"\nPlanet {n} : adopting {best_omc_model_name} as omc model and flagging outliers")
         
-        trace = traces[best_omc_model_name]
+        omc.out_prob, omc.out_class = omc.calculate_outlier_probability(omc.ymod)
 
-        # update ephemeris
-        omc.ymod = np.nanmedian(trace['pred'], 0)
-        omc_list[n] = omc
+        _filename = os.path.join(context.results_dir, f'{target}_{n:02d}_quick.ttvs')
+        save_omc_ephemeris(_filename, omc)
 
-        p.ephemeris = p.ephemeris.update_from_omc(omc)
-        p.ephemeris = p.ephemeris.interpolate(full=True)
-        planets[n] = p.update_ephemeris(p.ephemeris)
+        new_ephemeris = p.ephemeris.update_from_omc(omc).interpolate(full=True)
+        
+        planets[n] = p.update_ephemeris(new_ephemeris)
+        print(f"Planet {n} : {old_ephemeris.period:.6f} --> {new_ephemeris.period:.6f}")
 
-        # make quicklook plot
-        _filepath = os.path.join(context.quicklook_dir, f"{target}_omc_initial.png")
-        _ = plot_omc(omc_list, target, _filepath)
+    # make quicklook plot and return planets
+    _filepath = os.path.join(context.quicklook_dir, f"{target}_omc_initial.png")
+    _ = plot_omc(omc_list, target, _filepath)
 
-        print(f"Planet {n} : {_original_period:.6f} --> {planets[n].period:.6f}")
-
-    # PyMC3 does not play well with automatic context capture; do manual capture
     return {'planets': planets}

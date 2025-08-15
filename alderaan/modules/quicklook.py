@@ -8,6 +8,7 @@ __all__ = ['plot_omc',
 from astropy.stats import mad_std
 from dynesty import plotting as dyplot
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FormatStrFormatter
 import numpy as np
 from alderaan.planet import Planet
 from alderaan.ephemeris import Ephemeris
@@ -218,3 +219,55 @@ def _parameter_labels(npl, subscripts=True):
     labels += 'q1 q2'.split()
     
     return labels
+
+
+def plot_quick_fit_ttvs(target, planet_no, _t_obs, _t_mod, _f_obs, _f_mod, tc, tc_offset, tc_fit, x2_fit, chisq, transit_window_size, filepath=None, interactive=False):
+    # recompute a fdew quantities
+    quad_coeffs = np.polyfit(tc_fit, x2_fit, 2)
+    quad_model = np.polyval(quad_coeffs, tc_fit)
+    qtc_min = -quad_coeffs[1] / (2 * quad_coeffs[0])
+    qtc_err = np.sqrt(1 / quad_coeffs[0])
+    qx2_min = np.polyval(quad_coeffs, qtc_min)
+    _ttj = np.nanmean([qtc_min, np.mean(tc_fit)])
+    _errj = qtc_err * (1 + np.std(x2_fit - quad_model))
+
+    # make some plots
+    fig, ax = plt.subplots(1,2, figsize=(8,3))
+    
+    ax[0].plot(_t_obs, _f_obs, 'ko')
+    ax[0].plot(_t_mod, _f_mod, c=f'C{planet_no}', lw=3)
+
+    xticks = np.array([tc-transit_window_size/2, tc, tc+transit_window_size/2]).round(2)
+    ax[0].set_xticks(xticks)
+    ax[0].yaxis.set_major_formatter(FormatStrFormatter('%.4f'))
+    ax[0].set_xlabel("Time [BJKD]", fontsize=14)
+    ax[0].set_ylabel("Flux", fontsize=14)
+
+    display = np.abs(chisq - qx2_min) < 2.5
+
+    _x = tc_offset[display]
+    _y_obs = (chisq-qx2_min)[display]
+    _y_mod = np.polyval(quad_coeffs, _x) - qx2_min
+
+    ax[1].plot(_x, _y_obs, 'o', mec='k', mfc='w')
+    ax[1].plot(_x, _y_mod, c=f'C{planet_no}', lw=3)
+    ax[1].axvline(qtc_min, color='k', ls=':')
+    ax[1].axvline(tc_fit[np.argmin(x2_fit)], color='k', ls=':')
+    ax[1].axvline(np.mean(tc_fit), color='k', ls=':')
+    ax[1].axvline(_ttj, color='k', lw=2)
+
+    xticks = np.array([_ttj - 1.5 * _errj, _ttj, _ttj + 1.5 * _errj])
+    ax[1].set_xticks(xticks, np.round(xticks - _ttj, 4))
+    ax[1].set_ylim(-0.5, 2.5)
+    ax[1].set_xlabel("$\Delta t_c$", fontsize=14)
+    ax[1].set_ylabel("$\Delta \chi^2$", fontsize=14)
+    
+    plt.suptitle(f"{target} - Planet {planet_no}", fontsize=18)
+    plt.tight_layout()
+
+    if filepath is not None:
+        plt.savefig(filepath)
+    if not interactive:
+        plt.close(fig)
+    
+    return fig, ax

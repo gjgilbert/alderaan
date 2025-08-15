@@ -245,8 +245,8 @@ class OMC:
         q = self.quality
         npts = np.sum(self.quality)
 
-        peakfreq = None
-        peakfap = None
+        peakfreq = np.nan
+        peakfap = 1.0
 
         if npts >= 8:
             try:
@@ -345,7 +345,7 @@ class OMC:
             return xf_out, yf_out, freqs, faps
 
 
-    def select_best_model(self, traces, dofs, verbose=True):
+    def select_best_model(self, traces, dofs, return_name=True, verbose=True):
         """
         Args:
             traces (dict): PyMC3 MultiTraces, output from omc.sample()
@@ -395,13 +395,27 @@ class OMC:
             print(f"  BIC : {preferred_by_bic}")
             print(f"  returning: {best_omc_model_name}")
 
-        return best_omc_model_name
+        # calculate best model prediction and return
+        self.ymod = np.nanmedian(traces[best_omc_model_name]['pred'], 0)
+
+        if return_name:
+            return self.ymod, best_omc_model_name
+        return self.ymod
 
 
     def calculate_outlier_probability(self, ymod):
         """
-        Arguments:
+        Calculate the probability that each measured omc transit time is an outlier
+        Assumes a two-component Gaussian mixture model to calculate outlier probabilty
+        Applies K-means clustering to assign each point to foreground or background
+
+        Args:
             ymod (ndarray) : regularized model for self.yobs
+
+        Returns:
+            tuple : (out_prob, out_class)
+              * out_prob (ndarray) : probability that each transit time is an outlier
+              * out_class (ndarray) : boolean flag that each transit time is an outlier
         """
         # normalize and center residuals
         res = self.yobs - ymod
@@ -435,9 +449,13 @@ class OMC:
         centroids = np.array([np.mean(fg_prob[group == 0]), np.mean(fg_prob[group == 1])])
         out = group == np.argmin(centroids)
 
-        # reduce fg_prob threshold until less than 30% of points are flagged
+        # reduce fg_prob threshold so that than 30% of points are flagged
         if np.sum(out) / len(out) > 0.3:
             out = fg_prob < np.percentile(fg_prob, 0.3)
 
-        # return quality vector
-        return fg_prob, out
+        print(f"{np.sum(out)} of {len(out)} ({100*np.sum(out)/len(out):.1f}%) of transit times flagged as outliers")
+
+        self.out_prob = 1 - fg_prob
+        self.out_class = out
+
+        return 1 - fg_prob, out
