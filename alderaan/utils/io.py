@@ -110,3 +110,31 @@ def copy_input_target_catalog(filepath_master, filepath_copy):
     else:
         os.makedirs(os.path.dirname(filepath_copy), exist_ok=True)
         df_master.to_csv(filepath_copy)
+
+
+def save_omc_ephemeris(filename, omc, verbose=True):
+    if omc.quality is not None:
+        q = omc.quality
+    else:
+        q = np.ones(len(omc.ttime), dtype=bool)
+
+    _static_ephemeris = omc._static_epoch + omc._static_period * omc.index[q]
+
+    data_out = np.vstack(
+        [omc.index[q],
+            omc.yobs[q] + _static_ephemeris,
+            omc.ymod[q] + _static_ephemeris,
+            omc.out_prob[q],
+            omc.out_class[q],
+        ]
+    ).swapaxes(0,1)
+
+    np.savetxt(
+        filename,
+        data_out,
+        fmt=("%1d", "%.8f", "%.8f", "%.8f", "%1d"),
+        delimiter="\t",
+    )
+
+    if verbose:
+        print(f"successfully wrote omc ephemeris to {filename}")

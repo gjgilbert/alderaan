@@ -12,15 +12,13 @@ from copy import deepcopy
 import dynesty
 from dynesty.utils import print_fn
 import io
-import matplotlib.pyplot as plt
-from matplotlib.ticker import FormatStrFormatter
 import numpy as np
 import numpy.polynomial.polynomial as poly
 from scipy.optimize import least_squares
-from scipy.special import erfinv
 import time
 
 from alderaan.modules.base import BaseAlg
+from alderaan.modules.quicklook import plot_quick_fit_ttvs
 from alderaan.utils.astro import bin_data, estimate_transit_depth
 from alderaan.utils.stats import uniform_ppf, loguniform_ppf, norm_ppf
 
@@ -365,7 +363,7 @@ class TTimeTransitModel(TransitModel):
     
 
     def mazeh13_holczer16_method(
-            self, planet_no, rel_window_size=5.0, abs_window_size_buffer=1/24, quicklook_dir=None,
+            self, planet_no, rel_window_size=5.0, abs_window_size_buffer=1/24, quicklook_dir=None, target=None,
         ):
         """
         Docstring
@@ -460,7 +458,6 @@ class TTimeTransitModel(TransitModel):
                             quad_coeffs = np.polyfit(tc_fit, x2_fit, 2)
                             quad_model = np.polyval(quad_coeffs, tc_fit)
                             qtc_min = -quad_coeffs[1] / (2 * quad_coeffs[0])
-                            qx2_min = np.polyval(quad_coeffs, qtc_min)
                             qtc_err = np.sqrt(1 / quad_coeffs[0])
 
                             # transit time and scaled error
@@ -471,54 +468,37 @@ class TTimeTransitModel(TransitModel):
                             convex_local_min = quad_coeffs[0] > 0
                             within_bounds = (_ttj > tc_fit.min()) and (_ttj < tc_fit.max())
 
-                            #if convex_local_min and within_bounds:
-                            ttime[j] = _ttj.copy()
-                            ttime_err[j] = _errj.copy()
+                            if convex_local_min and within_bounds:
+                                ttime[j] = _ttj.copy()
+                                ttime_err[j] = _errj.copy()
 
                         # STEP 4: make quicklook plot
                         if (quicklook_dir is not None) and (len(_f_obs) > 0):
-                            target = 'K00148'
                             ttv_dir = os.path.join(quicklook_dir, 'ttvs')
                             os.makedirs(ttv_dir, exist_ok=True)
-                            path = os.path.join(ttv_dir, f'{target}_{planet_no}_ttv_{j}.png')
+                            _filepath = os.path.join(ttv_dir, f'{target}_{planet_no}_ttv_{j}.png')
 
+                            _t_obs = _t
+                            _t_mod = _t_supersample
                             _f_mod = np.interp(_t_supersample - _ttj, time_template, flux_template)
-                            _f_mod = bin_data(_t_supersample, _f_mod, exptime, bin_centers=_t)[1]
-                            
-                            fig, ax = plt.subplots(1,2, figsize=(8,3))
-                            
-                            ax[0].plot(_t, _f_obs, 'ko')
-                            ax[0].plot(_t, _f_mod, c=f'C{planet_no}', lw=3)
+                            #_f_mod = bin_data(_t_supersample, _f_mod, exptime, bin_centers=_t)[1]
 
-                            xticks = np.array([tc-transit_window_size/2, tc, tc+transit_window_size/2]).round(2)
-                            ax[0].set_xticks(xticks)
-                            ax[0].yaxis.set_major_formatter(FormatStrFormatter('%.4f'))
-                            ax[0].set_xlabel("Time [BJKD]", fontsize=14)
-                            ax[0].set_ylabel("Flux", fontsize=14)
+                            _ = plot_quick_fit_ttvs(target, 
+                                                    planet_no, 
+                                                    _t_obs,
+                                                    _t_mod, 
+                                                    _f_obs, 
+                                                    _f_mod, 
+                                                    tc, 
+                                                    tc_offset, 
+                                                    tc_fit, 
+                                                    x2_fit, 
+                                                    chisq, 
+                                                    transit_window_size, 
+                                                    filepath=_filepath
+                                                    )
 
-                            display = np.abs(chisq - qx2_min) < 2.5
 
-                            _x = tc_offset[display]
-                            _y_obs = (chisq-qx2_min)[display]
-                            _y_mod = np.polyval(quad_coeffs, _x) - qx2_min
-
-                            ax[1].plot(_x, _y_obs, 'o', mec='k', mfc='w')
-                            ax[1].plot(_x, _y_mod, c=f'C{planet_no}', lw=3)
-                            ax[1].axvline(qtc_min, color='k', ls=':')
-                            ax[1].axvline(tc_fit[np.argmin(x2_fit)], color='k', ls=':')
-                            ax[1].axvline(np.mean(tc_fit), color='k', ls=':')
-                            ax[1].axvline(_ttj, color='k', lw=2)
-
-                            xticks = np.array([_ttj - 1.5 * _errj, _ttj, _ttj + 1.5 * _errj])
-                            ax[1].set_xticks(xticks, np.round(xticks - _ttj, 4))
-                            ax[1].set_ylim(-0.5, 2.5)
-                            ax[1].set_xlabel("$\Delta t_c$", fontsize=14)
-                            ax[1].set_ylabel("$\Delta \chi^2$", fontsize=14)
-                            
-                            plt.suptitle(f"{target} - Planet {planet_no}", fontsize=18)
-                            plt.tight_layout()
-                            fig.savefig(path)
-                            plt.close()
 
         return ttime, ttime_err
     

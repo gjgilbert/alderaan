@@ -21,7 +21,7 @@ def run(context):
         print(f"\nPlanet {n} : fitting {np.sum(p.ephemeris.quality)} transit times")
 
         ttime_old, ttime_err_old = p.ephemeris.ttime, p.ephemeris.error
-        ttime_new, ttime_err_new = ttvmodel.mazeh13_holczer16_method(n, quicklook_dir=context.quicklook_dir)
+        ttime_new, ttime_err_new = ttvmodel.mazeh13_holczer16_method(n, target=context.target, quicklook_dir=context.quicklook_dir)
 
         assert len(ttime_new) == len(ttime_old)
         assert len(ttime_err_new) == len(ttime_err_old)
