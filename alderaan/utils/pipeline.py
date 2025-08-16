@@ -48,7 +48,7 @@ def capture_locals(func):
     return wrapper
 
 
-def invoke_subrecipe(context, subrecipe, cleanup=True, progress=True):
+def invoke_subrecipe(context, subrecipe, cleanup=True, progress=True, **kwargs):
     path = Path(os.path.join(context.BASE_PATH, 'alderaan/recipes/subrecipes', subrecipe))
     name = path.stem
 
@@ -59,7 +59,7 @@ def invoke_subrecipe(context, subrecipe, cleanup=True, progress=True):
     if not hasattr(module, 'run'):
         raise AttributeError(f"{name} has no function 'run'")
 
-    vars_dict = module.run(context)
+    vars_dict = module.run(context, **kwargs)
     for k, v in vars_dict.items():
         setattr(context, k, v)
 

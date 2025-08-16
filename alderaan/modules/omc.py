@@ -10,8 +10,12 @@ import pymc3 as pm
 import pymc3_ext as pmx
 from scipy import signal
 from scipy import stats
+from scipy.interpolate import interp1d
 from scipy.ndimage import uniform_filter, median_filter
+from scipy.signal import savgol_filter
 from sklearn.cluster import KMeans
+import warnings
+
 from alderaan.constants import pi
 
 class OMC:
@@ -52,6 +56,23 @@ class OMC:
             quality = np.ones(len(self.yobs), dtype=bool)
 
         return quality
+    
+
+    def quick_fit_trend(self):
+        q = self.quality
+        npts = len(q)
+
+        interpolator = interp1d(self.xtime[q], self.yobs[q], kind='linear', fill_value='extrapolate')
+        ysmooth = interpolator(self.xtime)
+
+        if npts >= 8:
+            window_length = int(np.log2(npts)) + 1
+            window_length += (window_length + 1) % 2
+            ysmooth = savgol_filter(ysmooth, window_length, 2)
+
+        self.ymod = ysmooth
+        
+        return self.ymod
 
 
     def poly_model(self, polyorder, ignore_bad=True, xt_predict=None):
@@ -431,8 +452,10 @@ class OMC:
 
             obs = pm.NormalMixture("obs", w, mu=mu * T.ones(2), tau=tau, observed=res)
 
-        with model:
-            trace = self.sample(model)
+        with warnings.catch_warnings(record=True) as catch:
+            warnings.simplefilter('always', category=RuntimeWarning)
+            with model:
+                trace = self.sample(model)
 
         # calculate foreground/background probability
         loc = np.nanmedian(trace["mu"], axis=0)

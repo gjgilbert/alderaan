@@ -122,7 +122,7 @@ def run(context, check_periodic=True):
         _filename = os.path.join(context.results_dir, f'{target}_{n:02d}_quick.ttvs')
         save_omc_ephemeris(_filename, omc)
 
-        new_ephemeris = p.ephemeris.update_from_omc(omc).interpolate(full=True)
+        new_ephemeris = p.ephemeris.update_from_omc(omc).interpolate(full=False)
         
         planets[n].update_ephemeris(new_ephemeris)
         print(f"Planet {n} : {old_ephemeris.period:.6f} --> {new_ephemeris.period:.6f}")

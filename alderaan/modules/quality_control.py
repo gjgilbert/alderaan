@@ -2,9 +2,10 @@ __all__ = ['QualityControl']
 
 from astropy.stats import mad_std
 import numpy as np
+import warnings
+
 from alderaan.constants import kepler_lcit, kepler_scit
 from alderaan.modules.base import BaseAlg
-import warnings
 
 
 class QualityControl(BaseAlg):

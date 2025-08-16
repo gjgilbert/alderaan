@@ -22,19 +22,18 @@ def run(context, full=True):
     ttv_buffer = [None]*NPL
 
     for n, p in enumerate(planets):
-        omc_list[n] = (OMC(p.ephemeris))
-        sigma_cut = set_sigma_cutoff(len(p.ephemeris.ttime))
+        omc = OMC(p.ephemeris)
+        omc.ymod = omc.quick_fit_trend()
 
         old_ephemeris = deepcopy(p.ephemeris)
-        new_ephemeris = deepcopy(p.ephemeris)
-        new_ephemeris.quality = omc_list[n].quick_flag_outliers(sigma_cut)
-        new_ephemeris = new_ephemeris.update_period_and_epoch()
+        new_ephemeris = p.ephemeris.update_from_omc(omc).interpolate(full=full)
         
-        ttv_scatter[n] = mad_std(p.ephemeris.ttime - p.ephemeris.eval_linear_ephemeris())
-        ttv_buffer[n] = sigma_cut * ttv_scatter[n]
-        
-        planets[n].update_ephemeris(new_ephemeris.interpolate(full=full))
+        planets[n].update_ephemeris(new_ephemeris)
         print(f"Planet {n} : {old_ephemeris.period:.6f} --> {new_ephemeris.period:.6f}")
+
+        omc_list[n] = omc
+        ttv_scatter[n] = mad_std(omc.yobs - omc.ymod)
+        ttv_buffer[n] = set_sigma_cutoff(len(omc.yobs)) * ttv_scatter[n]
 
     
     _filepath = os.path.join(context.quicklook_dir, f"{target}_omc_initial.png")

@@ -34,7 +34,7 @@ def run(context):
         p.ephemeris.ttime = ttime_new.copy()
         p.ephemeris.error = ttime_err_new.copy()
         p.ephemeris.quality = ~np.isnan(ttime_new) & ~np.isnan(ttime_err_new)
-        p.ephemeris = p.ephemeris.interpolate()
-        planets[n].update_ephemeris(p.ephemeris)
+
+        planets[n].update_ephemeris(p.ephemeris.interpolate())
 
     return {'planets': planets}
