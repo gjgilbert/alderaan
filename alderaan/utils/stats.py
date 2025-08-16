@@ -1,6 +1,7 @@
 __all__ = ['uniform_ppf',
            'loguniform_ppf',
            'norm_ppf',
+           'set_sigma_cutoff',
            ]
 
 

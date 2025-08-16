@@ -2,6 +2,7 @@ import os
 import sys
 import warnings
 
+from astropy.stats import mad_std
 import numpy as np
 
 from alderaan.ephemeris import Ephemeris
@@ -10,6 +11,7 @@ from alderaan.planet import Planet
 from alderaan.modules.quicklook import plot_litecurve
 from alderaan.utils.io import parse_koi_catalog, parse_holczer16_catalog
 from alderaan.utils.pipeline import capture_locals
+from alderaan.utils.stats import set_sigma_cutoff
 
 
 @capture_locals
@@ -91,7 +93,14 @@ def run(context):
         p.ephemeris.set_static_references()
         planets[n] = p.update_ephemeris(p.ephemeris)
 
-
         print(f"  Planet {n} : {len(p.ephemeris.ttime)} transits")
+
+    # track TTV scatter and TTV buffer
+    ttv_scatter = [None]*NPL
+    ttv_buffer = [None]*NPL
+
+    for n, p in enumerate(planets):
+        ttv_scatter[n] = mad_std(p.ephemeris.ttime - p.ephemeris.eval_linear_ephemeris())
+        ttv_buffer[n] = set_sigma_cutoff(len(p.ephemeris.ttime)) * ttv_scatter[n]
 
     return

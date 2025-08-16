@@ -12,7 +12,7 @@ from alderaan.modules.detrend import GaussianProcessDetrender
 from alderaan.modules.quicklook import plot_litecurve
 
 
-def run(context):
+def run(context, tight_mask=False):
     print('\n\nSUBRECIPE: DETREND VISITS\n')
 
     # infer context
@@ -26,17 +26,25 @@ def run(context):
         detrenders.append(GaussianProcessDetrender(litecurve, planets))
 
     # clip outliers
-    for j, detrender in enumerate(detrenders):    
-        mask = detrender.make_transit_mask(rel_size=3.0, abs_size=2/24, mask_type='condensed')
+    for j, detrender in enumerate(detrenders):
+        obsmode = detrender.litecurve.obsmode[0]
+        exptime = detrender._exptime_lookup[obsmode]
         
-        npts_initial = len(detrender.litecurve.time)
+        if tight_mask:
+            abs_size = 2*(exptime + np.max(context.ttv_buffer))
+            mask = detrender.make_transit_mask(rel_size=1.0, abs_size=abs_size, mask_type='condensed')
+        else:
+            abs_size = 2*(exptime + 1/24)
+            mask = detrender.make_transit_mask(rel_size=3.0, abs_size=abs_size, mask_type='condensed')
+        
+        npts_initial = len(litecurve.time)
 
         detrender.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=5, mask=mask)
         detrender.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=1000, mask=None)
         
         npts_final = len(detrender.litecurve.time)
 
-        print(f"  Quarter {detrender.litecurve.visit[0]} : {npts_initial-npts_final} outliers rejected")
+        print(f"  Quarter {litecurve.visit[0]} : {npts_initial-npts_final} outliers rejected")
 
     # estimate oscillation periods
     oscillation_periods = np.zeros(len(detrenders))

@@ -49,7 +49,7 @@ class OMC:
         if len(self.yobs) > 4:
             quality = np.abs(self.yobs - ysmooth)/mad_std(self.yobs - ysmooth) < sigma_cut
         else:
-            quality = np.zeros(len(self.yobs), dtype=bool)
+            quality = np.ones(len(self.yobs), dtype=bool)
 
         return quality
 

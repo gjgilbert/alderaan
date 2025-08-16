@@ -9,10 +9,11 @@ import numpy as np
 from alderaan.modules.omc import OMC
 from alderaan.modules.quicklook import plot_omc
 from alderaan.utils.io import save_omc_ephemeris
+from alderaan.utils.stats import set_sigma_cutoff
 
 
 def run(context, check_periodic=True):
-    print('\n\nSUBRECIPE: REGULARIZE OMC\n')
+    print('\n\nSUBRECIPE: OMC REGULARIZATION\n')
 
     # infer context
     NPL = context.NPL
@@ -20,11 +21,12 @@ def run(context, check_periodic=True):
     planets = context.planets
 
     # initialize OMC object and ttv_buffer tracker for each planet
-    omc_list = []
+    omc_list = [None]*NPL
+    ttv_scatter = [None]*NPL
+    ttv_buffer = [None]*NPL
+    
     for n, p in enumerate(planets):
-        omc_list.append(OMC(p.ephemeris))
-
-    ttv_buffer = np.zeros(NPL, dtype=float)
+        omc_list[n] = OMC(p.ephemeris)
 
     # search for period signals
     if check_periodic:
@@ -122,11 +124,18 @@ def run(context, check_periodic=True):
 
         new_ephemeris = p.ephemeris.update_from_omc(omc).interpolate(full=True)
         
-        planets[n] = p.update_ephemeris(new_ephemeris)
+        planets[n].update_ephemeris(new_ephemeris)
         print(f"Planet {n} : {old_ephemeris.period:.6f} --> {new_ephemeris.period:.6f}")
+
+        ttv_scatter[n] = mad_std(p.ephemeris.ttime - p.ephemeris.eval_linear_ephemeris())
+        ttv_buffer[n] = set_sigma_cutoff(len(p.ephemeris.ttime)) * ttv_scatter[n]
+
 
     # make quicklook plot and return planets
     _filepath = os.path.join(context.quicklook_dir, f"{target}_omc.png")
     _ = plot_omc(omc_list, target, _filepath)
 
-    return {'planets': planets}
+    return {'planets': planets,
+            'ttv_scatter': ttv_scatter,
+            'ttv_buffer': ttv_buffer,
+            }
