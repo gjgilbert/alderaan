@@ -396,8 +396,6 @@ class TTimeTransitModel(TransitModel):
             
             for j, tc in enumerate(p.ephemeris.ttime):
                 if (not overlap[planet_no][j]) and (p.ephemeris.quality[j]) and (transit_obsmode[j] == obsmode):
-                    #print(f"  Transit {p.ephemeris.index[j]} : BKJD = {tc:.1f}")
-                    
                     # STEP 0: pull data near a single transit
                     in_transit = np.abs(self.litecurve.time - tc) < p.duration / 2
                     in_window = np.abs(self.litecurve.time - tc) < transit_window_size / 2
