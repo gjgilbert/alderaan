@@ -39,6 +39,7 @@ def run(context):
         _ntot = len(good_rms[n])
         print(f"    {np.sum(_nbad)} of {_ntot} transits ({int(100*_nbad/_ntot)}%) rejected for high photometric noise")
         
-        planets[n].ephemeris.quality = coverage[n] & good_rms[n]
+        p.ephemeris.quality = coverage[n] & good_rms[n]
+        planets[n].ephemeris = p.ephemeris.remove_poor_quality_transits()
 
     return {'planets': planets}

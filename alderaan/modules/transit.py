@@ -46,19 +46,8 @@ class TransitModel(BaseAlg):
 
         # set warping bins
         self._set_bins()
+        self._set_warps()
 
-        # warp lc.time vector for ecah planet; legx is 1st-order Legendre polynomial
-        self._warped_time = [None]*self.npl
-        self._warped_legx = [None]*self.npl
-
-        for n, p in enumerate(self.planets):
-            index_midpoint = p.ephemeris.index[-1] // 2
-
-            _t, _i = self._warp_times(self.litecurve.time, n, return_inds=True)            
-            _x = (_i -index_midpoint) / index_midpoint
-
-            self._warped_time[n] = _t.copy()   # len(self.litecurve.ttime)
-            self._warped_legx[n] = _x.copy()   # len(self.litecurve.ttime)
 
 
     def _set_bins(self):
@@ -88,6 +77,24 @@ class TransitModel(BaseAlg):
 
             self._bin_values[n] = np.concatenate([[ttime_full[0]], ttime_full, [ttime_full[-1]]])
 
+    
+    def _set_warps(self):
+        self._warped_time = [None]*self.npl     # warp lc.time vector for each planet
+        self._warped_legx = [None]*self.npl     # legx is 1st-order Legendre polynomial
+
+        self._update_warps()
+
+
+    def _update_warps(self):
+        for n, p in enumerate(self.planets):
+            index_midpoint = p.ephemeris.index[-1] // 2
+
+            _t, _i = self._warp_times(self.litecurve.time, n, return_inds=True)            
+            _x = (_i -index_midpoint) / index_midpoint
+
+            self._warped_time[n] = _t.copy()    # len(self.litecurve.ttime)
+            self._warped_legx[n] = _x.copy()    # len(self.litecurve.ttime)
+
 
     def _get_model_dt(self, t, planet_no, return_inds=False):
         _inds = np.searchsorted(self._bin_edges[planet_no], t)
@@ -105,9 +112,103 @@ class TransitModel(BaseAlg):
             return t - warps[0], warps[1]
         else:
             return t - warps
+        
+
+    @staticmethod
+    def throttled_print_fn(interval=10):
+        last = [0]
+        start = time.time()
+
+        def callback(results, niter, ncall, *args, **kwargs):
+            now = time.time()
+            if now - last[0] >= interval:
+                runtime = (now - start)/60
+
+                buf = io.StringIO()
+                stdout = sys.stdout
+                sys.stdout = buf
+                print_fn(results, niter, ncall, *args, **kwargs)
+                sys.stdout = stdout
+
+                line = buf.getvalue().rstrip()
+                print(f"{line} | runtime: {runtime:.1f} min")
+                last[0] = now
+
+        return callback
 
 
-class ShapeTransitModel(TransitModel):
+class TTVTransitModel(TransitModel):
+    def __init__(self, litecurve, planets, limbdark):
+        super().__init__(litecurve, planets, limbdark)
+
+        self.num_transits = self._count_transits
+
+
+    def _count_transits(self):
+        self.num_transits = np.zeros(self.npl,dtype=int)
+        for n, p in enumerate(self.planets):
+            self.num_transits[n] = len(p.ephemeris.ttime)
+        return self.num_transits
+
+    
+    @staticmethod
+    def model_flux(theta, transitmodel):
+        """
+        theta : array-like
+            ttvs
+        transitmodel : TransitModel
+            instance of TransitModel, typically self
+
+        Priors on planet ttvs are enforced outside this function
+        Assumes TTVs are small relative to period
+        """
+        tm = transitmodel
+        lc = tm.litecurve
+
+        flux_mod = np.ones_like(lc.flux)
+
+        for obsmode in tm.unique_obsmodes:
+            exptime_ioff = tm._exptime_integration_offset_lookup[obsmode]
+            supersample = tm._supersample_lookup[obsmode]
+
+            for n, p in enumerate(tm.planets):
+                iend = np.cumsum(tm.num_transits)
+                istart = iend - tm.num_transits
+
+                ttvs = np.array(theta[istart:iend])
+
+                tm._update_bins(ttvs)
+                tm._update_warps()
+
+                _t = tm._warped_time[n][lc.obsmode == obsmode]
+                _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).flatten()
+
+                nthreads = 1
+                ds = _rsky._rsky(
+                    _t_supersample,
+                    0.0,
+                    p.period,
+                    p.ror,
+                    p.impact,
+                    p.duration,
+                    1,
+                    nthreads,
+                )
+
+                qld_flux = _quadratic_ld._quadratic_ld(
+                    ds, np.abs(p.ror), tm.limbdark[0], tm.limbdark[1], nthreads
+                )
+
+                qld_flux = np.mean(
+                    qld_flux.reshape(-1, supersample), axis=1
+                )
+
+                flux_mod[lc.obsmode == obsmode] += qld_flux - 1.0
+                
+        return flux_mod      
+
+
+class RBDTransitModel(TransitModel):
     def __init__(self, litecurve, planets, limbdark):
         super().__init__(litecurve, planets, limbdark)
         
@@ -125,16 +226,13 @@ class ShapeTransitModel(TransitModel):
         Limb darkening is sampled in terms of [q1, q2] (see Kipping 2013)
         Limb darkening priors are enforced in terms of [u1, u2] inside this function
         """
-        # shorthand
         tm = transitmodel
         lc = tm.litecurve
 
-        # physical limb darkening (see Kipping 2013)
         q1, q2 = np.array(theta[-2:])
         u1 = 2 * np.sqrt(q1) * q2
         u2 = np.sqrt(q1) * (1 - 2 * q2)
 
-        # calculate log-likelihood
         flux_mod = np.ones_like(lc.flux)
 
         for obsmode in tm.unique_obsmodes:
@@ -199,12 +297,62 @@ class ShapeTransitModel(TransitModel):
         
         return lnlike
     
+    @staticmethod
+    def prior_transform(uniform_hypercube, fixed_durations):
+        """
+        Prior transform over physical ALDERAAN basis {C0, C1, r, b, T14}...{q1,q2}
+
+        Distributions are hard-coded to be:
+            Normal on ephemeris perturbations {C0,C1}
+            Log-uniform on radius ratio r and transit duration T14
+            Uniform on impact parameter b
+            Uniform on quadratic limb darkening coefficients {q1,q2}
+
+        For motivation behind this prior-parameter choice see:
+            Carter+ 2008 (2008ApJ...689..499C)
+            Kipping 2013 (2013MNRAS.435.2152K)
+            Gilbert, MacDougall, & Petigura 2022 (2022AJ....164...92G)
+            MacDougal, Gilbert, & Petigura 2023 (2023AJ....166...61M)
+
+        Assumes that transit durations are known with reasonable confidence
+        * sampled T14 will be restricted between (0.01*fixed_duration, 3*fixed_duration)
+
+        Parameters
+        ----------
+            uniform_hypercube : array-like, length 5 * N + 2
+                list of parameters N * [C0, C1, r, b, T14] + [q1, q2]
+            fixed_durations : array-like
+                list of transit durations for N planets (used for setting prior limits)
+
+        Returns
+        -------
+            transformed_hypercube : array_like, length 5 * N + 2
+                transformed samples
+        """
+        npl = len(fixed_durations)
+
+        u = np.array(uniform_hypercube)  # U(0,1) priors
+        x = np.zeros_like(u)             # physical priors
+
+        # 5 * npl + 2 parameters: [C0, C1, r, b, T14]...[q1, q2]
+        for n in range(npl):
+            x[5 * n + 0] = norm_ppf(u[0 + n * 5], 0.0, 0.1)
+            x[5 * n + 1] = norm_ppf(u[1 + n * 5], 0.0, 0.1)
+            x[5 * n + 2] = loguniform_ppf(u[2 + n * 5], 1e-5, 0.99)
+            x[5 * n + 3] = uniform_ppf(u[3 + n * 5], 0.0, 1 + x[5 * n + 2])
+            x[5 * n + 4] = loguniform_ppf(u[4 + n * 5], 0.01*fixed_durations[n], 3 * fixed_durations[n])
+
+        # limb darkening coefficients (see Kipping 2013)
+        x[-2] = uniform_ppf(u[-2], 0, 1)
+        x[-1] = uniform_ppf(u[-1], 0, 1)
+
+        return x
 
     def sample(self, checkpoint_file=None, checkpoint_every=60, progress_every=10):
         ndim = 5 * self.npl + 2
         sampler = dynesty.DynamicNestedSampler(
             self.ln_likelihood, 
-            prior_transform,
+            self.prior_transform,
             ndim,
             bound='multi',
             sample='rwalk',
@@ -221,44 +369,6 @@ class ShapeTransitModel(TransitModel):
         return sampler.results
     
 
-    def _theta_initial(self):
-        """
-        theta : array-like
-            num_planets * [C0, C1, rp, b, T14] + [q1, q2]
-        """
-        theta = []
-        for n, p in enumerate(self.planets):
-            theta.append(0.0)
-            theta.append(0.0)
-            theta.append(np.sqrt(p.depth))
-            theta.append(0.5)
-            theta.append(p.duration)
-
-        theta.append(self.limbdark[0])
-        theta.append(self.limbdark[1])
-
-        return np.array(theta)
-    
-
-    def _theta_bounds(self):
-        """
-        theta : array-like
-            num_planets * [C0, C1, rp, b, T14] + [q1, q2]
-        """
-        bounds = []
-        for n, p in enumerate(self.planets):
-            bounds.append([-np.inf,np.inf])
-            bounds.append([-np.inf,np.inf])
-            bounds.append([1e-5,0.99])
-            bounds.append([0.0,1.0])
-            bounds.append([0.01*p.duration,3*p.duration])
-
-        bounds.append([0.,1.])
-        bounds.append([0.,1.])
-
-        return np.array(bounds)
-
-    
     def optimize(self, fix_limbdark=True, niter=3):
         theta_initial = self._theta_initial()
         bounds = self._theta_bounds()
@@ -309,8 +419,46 @@ class ShapeTransitModel(TransitModel):
             print(f"message: {result['message']}")
 
         return theta_final
+
+
+    def _theta_initial(self):
+        """
+        theta : array-like
+            num_planets * [C0, C1, rp, b, T14] + [q1, q2]
+        """
+        theta = []
+        for n, p in enumerate(self.planets):
+            theta.append(0.0)
+            theta.append(0.0)
+            theta.append(np.sqrt(p.depth))
+            theta.append(0.5)
+            theta.append(p.duration)
+
+        theta.append(self.limbdark[0])
+        theta.append(self.limbdark[1])
+
+        return np.array(theta)
     
 
+    def _theta_bounds(self):
+        """
+        theta : array-like
+            num_planets * [C0, C1, rp, b, T14] + [q1, q2]
+        """
+        bounds = []
+        for n, p in enumerate(self.planets):
+            bounds.append([-np.inf,np.inf])
+            bounds.append([-np.inf,np.inf])
+            bounds.append([1e-5,0.99])
+            bounds.append([0.0,1.0])
+            bounds.append([0.01*p.duration,3*p.duration])
+
+        bounds.append([0.,1.])
+        bounds.append([0.,1.])
+
+        return np.array(bounds)
+
+    
     def update_planet_parameters(self, theta):
         for n, p in enumerate(self.planets):
             self.planets[n].ror = theta[2 + n * 5]
@@ -327,7 +475,7 @@ class ShapeTransitModel(TransitModel):
         return self.limbdark
     
 
-class TTimeTransitModel(BaseAlg):
+class CrossCorrelationTTVModel(BaseAlg):
     def __init__(self, litecurve, planets, limbdark):
         super().__init__(litecurve, planets)
 
@@ -506,75 +654,3 @@ class TTimeTransitModel(BaseAlg):
         
         return ttime, ttime_err
     
-
-def prior_transform(uniform_hypercube, fixed_durations):
-    """
-    Prior transform over physical ALDERAAN basis {C0, C1, r, b, T14}...{q1,q2}
-
-    Distributions are hard-coded to be:
-        Normal on ephemeris perturbations {C0,C1}
-        Log-uniform on radius ratio r and transit duration T14
-        Uniform on impact parameter b
-        Uniform on quadratic limb darkening coefficients {q1,q2}
-
-    For motivation behind this prior-parameter choice see:
-        Carter+ 2008 (2008ApJ...689..499C)
-        Kipping 2013 (2013MNRAS.435.2152K)
-        Gilbert, MacDougall, & Petigura 2022 (2022AJ....164...92G)
-        MacDougal, Gilbert, & Petigura 2023 (2023AJ....166...61M)
-
-    Assumes that transit durations are known with reasonable confidence
-      * sampled T14 will be restricted between (0.01*fixed_duration, 3*fixed_duration)
-
-    Parameters
-    ----------
-        uniform_hypercube : array-like, length 5 * N + 2
-            list of parameters N * [C0, C1, r, b, T14] + [q1, q2]
-        fixed_durations : array-like
-            list of transit durations for N planets (used for setting prior limits)
-
-    Returns
-    -------
-        transformed_hypercube : array_like, length 5 * N + 2
-            transformed samples
-    """
-    npl = len(fixed_durations)
-
-    u = np.array(uniform_hypercube)  # U(0,1) priors
-    x = np.zeros_like(u)             # physical priors
-
-    # 5 * npl + 2 parameters: [C0, C1, r, b, T14]...[q1, q2]
-    for n in range(npl):
-        x[5 * n + 0] = norm_ppf(u[0 + n * 5], 0.0, 0.1)
-        x[5 * n + 1] = norm_ppf(u[1 + n * 5], 0.0, 0.1)
-        x[5 * n + 2] = loguniform_ppf(u[2 + n * 5], 1e-5, 0.99)
-        x[5 * n + 3] = uniform_ppf(u[3 + n * 5], 0.0, 1 + x[5 * n + 2])
-        x[5 * n + 4] = loguniform_ppf(u[4 + n * 5], 0.01*fixed_durations[n], 3 * fixed_durations[n])
-
-    # limb darkening coefficients (see Kipping 2013)
-    x[-2] = uniform_ppf(u[-2], 0, 1)
-    x[-1] = uniform_ppf(u[-1], 0, 1)
-
-    return x
-
-
-def throttled_print_fn(interval=10):
-    last = [0]
-    start = time.time()
-
-    def callback(results, niter, ncall, *args, **kwargs):
-        now = time.time()
-        if now - last[0] >= interval:
-            runtime = (now - start)/60
-
-            buf = io.StringIO()
-            stdout = sys.stdout
-            sys.stdout = buf
-            print_fn(results, niter, ncall, *args, **kwargs)
-            sys.stdout = stdout
-
-            line = buf.getvalue().rstrip()
-            print(f"{line} | runtime: {runtime:.1f} min")
-            last[0] = now
-
-    return callback

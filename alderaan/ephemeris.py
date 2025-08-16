@@ -224,3 +224,13 @@ class Ephemeris:
         self.period, self.epoch = self.fit_linear_ephemeris()
 
         return self
+    
+
+    def remove_poor_quality_transits(self):
+        q = np.copy(self.quality)
+
+        for k in self.__dict__.keys():
+            if type(self.__dict__[k]) is np.ndarray:
+                self.__setattr__(k, self.__dict__[k][q])
+
+        return self
