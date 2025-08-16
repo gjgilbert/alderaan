@@ -393,9 +393,9 @@ class TTimeTransitModel(TransitModel):
             transit_window_size = rel_window_size * p.duration + abs_window_size_buffer
             time_template, flux_template = self._construct_template(planet_no, obsmode, transit_window_size)
 
-            
-            for j, tc in enumerate(p.ephemeris.ttime):
-                if (not overlap[planet_no][j]) and (p.ephemeris.quality[j]) and (transit_obsmode[j] == obsmode):
+            # primary loop for fitting transit times
+            for i, tc in enumerate(p.ephemeris.ttime):
+                if (not overlap[planet_no][i]) and (p.ephemeris.quality[i]) and (transit_obsmode[i] == obsmode):
                     # STEP 0: pull data near a single transit
                     in_transit = np.abs(self.litecurve.time - tc) < p.duration / 2
                     in_window = np.abs(self.litecurve.time - tc) < transit_window_size / 2
@@ -420,11 +420,11 @@ class TTimeTransitModel(TransitModel):
                         tc_offset = tc + np.hstack([-tc_offset[:-1][::-1], tc_offset])
                         chisq = np.zeros_like(tc_offset)
 
-                        for i, tc_o in enumerate(tc_offset):
+                        for j, tc_o in enumerate(tc_offset):
                             _f_mod = np.interp(_t_supersample - tc_o, time_template, flux_template)
                             _f_mod = bin_data(_t_supersample, _f_mod, exptime, bin_centers=_t)[1]
 
-                            chisq[i] = np.sum(((_f_obs - _f_mod) / _f_err)**2)
+                            chisq[j] = np.sum(((_f_obs - _f_mod) / _f_err)**2)
 
                         # STEP 2: isolate relevant portions of {tc_offset, chisq} vectors
                         delta_chisq = 2.0
@@ -459,27 +459,27 @@ class TTimeTransitModel(TransitModel):
                             qtc_err = np.sqrt(1 / quad_coeffs[0])
 
                             # transit time and scaled error
-                            _ttj = np.nanmean([qtc_min, np.mean(tc_fit)])
-                            _errj = qtc_err * (1 + np.std(x2_fit - quad_model))
+                            _tti = np.nanmean([qtc_min, np.mean(tc_fit)])
+                            _erri = qtc_err * (1 + np.std(x2_fit - quad_model))
 
                             # check that the fit is well-conditioned
                             convex_local_min = quad_coeffs[0] > 0
-                            within_bounds = (_ttj > tc_fit.min()) and (_ttj < tc_fit.max())
+                            within_bounds = (_tti > tc_fit.min()) and (_tti < tc_fit.max())
 
                             if convex_local_min and within_bounds:
-                                ttime[j] = _ttj.copy()
-                                ttime_err[j] = _errj.copy()
+                                ttime[i] = _tti.copy()
+                                ttime_err[i] = _erri.copy()
+
 
                         # STEP 4: make quicklook plot
                         if (quicklook_dir is not None) and (len(_f_obs) > 0):
                             ttv_dir = os.path.join(quicklook_dir, 'ttvs')
                             os.makedirs(ttv_dir, exist_ok=True)
-                            _filepath = os.path.join(ttv_dir, f'{target}_{planet_no}_ttv_{j}.png')
+                            _filepath = os.path.join(ttv_dir, f'{target}_{planet_no}_ttv_{i}.png')
 
                             _t_obs = _t
                             _t_mod = _t_supersample
-                            _f_mod = np.interp(_t_supersample - _ttj, time_template, flux_template)
-                            #_f_mod = bin_data(_t_supersample, _f_mod, exptime, bin_centers=_t)[1]
+                            _f_mod = np.interp(_t_supersample - _tti, time_template, flux_template)
 
                             _ = plot_quick_fit_ttvs(target, 
                                                     planet_no, 
@@ -495,8 +495,6 @@ class TTimeTransitModel(TransitModel):
                                                     transit_window_size, 
                                                     filepath=_filepath
                                                     )
-
-
 
         return ttime, ttime_err
     
