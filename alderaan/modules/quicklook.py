@@ -69,7 +69,7 @@ def plot_omc(data, target, filepath=None, interactive=False):
             )
             
         if omc.ymod is not None:
-            rms = mad_std(omc.yobs - omc.ymod[n], ignore_nan=True) * 24 * 60
+            rms = mad_std(omc.yobs - omc.ymod, ignore_nan=True) * 24 * 60
             ax[n].text(
                 0.95,
                 0.10,

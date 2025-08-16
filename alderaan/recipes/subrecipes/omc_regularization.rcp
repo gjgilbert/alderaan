@@ -127,8 +127,8 @@ def run(context, check_periodic=True):
         planets[n].update_ephemeris(new_ephemeris)
         print(f"Planet {n} : {old_ephemeris.period:.6f} --> {new_ephemeris.period:.6f}")
 
-        ttv_scatter[n] = mad_std(p.ephemeris.ttime - p.ephemeris.eval_linear_ephemeris())
-        ttv_buffer[n] = set_sigma_cutoff(len(p.ephemeris.ttime)) * ttv_scatter[n]
+        ttv_scatter[n] = mad_std(omc.yobs - omc.ymod)
+        ttv_buffer[n] = set_sigma_cutoff(len(omc.yobs)) * ttv_scatter[n]
 
 
     # make quicklook plot and return planets
