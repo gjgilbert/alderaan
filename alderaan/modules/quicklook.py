@@ -10,6 +10,7 @@ from dynesty import plotting as dyplot
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 import numpy as np
+
 from alderaan.planet import Planet
 from alderaan.ephemeris import Ephemeris
 from alderaan.modules.omc import OMC

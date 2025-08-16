@@ -37,14 +37,14 @@ def run(context, tight_mask=False):
             abs_size = 2*(exptime + 1/24)
             mask = detrender.make_transit_mask(rel_size=3.0, abs_size=abs_size, mask_type='condensed')
         
-        npts_initial = len(litecurve.time)
+        npts_initial = len(detrender.litecurve.time)
 
         detrender.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=5, mask=mask)
         detrender.clip_outliers(kernel_size=13, sigma_upper=5, sigma_lower=1000, mask=None)
         
         npts_final = len(detrender.litecurve.time)
 
-        print(f"  Quarter {litecurve.visit[0]} : {npts_initial-npts_final} outliers rejected")
+        print(f"  Quarter {detrender.litecurve.visit[0]} : {npts_initial-npts_final} outliers rejected")
 
     # estimate oscillation periods
     oscillation_periods = np.zeros(len(detrenders))
