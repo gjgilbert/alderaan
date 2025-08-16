@@ -3,7 +3,7 @@ import sys
 import warnings
 
 import numpy as np
-from alderaan.modules.transit_model import TTimeTransitModel
+from alderaan.modules.transit import CrossCorrelationTTVModel
 
 def run(context):
     print('\n\nSUBRECIPE: QUICK FIT TRANSIT TIMES\n')
@@ -15,7 +15,7 @@ def run(context):
 
     # fit transit times
     print("Fitting independent transit times")
-    ttvmodel = TTimeTransitModel(litecurve, planets, limbdark)
+    ttvmodel = CrossCorrelationTTVModel(litecurve, planets, limbdark)
 
     for n, p in enumerate(planets):
         print(f"\nPlanet {n} : fitting {np.sum(p.ephemeris.quality)} transit times")
