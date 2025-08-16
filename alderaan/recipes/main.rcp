@@ -33,6 +33,7 @@ def main():
         invoke_subrecipe(context, 'quick_fit_transit_shape.rcp')
         invoke_subrecipe(context, 'quick_fit_transit_times.rcp')
         invoke_subrecipe(context, 'omc_regularization.rcp')
+        #invoke_subrecipe(context, 'sample_transit_model.rcp')
 
     print("\n\n=== exiting main pipeline ===\n\n")
 

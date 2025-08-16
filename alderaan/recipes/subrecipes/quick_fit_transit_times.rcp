@@ -2,19 +2,20 @@ import os
 import sys
 import warnings
 
+from copy import deepcopy
 import numpy as np
-from alderaan.modules.transit import CrossCorrelationTTVModel
+from alderaan.modules.transit import CrossCorrelationTTVModel, TTVTransitModel
 
 def run(context):
     print('\n\nSUBRECIPE: QUICK FIT TRANSIT TIMES\n')
 
     # infer context
+    NPL = context.NPL
     planets = context.planets
     litecurve = context.litecurve
     limbdark = context.limbdark
 
-    # fit transit times
-    print("Fitting independent transit times")
+    # fit transit times using Mazeh+13 / Holczer+16 cross-correlation method
     ttvmodel = CrossCorrelationTTVModel(litecurve, planets, limbdark)
 
     for n, p in enumerate(planets):
@@ -35,6 +36,27 @@ def run(context):
         p.ephemeris.error = ttime_err_new.copy()
         p.ephemeris.quality = ~np.isnan(ttime_new) & ~np.isnan(ttime_err_new)
 
-        planets[n].update_ephemeris(p.ephemeris.interpolate())
+        p.ephemeris = p.ephemeris.interpolate(full=False, reset_quality=False)
+
+    # fit transit times using least squares optimization
+    print("Optimizing independent transit times")
+    old_ephemerides = [None]*NPL
+    for n, p in enumerate(planets):
+        old_ephemerides[n] = deepcopy(p.ephemeris)
+
+    ttvmodel = TTVTransitModel(litecurve, planets, limbdark)
+    theta = ttvmodel.optimize()
+    planets = ttvmodel.update_transit_times(theta)
+
+    # prioritize cross-correlation transit times
+    for n, p in enumerate(planets):
+        old_ephem = old_ephemerides[n]
+        new_ephem = p.ephemeris
+
+        new_ephem.ttime[old_ephem.quality] = old_ephem.ttime[old_ephem.quality]
+        new_ephem.error[old_ephem.quality] = old_ephem.error[old_ephem.quality]
+        new_ephem.quality = np.ones(len(new_ephem.ttime), dtype=bool)
+
+        planets[n] = p.update_ephemeris(new_ephem)
 
     return {'planets': planets}

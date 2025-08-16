@@ -1,6 +1,7 @@
 __all__ = ['TransitModel',
-           'ShapeTransitModel',
-           'TTimeTransitModel',
+           'RBDTransitModel',
+           'TTVTransitModel',
+           'CrossCorrelationTTVModel',
           ]
 
 import os
@@ -141,7 +142,7 @@ class TTVTransitModel(TransitModel):
     def __init__(self, litecurve, planets, limbdark):
         super().__init__(litecurve, planets, limbdark)
 
-        self.num_transits = self._count_transits
+        self.num_transits = self._count_transits()
 
 
     def _count_transits(self):
@@ -165,6 +166,9 @@ class TTVTransitModel(TransitModel):
         tm = transitmodel
         lc = tm.litecurve
 
+        iend = np.cumsum(tm.num_transits)
+        istart = iend - tm.num_transits
+        
         flux_mod = np.ones_like(lc.flux)
 
         for obsmode in tm.unique_obsmodes:
@@ -172,10 +176,7 @@ class TTVTransitModel(TransitModel):
             supersample = tm._supersample_lookup[obsmode]
 
             for n, p in enumerate(tm.planets):
-                iend = np.cumsum(tm.num_transits)
-                istart = iend - tm.num_transits
-
-                ttvs = np.array(theta[istart:iend])
+                ttvs = np.array(theta[istart[n]:iend[n]])
 
                 tm._update_bins(ttvs)
                 tm._update_warps()
@@ -206,6 +207,136 @@ class TTVTransitModel(TransitModel):
                 flux_mod[lc.obsmode == obsmode] += qld_flux - 1.0
                 
         return flux_mod      
+
+
+    @staticmethod
+    def model_residuals(theta, transitmodel):
+        flux_mod = transitmodel.model_flux(theta, transitmodel)
+        flux_obs = transitmodel.litecurve.flux
+        flux_err = transitmodel.litecurve.error
+
+        return (flux_obs - flux_mod) / flux_err
+
+
+    @staticmethod
+    def ln_likelihood(theta, transitmodel):
+        tm = transitmodel
+        lnlike = -0.5 * np.sum(tm.model_residuals(theta, tm)**2)
+               
+        if not np.isfinite(lnlike):
+            return -1e300
+        
+        return lnlike
+
+
+    @staticmethod
+    def prior_transform(uniform_hypercube, transitmodel):
+        """
+        Docstring
+        """
+        tm = transitmodel
+
+        u = np.array(uniform_hypercube)  # U(0,1) priors
+        x = np.zeros_like(u)             # physical priors
+
+        iend = np.cumsum(tm.num_transits)
+        istart = iend - tm.num_transits
+
+        for n in range(tm.npl):
+            x[istart[n]:iend[n]] = uniform_ppf(u[istart[n]:iend[n]], -tm.durs[n], tm.durs[n])
+
+        return x
+
+
+    def sample(self, checkpoint_file=None, checkpoint_every=60, progress_every=10):
+        ndim = np.sum(self.num_transits)
+        sampler = dynesty.DynamicNestedSampler(
+            self.ln_likelihood, 
+            self.prior_transform,
+            ndim,
+            bound='multi',
+            sample='rwalk',
+            logl_args=(self,),
+            ptform_args=(self,),
+        )
+        sampler.run_nested(
+            checkpoint_file=checkpoint_file,
+            checkpoint_every=checkpoint_every,
+            print_progress=True,
+            print_func=self.throttled_print_fn(progress_every),
+        )
+
+
+    def optimize(self, niter=1):
+        theta_initial = self._theta_initial()
+        theta_final = theta_initial.copy()
+        bounds = self._theta_bounds()
+
+        def _fxn(x, x0, fix, self):
+            _x = x0.copy()
+            _x[~fix] = x
+            return self.model_residuals(_x, self)
+        
+        iend = np.cumsum(self.num_transits)
+        istart = iend - self.num_transits
+
+        fix_transit_times = [None]* (1 + self.npl)
+        for n in range(self.npl):
+            fix_transit_times[n] = np.ones(len(theta_final), dtype=bool)
+            fix_transit_times[n][istart[n]:iend[n]] = False
+        
+        fix_transit_times[self.npl] = np.zeros(len(theta_final), dtype=bool)
+
+        for i, fix in enumerate(fix_transit_times * niter):
+            if i < self.npl:
+                print(f"optimizing logp for planet {i % self.npl}")
+            else:
+                print(f"optimizing logp for all planets")
+
+            logp_initial = self.ln_likelihood(theta_final, self).copy()
+
+            result = least_squares(
+                _fxn,
+                theta_final[~fix], 
+                method='trf',
+                bounds=bounds[~fix,:].T,
+                args=[theta_final, fix, self],
+            )
+
+            theta_final[~fix] = result.x.copy()
+            logp_final = self.ln_likelihood(theta_final, self).copy()
+
+            print(f"logp: {logp_initial} -> {logp_final}")
+            print(f"message: {result['message']}")
+
+        return theta_final
+
+
+    def _theta_initial(self):
+        return np.zeros(np.sum(self.num_transits), dtype=float)
+    
+
+    def _theta_bounds(self):
+        bounds = np.zeros((np.sum(self.num_transits),2))
+
+        iend = np.cumsum(self.num_transits)
+        istart = iend - self.num_transits
+
+        for n in range(self.npl):
+            bounds[istart[n]:iend[n]] = (-self.durs[n],self.durs[n])
+
+        return bounds
+
+
+    def update_transit_times(self, theta):
+        iend = np.cumsum(self.num_transits)
+        istart = iend - self.num_transits
+        
+        for n, p in enumerate(self.planets):
+            p.ephemeris.ttime += theta[istart[n]:iend[n]]
+            self.planets[n] = p.update_ephemeris(p.ephemeris)
+
+        return self.planets
 
 
 class RBDTransitModel(TransitModel):
@@ -281,10 +412,8 @@ class RBDTransitModel(TransitModel):
     
     @staticmethod
     def ln_likelihood(theta, transitmodel):
-        # shorthand
+        # calculate likelihood
         tm = transitmodel
-
-        # likelihood
         lnlike = -0.5 * np.sum(tm.model_residuals(theta, tm)**2)
                
         # enforce prior on limb darkening
@@ -297,8 +426,9 @@ class RBDTransitModel(TransitModel):
         
         return lnlike
     
+    
     @staticmethod
-    def prior_transform(uniform_hypercube, fixed_durations):
+    def prior_transform(uniform_hypercube, transitmodel):
         """
         Prior transform over physical ALDERAAN basis {C0, C1, r, b, T14}...{q1,q2}
 
@@ -329,18 +459,18 @@ class RBDTransitModel(TransitModel):
             transformed_hypercube : array_like, length 5 * N + 2
                 transformed samples
         """
-        npl = len(fixed_durations)
-
+        tm = transitmodel
+        
         u = np.array(uniform_hypercube)  # U(0,1) priors
         x = np.zeros_like(u)             # physical priors
 
         # 5 * npl + 2 parameters: [C0, C1, r, b, T14]...[q1, q2]
-        for n in range(npl):
+        for n in range(tm.npl):
             x[5 * n + 0] = norm_ppf(u[0 + n * 5], 0.0, 0.1)
             x[5 * n + 1] = norm_ppf(u[1 + n * 5], 0.0, 0.1)
             x[5 * n + 2] = loguniform_ppf(u[2 + n * 5], 1e-5, 0.99)
             x[5 * n + 3] = uniform_ppf(u[3 + n * 5], 0.0, 1 + x[5 * n + 2])
-            x[5 * n + 4] = loguniform_ppf(u[4 + n * 5], 0.01*fixed_durations[n], 3 * fixed_durations[n])
+            x[5 * n + 4] = loguniform_ppf(u[4 + n * 5], 0.01*tm.durs[n], 3 * fixed_durations[n])
 
         # limb darkening coefficients (see Kipping 2013)
         x[-2] = uniform_ppf(u[-2], 0, 1)
@@ -357,13 +487,13 @@ class RBDTransitModel(TransitModel):
             bound='multi',
             sample='rwalk',
             logl_args=(self,),
-            ptform_args=(self.durs,),
+            ptform_args=(self,),
         )
         sampler.run_nested(
             checkpoint_file=checkpoint_file,
             checkpoint_every=checkpoint_every,
             print_progress=True,
-            print_func=throttled_print_fn(progress_every),
+            print_func=self.throttled_print_fn(progress_every),
         )
         
         return sampler.results
@@ -409,7 +539,7 @@ class RBDTransitModel(TransitModel):
                 theta_final[~fix], 
                 method='trf',
                 bounds=bounds[~fix,:].T,
-                args=[theta_initial, fix, self],
+                args=[theta_final, fix, self],
             )
 
             theta_final[~fix] = result.x.copy()
