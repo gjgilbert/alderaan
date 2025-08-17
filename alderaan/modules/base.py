@@ -133,7 +133,7 @@ class BaseAlg():
          * standard : bool, shape (n_planet, n_cadence), True near transits
          * condensed : bool, shape (n_cadence), True near transit
          * count : int, shape (n_cadence), value is number of planets near transit
-         * overlap : bool, shanpe (n_cadnece), True if multiple planets are near transit
+         * overlap : bool, shanpe (n_cadence), True if multiple planets are near transit
         """
         if (rel_size is None) & (abs_size is None):
             raise ValueError("either rel_size or abs_size must be provided")

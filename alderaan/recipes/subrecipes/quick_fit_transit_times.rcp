@@ -32,14 +32,14 @@ def run(context):
 
         print(f"Planet {n} : {_nfit} of {_ntot} transit times ({_nfit / _ntot * 100:.1f}%) fit successfully")
         
-        p.ephemeris.ttime = ttime_new.copy()
-        p.ephemeris.error = ttime_err_new.copy()
-        p.ephemeris.quality = ~np.isnan(ttime_new) & ~np.isnan(ttime_err_new)
-
-        p.ephemeris = p.ephemeris.interpolate(full=False, reset_quality=False)
+        q = ~np.isnan(ttime_new) & ~np.isnan(ttime_err_new)
+        p.ephemeris.ttime[q] = ttime_new[q]
+        p.ephemeris.error[q] = ttime_err_new[q]
+        planets[n] = p.update_ephemeris(p.ephemeris)
+        #p.ephemeris = p.ephemeris.interpolate(full=False, reset_quality=False)
 
     # fit transit times using least squares optimization
-    print("Optimizing independent transit times")
+    print("\nOptimizing independent transit times")
     old_ephemerides = [None]*NPL
     for n, p in enumerate(planets):
         old_ephemerides[n] = deepcopy(p.ephemeris)

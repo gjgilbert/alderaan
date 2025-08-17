@@ -266,10 +266,11 @@ class TTVTransitModel(TransitModel):
             print_func=self.throttled_print_fn(progress_every),
         )
 
+        return sampler.results
+
 
     def optimize(self, niter=1):
-        theta_initial = self._theta_initial()
-        theta_final = theta_initial.copy()
+        theta = self._theta_initial()
         bounds = self._theta_bounds()
 
         def _fxn(x, x0, fix, self):
@@ -277,39 +278,35 @@ class TTVTransitModel(TransitModel):
             _x[~fix] = x
             return self.model_residuals(_x, self)
         
-        iend = np.cumsum(self.num_transits)
-        istart = iend - self.num_transits
+        for i in range(np.sum(self.num_transits)):
+            print(f"optimizing transit {i} of {len(theta)}")
 
-        fix_transit_times = [None]* (1 + self.npl)
-        for n in range(self.npl):
-            fix_transit_times[n] = np.ones(len(theta_final), dtype=bool)
-            fix_transit_times[n][istart[n]:iend[n]] = False
-        
-        fix_transit_times[self.npl] = np.zeros(len(theta_final), dtype=bool)
+            logp_initial = self.ln_likelihood(theta, self).copy()
 
-        for i, fix in enumerate(fix_transit_times * niter):
-            if i < self.npl:
-                print(f"optimizing logp for planet {i % self.npl}")
-            else:
-                print(f"optimizing logp for all planets")
+            fix = np.ones(len(theta), dtype=bool)
+            fix[i] = False
 
-            logp_initial = self.ln_likelihood(theta_final, self).copy()
+            _theta_free = theta[~fix].copy()
+            _theta_copy = theta.copy()
+            _theta_bounds = (bounds[~fix, 0], bounds[~fix, 1])
 
             result = least_squares(
                 _fxn,
-                theta_final[~fix], 
+                _theta_free, 
                 method='trf',
-                bounds=bounds[~fix,:].T,
-                args=[theta_final, fix, self],
+                bounds=_theta_bounds,
+                args=(_theta_copy, fix, self),
             )
 
-            theta_final[~fix] = result.x.copy()
-            logp_final = self.ln_likelihood(theta_final, self).copy()
+            theta[~fix] = result.x.copy()
+            logp_final = self.ln_likelihood(theta, self).copy()
 
             print(f"logp: {logp_initial} -> {logp_final}")
             print(f"message: {result['message']}")
 
-        return theta_final
+            result = None
+
+        return theta
 
 
     def _theta_initial(self):
