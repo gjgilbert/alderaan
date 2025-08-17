@@ -32,6 +32,20 @@ class TransitModel(BaseAlg):
         self._init_time_warping()
 
 
+    def trim_flux_arrays(self, rel_size=None, abs_size=None):
+        lc = self.litecurve
+        mask = self.make_transit_mask(rel_size=rel_size, abs_size=abs_size, mask_type='condensed')
+
+        for k in lc.__dict__.keys():
+            if type(lc.__dict__[k]) is np.ndarray:
+                lc.__setattr__(k, lc.__dict__[k][mask])
+
+        self._set_bins()
+        self._set_warps()
+
+        return self
+
+
     def _init_time_warping(self):
         """
         This function initializes warped time arrays
@@ -497,7 +511,7 @@ class RBDTransitModel(TransitModel):
     
 
     def optimize(self, fix_limbdark=True, niter=3):
-        theta_initial = self._theta_initial()
+        theta = self._theta_initial()
         bounds = self._theta_bounds()
 
         def _fxn(x, x0, fix, self):
@@ -505,7 +519,7 @@ class RBDTransitModel(TransitModel):
             _x[~fix] = x
             return self.model_residuals(_x, self)
         
-        i_fix = np.arange(len(theta_initial), dtype=int)
+        i_fix = np.arange(len(theta), dtype=int)
         var_names = np.array('C0 C1 r b T14'.split())
 
         # fix ephemeris, vary [r, b, T14]
@@ -524,28 +538,26 @@ class RBDTransitModel(TransitModel):
         fix_r_b_T14[-2:] = fix_limbdark
 
         # do the optimization
-        theta_final = theta_initial.copy()
-
         for fix in [fix_r_b_T14, fix_C0_C1] * niter:
             print(f"optimizing logp for variables: [{', '.join(var_names[~fix[:5]])}]")
 
-            logp_initial = self.ln_likelihood(theta_final, self).copy()
+            logp_initial = self.ln_likelihood(theta, self).copy()
 
             result = least_squares(
                 _fxn,
-                theta_final[~fix], 
+                theta[~fix], 
                 method='trf',
                 bounds=bounds[~fix,:].T,
-                args=[theta_final, fix, self],
+                args=[theta, fix, self],
             )
 
-            theta_final[~fix] = result.x.copy()
-            logp_final = self.ln_likelihood(theta_final, self).copy()
+            theta[~fix] = result.x.copy()
+            logp_final = self.ln_likelihood(theta, self).copy()
 
             print(f"logp: {logp_initial} -> {logp_final}")
             print(f"message: {result['message']}")
 
-        return theta_final
+        return theta
 
 
     def _theta_initial(self):
