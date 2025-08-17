@@ -2,7 +2,7 @@ import os
 import sys
 import warnings
 
-from alderaan.modules.transit_model import ShapeTransitModel
+from alderaan.modules.transit import RBDTransitModel
 
 def run(context):
     print('\n\nSUBRECIPE: QUICK FIT TRANSIT SHAPE\n')
@@ -13,7 +13,8 @@ def run(context):
     limbdark = context.limbdark
 
     # optimize transit parameters
-    transitmodel = ShapeTransitModel(litecurve, planets, limbdark)
+    transitmodel = RBDTransitModel(litecurve, planets, limbdark)
+    transitmodel = transitmodel.trim_flux_arrays(rel_size=3.0, abs_size=1/24)
 
     print("Supersample factor")
     for obsmode in transitmodel.unique_obsmodes:
@@ -25,7 +26,6 @@ def run(context):
     limbdark = transitmodel.update_limbdark_parameters(theta)
 
     return {'planets': planets,
-            'litecurve': litecurve,
             'limbdark': limbdark
             }
 
