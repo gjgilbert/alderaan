@@ -5,6 +5,7 @@ import warnings
 import numpy as np
 from alderaan.modules.transit import RBDTransitModel
 from alderaan.modules.quicklook import dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
+from alderaan.utils.io import save_dynesty_results
 
 def run(context):
     print('\n\nSUBRECIPE: SAMPLE TRANSIT MODEL\n')
@@ -14,7 +15,7 @@ def run(context):
     litecurve = context.litecurve
     limbdark = context.limbdark
 
-    koi_id = context.koi_id
+    target = context.target
     quicklook_dir = context.quicklook_dir
 
     # fit transit times
@@ -23,14 +24,22 @@ def run(context):
     results = transitmodel.sample(progress_every=10)
 
     # make quickook plots
-    _filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_runplot.png')
-    fig, ax = dynesty_runplot(results, koi_id, filepath=_filepath)
+    _filepath = os.path.join(quicklook_dir, f'{target}_dynesty_runplot.png')
+    fig, ax = dynesty_runplot(results, target, filepath=_filepath)
 
     for n, p in enumerate(transitmodel.planets):
-        _filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_traceplot_{n:02d}.png')
-        fig, ax = dynesty_traceplot(results, koi_id, n, filepath=_filepath)
+        _filepath = os.path.join(quicklook_dir, f'{target}_dynesty_traceplot_{n:02d}.png')
+        fig, ax = dynesty_traceplot(results, target, n, filepath=_filepath)
 
-        _filepath=os.path.join(quicklook_dir, f'{koi_id}_dynesty_cornerplot_{n:02d}.png')
-        fig, ax = dynesty_cornerplot(results, koi_id, n, filepath=_filepath)
+        _filepath=os.path.join(quicklook_dir, f'{target}_dynesty_cornerplot_{n:02d}.png')
+        fig, ax = dynesty_cornerplot(results, target, n, filepath=_filepath)
 
+    save_dynesty_results(
+        context.output_dir, 
+        results, 
+        context.mission, 
+        context.target, 
+        context.run_id
+    )
+    
     return {'results': results}

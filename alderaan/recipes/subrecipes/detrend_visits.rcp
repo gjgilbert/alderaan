@@ -10,6 +10,7 @@ from alderaan.constants import kepler_lcit, kepler_scit
 from alderaan.litecurve import LiteCurve
 from alderaan.modules.detrend import GaussianProcessDetrender
 from alderaan.modules.quicklook import plot_litecurve
+from alderaan.utils.io import save_detrended_litecurve
 
 
 def run(context, tight_mask=False, clip_outliers=True):
@@ -139,6 +140,9 @@ def run(context, tight_mask=False, clip_outliers=True):
 
     # recombine litecurves, make quicklook plot, and return detrended litecurve
     litecurve = LiteCurve().from_list(litecurves)
+    
+    _filepath = os.path.join(context.results_dir, f"{target}_litecurve_detrended.fits")
+    save_detrended_litecurve(_filepath, litecurve, target)
 
     _filepath = os.path.join(context.quicklook_dir, f"{target}_litecurve_detrended.png")
     _ = plot_litecurve(litecurve, target, planets, _filepath)
