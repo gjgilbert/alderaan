@@ -4,7 +4,7 @@ import warnings
 
 from copy import deepcopy
 import numpy as np
-from alderaan.modules.transit import CrossCorrelationTTVModel, IndependentTTVModel
+from alderaan.modules.transit import CrossCorrelationTTVFitter, OptimizationTTVFitter
 from alderaan.utils.astro import predict_tc_error
 
 def run(context):
@@ -18,7 +18,7 @@ def run(context):
 
     # fit transit times using Mazeh+13 / Holczer+16 cross-correlation method
     print("\Applying cross-correlation method")
-    ttvmodel = CrossCorrelationTTVModel(litecurve, planets, limbdark)
+    ttvmodel = CrossCorrelationTTVFitter(litecurve, planets, limbdark)
     ttime_cc = [None]*NPL
     error_cc = [None]*NPL
 
@@ -44,7 +44,7 @@ def run(context):
 
     # fit transit times using least squares optimization
     print("\nOptimizing independent transit times")
-    ttvmodel = IndependentTTVModel(litecurve, planets, limbdark)
+    ttvmodel = OptimizationTTVFitter(litecurve, planets, limbdark)
     ttime_opt = [None]*NPL
 
     for n, p in enumerate(planets):

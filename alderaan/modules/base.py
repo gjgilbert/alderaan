@@ -1,5 +1,6 @@
 __all__ = ['BaseAlg']
 
+from copy import deepcopy
 import numpy as np
 from alderaan.constants import kepler_lcit, kepler_scit
 from alderaan.litecurve import LiteCurve
@@ -25,9 +26,9 @@ class BaseAlg():
                 raise TypeError("planets must be a list of Planets")
 
         # set attributes
-        self.litecurve = litecurve
+        self.litecurve = deepcopy(litecurve)
         self.npl = len(planets)
-        self.planets = planets
+        self.planets = deepcopy(planets)
 
         self.periods = np.zeros(self.npl, dtype=float)
         self.depths = np.zeros(self.npl, dtype=float)

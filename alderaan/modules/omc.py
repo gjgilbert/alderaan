@@ -5,6 +5,7 @@ from astropy.stats import mad_std
 from astropy.timeseries import LombScargle
 from celerite2.theano import terms as GPterms
 from celerite2.theano import GaussianProcess
+from copy import deepcopy
 import numpy as np
 import pymc3 as pm
 import pymc3_ext as pmx
@@ -21,10 +22,12 @@ from alderaan.constants import pi
 class OMC:
     def __init__(self, ephemeris):
         # set initial O-C estimates
-        self.index = ephemeris.index
-        self.xtime = ephemeris.ttime
-        self.yobs = ephemeris.ttime - ephemeris.eval_linear_ephemeris()
-        self.yerr = ephemeris.error
+        _ephemeris = deepcopy(ephemeris)
+
+        self.index = _ephemeris.index
+        self.xtime = _ephemeris.ttime
+        self.yobs = _ephemeris.ttime - _ephemeris.eval_linear_ephemeris()
+        self.yerr = _ephemeris.error
         self.ymod = None
 
         # flag outliers
@@ -32,7 +35,7 @@ class OMC:
         self.out_prob = None
 
         # set static reference period, epoch, and linear ephemeris
-        self._set_static_references(ephemeris)
+        self._set_static_references(_ephemeris)
 
         # set nominal peak frequency and false alarm probability
         self.peakfreq = None
