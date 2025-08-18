@@ -1,6 +1,7 @@
 __all__ = ['TransitModel',
            'RBDTransitModel',
-           'TTVTransitModel',
+           'IndependentTTVModel',
+           'SimultanousTTVModel',
            'CrossCorrelationTTVModel',
           ]
 
@@ -150,204 +151,6 @@ class TransitModel(BaseAlg):
                 last[0] = now
 
         return callback
-
-
-class TTVTransitModel(TransitModel):
-    def __init__(self, litecurve, planets, limbdark):
-        super().__init__(litecurve, planets, limbdark)
-
-        self.num_transits = self._count_transits()
-
-
-    def _count_transits(self):
-        self.num_transits = np.zeros(self.npl,dtype=int)
-        for n, p in enumerate(self.planets):
-            self.num_transits[n] = len(p.ephemeris.ttime)
-        return self.num_transits
-
-    
-    @staticmethod
-    def model_flux(theta, transitmodel):
-        """
-        theta : array-like
-            ttvs
-        transitmodel : TransitModel
-            instance of TransitModel, typically self
-
-        Priors on planet ttvs are enforced outside this function
-        Assumes TTVs are small relative to period
-        """
-        tm = transitmodel
-        lc = tm.litecurve
-
-        iend = np.cumsum(tm.num_transits)
-        istart = iend - tm.num_transits
-        
-        flux_mod = np.ones_like(lc.flux)
-
-        for obsmode in tm.unique_obsmodes:
-            exptime_ioff = tm._exptime_integration_offset_lookup[obsmode]
-            supersample = tm._supersample_lookup[obsmode]
-
-            for n, p in enumerate(tm.planets):
-                ttvs = np.array(theta[istart[n]:iend[n]])
-
-                tm._update_bins(ttvs)
-                tm._update_warps()
-
-                _t = tm._warped_time[n][lc.obsmode == obsmode]
-                _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).flatten()
-
-                nthreads = 1
-                ds = _rsky._rsky(
-                    _t_supersample,
-                    0.0,
-                    p.period,
-                    p.ror,
-                    p.impact,
-                    p.duration,
-                    1,
-                    nthreads,
-                )
-
-                qld_flux = _quadratic_ld._quadratic_ld(
-                    ds, np.abs(p.ror), tm.limbdark[0], tm.limbdark[1], nthreads
-                )
-
-                qld_flux = np.mean(
-                    qld_flux.reshape(-1, supersample), axis=1
-                )
-
-                flux_mod[lc.obsmode == obsmode] += qld_flux - 1.0
-                
-        return flux_mod      
-
-
-    @staticmethod
-    def model_residuals(theta, transitmodel):
-        flux_mod = transitmodel.model_flux(theta, transitmodel)
-        flux_obs = transitmodel.litecurve.flux
-        flux_err = transitmodel.litecurve.error
-
-        return (flux_obs - flux_mod) / flux_err
-
-
-    @staticmethod
-    def ln_likelihood(theta, transitmodel):
-        tm = transitmodel
-        lnlike = -0.5 * np.sum(tm.model_residuals(theta, tm)**2)
-               
-        if not np.isfinite(lnlike):
-            return -1e300
-        
-        return lnlike
-
-
-    @staticmethod
-    def prior_transform(uniform_hypercube, transitmodel):
-        """
-        Docstring
-        """
-        tm = transitmodel
-
-        u = np.array(uniform_hypercube)  # U(0,1) priors
-        x = np.zeros_like(u)             # physical priors
-
-        iend = np.cumsum(tm.num_transits)
-        istart = iend - tm.num_transits
-
-        for n in range(tm.npl):
-            x[istart[n]:iend[n]] = uniform_ppf(u[istart[n]:iend[n]], -tm.durs[n], tm.durs[n])
-
-        return x
-
-
-    def sample(self, checkpoint_file=None, checkpoint_every=60, progress_every=10):
-        ndim = np.sum(self.num_transits)
-        sampler = dynesty.DynamicNestedSampler(
-            self.ln_likelihood, 
-            self.prior_transform,
-            ndim,
-            bound='multi',
-            sample='rwalk',
-            logl_args=(self,),
-            ptform_args=(self,),
-        )
-        sampler.run_nested(
-            checkpoint_file=checkpoint_file,
-            checkpoint_every=checkpoint_every,
-            print_progress=True,
-            print_func=self.throttled_print_fn(progress_every),
-        )
-
-        return sampler.results
-
-
-    def optimize(self, niter=1):
-        theta = self._theta_initial()
-        bounds = self._theta_bounds()
-
-        def _fxn(x, x0, fix, self):
-            _x = x0.copy()
-            _x[~fix] = x
-            return self.model_residuals(_x, self)
-        
-        for i in range(np.sum(self.num_transits)):
-            print(f"optimizing transit {i} of {len(theta)}")
-
-            logp_initial = self.ln_likelihood(theta, self).copy()
-
-            fix = np.ones(len(theta), dtype=bool)
-            fix[i] = False
-
-            _theta_free = theta[~fix].copy()
-            _theta_copy = theta.copy()
-            _theta_bounds = (bounds[~fix, 0], bounds[~fix, 1])
-
-            result = least_squares(
-                _fxn,
-                _theta_free, 
-                method='trf',
-                bounds=_theta_bounds,
-                args=(_theta_copy, fix, self),
-            )
-
-            theta[~fix] = result.x.copy()
-            logp_final = self.ln_likelihood(theta, self).copy()
-
-            print(f"logp: {logp_initial} -> {logp_final}")
-            print(f"message: {result['message']}")
-
-            result = None
-
-        return theta
-
-
-    def _theta_initial(self):
-        return np.zeros(np.sum(self.num_transits), dtype=float)
-    
-
-    def _theta_bounds(self):
-        bounds = np.zeros((np.sum(self.num_transits),2))
-
-        iend = np.cumsum(self.num_transits)
-        istart = iend - self.num_transits
-
-        for n in range(self.npl):
-            bounds[istart[n]:iend[n]] = (-self.durs[n],self.durs[n])
-
-        return bounds
-
-
-    def update_transit_times(self, theta):
-        iend = np.cumsum(self.num_transits)
-        istart = iend - self.num_transits
-        
-        for n, p in enumerate(self.planets):
-            p.ephemeris.ttime += theta[istart[n]:iend[n]]
-            self.planets[n] = p.update_ephemeris(p.ephemeris)
-
-        return self.planets
 
 
 class RBDTransitModel(TransitModel):
@@ -613,6 +416,322 @@ class RBDTransitModel(TransitModel):
 
         return self.limbdark
     
+
+class IndependentTTVModel(TransitModel):
+    def __init__(self, litecurve, planets, limbdark):
+        super().__init__(litecurve, planets, limbdark)
+
+
+    def optimize(self, planet_no, relative_window_size=3.0):
+        lc = self.litecurve
+        overlap = self.identify_overlapping_transits(rtol=1.0, atol=1/24)[planet_no]
+        obsmode = self.transit_obsmode[planet_no]
+
+        ttime_old = self.planets[planet_no].ephemeris.ttime.copy()
+        ttime_new = np.zeros_like(ttime_old)
+
+        for i, tc in enumerate(ttime_old):
+            print(f"  {i}, tc = {np.round(tc,1)}")
+
+            if not overlap[i]:
+                transit_window_size = relative_window_size*self.durs[planet_no]
+            else:
+                transit_window_size = relative_window_size*(self.durs[planet_no] + np.max(self.durs))
+                transit_window_size = np.min([transit_window_size, 0.5*self.periods[planet_no]])
+
+            theta = np.zeros(self.npl, dtype=float)
+            fix = np.zeros(self.npl, dtype=bool)
+
+            for n, p in enumerate(self.planets):
+                theta[n] = p.ephemeris.ttime[np.argmin(np.abs(p.ephemeris.ttime - tc))]
+                
+                if np.abs(theta[n] - tc) > transit_window_size / 2:
+                    fix[n] = True
+
+            
+            use = np.abs(lc.time - tc) < transit_window_size / 2
+            t_obs = lc.time[use]
+            f_obs = lc.flux[use]
+            f_err = lc.error[use]
+
+            print(f"optimizing logp for transit {i} (tc = {np.round(tc,1)})")
+
+            logp_initial = self.ln_likelihood(theta, self, obsmode[i], t_obs, f_obs, f_err).copy()
+
+            def _fxn(x, x0, fix, self, obsmode, t_obs, f_obs, f_err):
+                _x = x0.copy()
+                _x[~fix] = x
+                return self.model_residuals(_x, self, obsmode, t_obs, f_obs, f_err)
+            
+            result = least_squares(
+                    _fxn,
+                    theta[~fix], 
+                    method='trf',
+                    args=(theta, fix, self, obsmode[i], t_obs, f_obs, f_err,),
+                )
+
+            theta[~fix] = result.x.copy()
+            ttime_new[i] = theta[planet_no].copy()
+            logp_final = self.ln_likelihood(theta, self, obsmode[i], t_obs, f_obs, f_err).copy()
+
+            print(f"logp: {logp_initial} -> {logp_final}")
+            print(f"message: {result['message']}")
+
+        return ttime_new
+
+
+    @staticmethod
+    def ln_likelihood(theta, transitmodel, obsmode, t_obs, f_obs, f_err):
+        res = transitmodel.model_residuals(theta, transitmodel, obsmode, t_obs, f_obs, f_err)
+        lnlike = -0.5 * np.sum(res**2)
+               
+        if not np.isfinite(lnlike):
+            return -1e300
+        
+        return lnlike
+    
+    
+    @staticmethod
+    def model_residuals(theta, transitmodel, obsmode, t_obs, f_obs, f_err):
+        f_mod = transitmodel.model_flux(theta, transitmodel, obsmode, t_obs)
+        return (f_obs - f_mod) / f_err
+    
+    
+    @staticmethod
+    def model_flux(theta, transitmodel, obsmode, t_obs):
+        tm = transitmodel
+
+        exptime_ioff = tm._exptime_integration_offset_lookup[obsmode]
+        supersample = tm._supersample_lookup[obsmode]
+
+        _t_supersample = (exptime_ioff + t_obs.reshape(t_obs.size, 1)).flatten()
+
+        f_mod = np.ones_like(t_obs)
+
+        for n, p in enumerate(tm.planets):
+            
+            nthreads = 1
+            ds = _rsky._rsky(
+                _t_supersample,
+                theta[n],
+                p.period,
+                p.ror,
+                p.impact,
+                p.duration,
+                1,
+                nthreads,
+            )
+
+            qld_flux = _quadratic_ld._quadratic_ld(
+                ds, np.abs(p.ror), tm.limbdark[0], tm.limbdark[1], nthreads
+            )
+
+            qld_flux = np.mean(
+                qld_flux.reshape(-1, supersample), axis=1
+            )
+
+            f_mod += qld_flux - 1.0
+
+        return f_mod
+
+
+class SimultaneousTTVModel(TransitModel):
+    def __init__(self, litecurve, planets, limbdark):
+        super().__init__(litecurve, planets, limbdark)
+
+        self.num_transits = self._count_transits()
+
+
+    def _count_transits(self):
+        self.num_transits = np.zeros(self.npl,dtype=int)
+        for n, p in enumerate(self.planets):
+            self.num_transits[n] = len(p.ephemeris.ttime)
+        return self.num_transits
+
+    
+    @staticmethod
+    def model_flux(theta, transitmodel):
+        """
+        theta : array-like
+            ttvs
+        transitmodel : TransitModel
+            instance of TransitModel, typically self
+
+        Priors on planet ttvs are enforced outside this function
+        Assumes TTVs are small relative to period
+        """
+        tm = transitmodel
+        lc = tm.litecurve
+
+        iend = np.cumsum(tm.num_transits)
+        istart = iend - tm.num_transits
+        
+        flux_mod = np.ones_like(lc.flux)
+
+        for obsmode in tm.unique_obsmodes:
+            exptime_ioff = tm._exptime_integration_offset_lookup[obsmode]
+            supersample = tm._supersample_lookup[obsmode]
+
+            for n, p in enumerate(tm.planets):
+                ttvs = np.array(theta[istart[n]:iend[n]])
+
+                tm._update_bins(ttvs)
+                tm._update_warps()
+
+                _t = tm._warped_time[n][lc.obsmode == obsmode]
+                _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).flatten()
+
+                nthreads = 1
+                ds = _rsky._rsky(
+                    _t_supersample,
+                    0.0,
+                    p.period,
+                    p.ror,
+                    p.impact,
+                    p.duration,
+                    1,
+                    nthreads,
+                )
+
+                qld_flux = _quadratic_ld._quadratic_ld(
+                    ds, np.abs(p.ror), tm.limbdark[0], tm.limbdark[1], nthreads
+                )
+
+                qld_flux = np.mean(
+                    qld_flux.reshape(-1, supersample), axis=1
+                )
+
+                flux_mod[lc.obsmode == obsmode] += qld_flux - 1.0
+                
+        return flux_mod      
+
+
+    @staticmethod
+    def model_residuals(theta, transitmodel):
+        flux_mod = transitmodel.model_flux(theta, transitmodel)
+        flux_obs = transitmodel.litecurve.flux
+        flux_err = transitmodel.litecurve.error
+
+        return (flux_obs - flux_mod) / flux_err
+
+
+    @staticmethod
+    def ln_likelihood(theta, transitmodel):
+        tm = transitmodel
+        lnlike = -0.5 * np.sum(tm.model_residuals(theta, tm)**2)
+               
+        if not np.isfinite(lnlike):
+            return -1e300
+        
+        return lnlike
+
+
+    @staticmethod
+    def prior_transform(uniform_hypercube, transitmodel):
+        """
+        Docstring
+        """
+        tm = transitmodel
+
+        u = np.array(uniform_hypercube)  # U(0,1) priors
+        x = np.zeros_like(u)             # physical priors
+
+        iend = np.cumsum(tm.num_transits)
+        istart = iend - tm.num_transits
+
+        for n in range(tm.npl):
+            x[istart[n]:iend[n]] = uniform_ppf(u[istart[n]:iend[n]], -tm.durs[n], tm.durs[n])
+
+        return x
+
+
+    def sample(self, checkpoint_file=None, checkpoint_every=60, progress_every=10):
+        ndim = np.sum(self.num_transits)
+        sampler = dynesty.DynamicNestedSampler(
+            self.ln_likelihood, 
+            self.prior_transform,
+            ndim,
+            bound='multi',
+            sample='rwalk',
+            logl_args=(self,),
+            ptform_args=(self,),
+        )
+        sampler.run_nested(
+            checkpoint_file=checkpoint_file,
+            checkpoint_every=checkpoint_every,
+            print_progress=True,
+            print_func=self.throttled_print_fn(progress_every),
+        )
+
+        return sampler.results
+
+
+    def optimize(self, niter=1):
+        theta = self._theta_initial()
+        bounds = self._theta_bounds()
+
+        def _fxn(x, x0, fix, self):
+            _x = x0.copy()
+            _x[~fix] = x
+            return self.model_residuals(_x, self)
+        
+        for i in range(np.sum(self.num_transits)):
+            print(f"optimizing transit {i} of {len(theta)}")
+
+            logp_initial = self.ln_likelihood(theta, self).copy()
+
+            fix = np.ones(len(theta), dtype=bool)
+            fix[i] = False
+
+            _theta_free = theta[~fix].copy()
+            _theta_copy = theta.copy()
+            _theta_bounds = (bounds[~fix, 0], bounds[~fix, 1])
+
+            result = least_squares(
+                _fxn,
+                _theta_free, 
+                method='trf',
+                bounds=_theta_bounds,
+                args=(_theta_copy, fix, self),
+            )
+
+            theta[~fix] = result.x.copy()
+            logp_final = self.ln_likelihood(theta, self).copy()
+
+            print(f"logp: {logp_initial} -> {logp_final}")
+            print(f"message: {result['message']}")
+
+            result = None
+
+        return theta
+
+
+    def _theta_initial(self):
+        return np.zeros(np.sum(self.num_transits), dtype=float)
+    
+
+    def _theta_bounds(self):
+        bounds = np.zeros((np.sum(self.num_transits),2))
+
+        iend = np.cumsum(self.num_transits)
+        istart = iend - self.num_transits
+
+        for n in range(self.npl):
+            bounds[istart[n]:iend[n]] = (-self.durs[n],self.durs[n])
+
+        return bounds
+
+
+    def update_transit_times(self, theta):
+        iend = np.cumsum(self.num_transits)
+        istart = iend - self.num_transits
+        
+        for n, p in enumerate(self.planets):
+            p.ephemeris.ttime += theta[istart[n]:iend[n]]
+            self.planets[n] = p.update_ephemeris(p.ephemeris)
+
+        return self.planets
+
 
 class CrossCorrelationTTVModel(BaseAlg):
     def __init__(self, litecurve, planets, limbdark):

@@ -1,5 +1,6 @@
 __all__ = ['bin_data',
            'estimate_transit_depth',
+           'predict_tc_error',
            ]
 
 
@@ -72,3 +73,28 @@ def estimate_transit_depth(p, b):
     d[b >= 1 + p] = 0.0
 
     return np.squeeze(d)
+
+
+def predict_tc_error(ror, b, T14, texp, sigma_f):
+    """
+    Predict uncertainty on mid-transit time
+    See Carter+2008
+
+    Parameters
+    ----------
+    ror : planet-to-star radius ratio
+    b : impact parameter
+    T14 : first-to-fourth contact transit duration
+    texp : exposure time (in same units as T14)
+    sigma_f : photometric error on flux
+    """
+    Q = np.sqrt(T14 / texp) * (ror**2 / sigma_f)
+
+    if b <= 1 - ror:
+        tau_over_T14 = ror / (1 - b**2)
+    else:
+        tau_over_T14 = 0.5
+
+    sigma_tc = (T14 / Q) * np.sqrt(0.5 * tau_over_T14)
+
+    return sigma_tc
