@@ -301,7 +301,7 @@ class RBDTransitModel(TransitModel):
             x[5 * n + 1] = norm_ppf(u[1 + n * 5], 0.0, 0.1)
             x[5 * n + 2] = loguniform_ppf(u[2 + n * 5], 1e-5, 0.99)
             x[5 * n + 3] = uniform_ppf(u[3 + n * 5], 0.0, 1 + x[5 * n + 2])
-            x[5 * n + 4] = loguniform_ppf(u[4 + n * 5], 0.01*tm.durs[n], 3 * fixed_durations[n])
+            x[5 * n + 4] = loguniform_ppf(u[4 + n * 5], 0.01*tm.durs[n], 3 * tm.durs[n])
 
         # limb darkening coefficients (see Kipping 2013)
         x[-2] = uniform_ppf(u[-2], 0, 1)

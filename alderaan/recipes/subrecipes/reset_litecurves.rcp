@@ -1,0 +1,50 @@
+import os
+import sys
+
+from copy import deepcopy
+import numpy as np
+
+from alderaan.litecurve import LiteCurve
+from alderaan.modules.detrend import SimpleDetrender
+from alderaan.modules.transit import RBDTransitModel
+from alderaan.utils.stats import set_sigma_cutoff
+
+def run(context):
+    print('\n\nSUBRECIPE: RESET LITECURVES\n')
+
+    # infer context
+    planets = context.planets
+    litecurves = context.litecurve.split_visits()
+    limbdark = context.limbdark
+
+    # clip outliers based on transit model
+    for j, lc in enumerate(litecurves):
+        tm = RBDTransitModel(lc, planets, limbdark)
+
+        theta = tm._theta_initial()
+        f_mod = tm.model_flux(theta, tm)
+        sigma = set_sigma_cutoff(len(lc.flux), sigma_min=5.0)
+
+        dt = SimpleDetrender(lc, planets)
+
+        npts_initial = len(dt.litecurve.time)
+        dt.clip_outliers(trend=f_mod, sigma_upper=sigma, sigma_lower=sigma)
+        npts_final = len(dt.litecurve.time)
+
+        print(f"  Quarter {dt.litecurve.visit[0]} : {npts_initial-npts_final} outliers rejected")
+
+        litecurves[j] = deepcopy(dt.litecurve)
+
+    # reset litecurves to raw data w/ outliers removed
+    for j, _lcm in enumerate(context.litecurve_master.split_visits()):
+        qmask = np.isin(_lcm.cadno, litecurves[j].cadno)
+
+        for k in litecurves[j].__dict__.keys():
+            if type(litecurves[j].__dict__[k]) is np.ndarray:
+                litecurves[j].__setattr__(k, _lcm.__dict__[k][qmask])
+
+        litecurves[j].quality = np.ones(len(litecurves[j].time), dtype=bool)
+
+    litecurve = LiteCurve().from_list(litecurves)
+
+    return {'litecurve': litecurve}

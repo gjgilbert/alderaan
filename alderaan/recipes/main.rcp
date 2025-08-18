@@ -18,6 +18,7 @@ def main():
         assert hasattr(context, "mission"), "undefined mission"
         assert hasattr(context, "target"), "undefined target"
 
+        # data i/o
         if context.mission == 'Kepler':
             invoke_subrecipe(context, 'load_kepler_data.rcp')
             invoke_subrecipe(context, 'omc_cleanup.rcp', full=True)
@@ -28,12 +29,18 @@ def main():
         else:
             raise ValueError(f"Unsupported mission : {context.mission}")
         
-        invoke_subrecipe(context, 'detrend_visits.rcp')
+        # 1st pass
+        invoke_subrecipe(context, 'detrend_visits.rcp', tight_mask=False, clip_outliers=True)
         invoke_subrecipe(context, 'quality_control.rcp')
         invoke_subrecipe(context, 'quick_fit_transit_shape.rcp')
         invoke_subrecipe(context, 'quick_fit_transit_times.rcp')
         invoke_subrecipe(context, 'omc_regularization.rcp')
-        #invoke_subrecipe(context, 'sample_transit_model.rcp')
+        invoke_subrecipe(context, 'reset_litecurves.rcp')
+
+        # 2nd pass
+        invoke_subrecipe(context, 'detrend_visits.rcp', tight_mask=True, clip_outliers=False)
+        invoke_subrecipe(context, 'quality_control.rcp')        
+        invoke_subrecipe(context, 'sample_transit_model.rcp')
 
     print("\n\n=== exiting main pipeline ===\n\n")
 

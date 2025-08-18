@@ -17,7 +17,7 @@ def run(context):
     limbdark = context.limbdark
 
     # fit transit times using Mazeh+13 / Holczer+16 cross-correlation method
-    print("\Applying cross-correlation method")
+    print("\nApplying cross-correlation method")
     ttvmodel = CrossCorrelationTTVFitter(litecurve, planets, limbdark)
     ttime_cc = [None]*NPL
     error_cc = [None]*NPL
