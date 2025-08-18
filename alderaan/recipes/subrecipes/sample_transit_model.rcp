@@ -1,0 +1,36 @@
+import os
+import sys
+import warnings
+
+import numpy as np
+from alderaan.modules.transit import RBDTransitModel
+from alderaan.modules.quicklook import dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
+
+def run(context):
+    print('\n\nSUBRECIPE: SAMPLE TRANSIT MODEL\n')
+
+    # infer context
+    planets = context.planets
+    litecurve = context.litecurve
+    limbdark = context.limbdark
+
+    koi_id = context.koi_id
+    quicklook_dir = context.quicklook_dir
+
+    # fit transit times
+    print("Fitting for Rp/Rs, b, and T14")
+    transitmodel = RBDTransitModel(litecurve, planets, limbdark)
+    results = transitmodel.sample(progress_every=10)
+
+    # make quickook plots
+    _filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_runplot.png')
+    fig, ax = dynesty_runplot(results, koi_id, filepath=_filepath)
+
+    for n, p in enumerate(transitmodel.planets):
+        _filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_traceplot_{n:02d}.png')
+        fig, ax = dynesty_traceplot(results, koi_id, n, filepath=_filepath)
+
+        _filepath=os.path.join(quicklook_dir, f'{koi_id}_dynesty_cornerplot_{n:02d}.png')
+        fig, ax = dynesty_cornerplot(results, koi_id, n, filepath=_filepath)
+
+    return {'results': results}
