@@ -32,7 +32,7 @@ def run(context):
     limbdark = [catalog.limbdark_1[0], catalog.limbdark_2[0]]
 
     # load lightcurves
-    litecurve_master = LiteCurve().from_kplr_pdcsap(context.data_dir, kic_id, 'long cadence')
+    litecurve_master = LiteCurve().from_kplr_pdcsap(context.data_dir, kic_id, 'long cadence', visits=2)
 
     t_min = litecurve_master.time.min()
     t_max = litecurve_master.time.max()

@@ -25,19 +25,17 @@ class SimpleDetrender(BaseAlg):
 
 
     def clip_outliers(self, 
-                      kernel_size, 
                       sigma_upper, 
                       sigma_lower, 
                       mask=None,
-                      trend=None
+                      trend=None,
+                      kernel_size=None,
                       ):
         """
         Sigma-clip outliers using astropy.stats.sigma_clip() and a median filtered trend
         Applies an additional iteration wrapper to allow for masked cadences
 
         Arguments:
-            kernel_size : int
-                size of the smoothing filter kernel
             sigma_upper : float
                 upper sigmga clipping threshold
             sigma_lower : float
@@ -46,62 +44,80 @@ class SimpleDetrender(BaseAlg):
                 do not reject cadences within masked regions; useful for protecting transits
             trend : array-like, float (optional)
                 precomputed model for the trend, e.g. a Keplerian transit lightcurve
+            kernel_size : int
+                size of the smoothing filter kernel
         """
+        # sanitize inputs
         lc = self.litecurve
 
+        if trend is None and kernel_size is None:
+            raise ValueError("Must supply exactly one of 'trend' or 'kernel_size' kwarg")
+        
         if mask is None:
             mask = np.zeros(len(lc.time), dtype=bool)
         
+        # flag outliers based on user-supplied trend
         if trend is not None:
-            raise ValueError("Not yet configured for trend kwarg")
+            bad = sigma_clip(lc.flux - trend,
+                            sigma_upper=sigma_upper,
+                            sigma_lower=sigma_lower,
+                            stdfunc=mad_std
+                            ).mask
+            bad = bad * ~mask
 
-        loop = True
-        count = 0
-        while loop:
-            # first pass: try median filter
-            if loop:
-                smoothed = median_filter(lc.flux, kernel_size=kernel_size)
-
-                bad = sigma_clip(lc.flux - smoothed,
-                                 sigma_upper=sigma_upper,
-                                 sigma_lower=sigma_lower,
-                                 stdfunc=mad_std
-                                ).mask
-                bad = bad * ~mask
-
-            # second pass: try savgol filter
-            # if over 1% of points were flagged with median filter
-            if np.sum(bad)/len(bad) > 0.01:
-                smoothed = savgol_filter(lc.flux,
-                                         window_length=kernel_size,
-                                         polyorder=2
-                                        )
-                bad = sigma_clip(lc.flux - smoothed,
-                                 sigma_upper=sigma_upper,
-                                 sigma_lower=sigma_lower,
-                                 stdfunc=mad_std
-                                ).mask
-                bad = bad * ~mask
-
-            # third pass: skip outlier rejection
-            if np.sum(bad) / len(bad) > 0.01:
-                bad = np.zeros_like(mask)
-
-            # set attributes
             for k in lc.__dict__.keys():
                 if type(lc.__dict__[k]) is np.ndarray:
                     lc.__setattr__(k, lc.__dict__[k][~bad])
+        
+        # flag outliers using auto-generated smoothing kernel
+        else:
+            loop = True
+            count = 0
+            while loop:
+                # first pass: try median filter
+                if loop:
+                    smoothed = median_filter(lc.flux, kernel_size=kernel_size)
 
-            # update mask and iterate
-            mask = mask[~bad]
+                    bad = sigma_clip(lc.flux - smoothed,
+                                    sigma_upper=sigma_upper,
+                                    sigma_lower=sigma_lower,
+                                    stdfunc=mad_std
+                                    ).mask
+                    bad = bad * ~mask
 
-            if np.sum(bad) == 0:
-                loop = False
-            else:
-                count += 1
+                # second pass: try savgol filter
+                # if over 1% of points were flagged with median filter
+                if np.sum(bad)/len(bad) > 0.01:
+                    smoothed = savgol_filter(lc.flux,
+                                            window_length=kernel_size,
+                                            polyorder=2
+                                            )
+                    bad = sigma_clip(lc.flux - smoothed,
+                                    sigma_upper=sigma_upper,
+                                    sigma_lower=sigma_lower,
+                                    stdfunc=mad_std
+                                    ).mask
+                    bad = bad * ~mask
 
-            if count >= 3:
-                loop = False
+                # third pass: skip outlier rejection
+                if np.sum(bad) / len(bad) > 0.01:
+                    bad = np.zeros_like(mask)
+
+                # set attributes
+                for k in lc.__dict__.keys():
+                    if type(lc.__dict__[k]) is np.ndarray:
+                        lc.__setattr__(k, lc.__dict__[k][~bad])
+
+                # update mask and iterate
+                mask = mask[~bad]
+
+                if np.sum(bad) == 0:
+                    loop = False
+                else:
+                    count += 1
+
+                if count >= 3:
+                    loop = False
 
         self.litecurve = lc
 

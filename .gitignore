@@ -133,3 +133,6 @@ temp*
 
 # VS Code
 .vscode
+
+# line profiler
+*.lprof
