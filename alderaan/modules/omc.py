@@ -2,23 +2,32 @@ __all__ = ['OMC']
 
 import aesara_theano_fallback.tensor as T
 from astropy.stats import mad_std
+from astropy.timeseries import LombScargle
 from celerite2.theano import terms as GPterms
 from celerite2.theano import GaussianProcess
+from copy import deepcopy
 import numpy as np
 import pymc3 as pm
 import pymc3_ext as pmx
+from scipy import signal
 from scipy import stats
+from scipy.interpolate import interp1d
 from scipy.ndimage import uniform_filter, median_filter
+from scipy.signal import savgol_filter
 from sklearn.cluster import KMeans
+import warnings
+
 from alderaan.constants import pi
 
 class OMC:
     def __init__(self, ephemeris):
         # set initial O-C estimates
-        self.index = ephemeris.index
-        self.xtime = ephemeris.ttime
-        self.yobs = ephemeris.ttime - ephemeris.eval_linear_ephemeris()
-        self.yerr = ephemeris.error
+        _ephemeris = deepcopy(ephemeris)
+
+        self.index = _ephemeris.index
+        self.xtime = _ephemeris.ttime
+        self.yobs = _ephemeris.ttime - _ephemeris.eval_linear_ephemeris()
+        self.yerr = _ephemeris.error
         self.ymod = None
 
         # flag outliers
@@ -26,7 +35,7 @@ class OMC:
         self.out_prob = None
 
         # set static reference period, epoch, and linear ephemeris
-        self._set_static_references(ephemeris)
+        self._set_static_references(_ephemeris)
 
         # set nominal peak frequency and false alarm probability
         self.peakfreq = None
@@ -47,9 +56,26 @@ class OMC:
         if len(self.yobs) > 4:
             quality = np.abs(self.yobs - ysmooth)/mad_std(self.yobs - ysmooth) < sigma_cut
         else:
-            quality = np.zeros(len(self.yobs), dtype=bool)
+            quality = np.ones(len(self.yobs), dtype=bool)
 
         return quality
+    
+
+    def quick_fit_trend(self):
+        q = self.quality
+        npts = len(q)
+
+        interpolator = interp1d(self.xtime[q], self.yobs[q], kind='linear', fill_value='extrapolate')
+        ysmooth = interpolator(self.xtime)
+
+        if npts >= 8:
+            window_length = int(np.log2(npts)) + 1
+            window_length += (window_length + 1) % 2
+            ysmooth = savgol_filter(ysmooth, window_length, 2)
+
+        self.ymod = ysmooth
+        
+        return self.ymod
 
 
     def poly_model(self, polyorder, ignore_bad=True, xt_predict=None):
@@ -71,7 +97,7 @@ class OMC:
         model : pm.Model()
         """
         # quality mask
-        if ignore_bad:
+        if ignore_bad and self.quality is not None:
             q = self.quality
         else:
             q = np.ones(len(self.xtime), dtype=bool)
@@ -115,7 +141,7 @@ class OMC:
         model : pm.Model()
         """
         # quality mask
-        if ignore_bad:
+        if ignore_bad and self.quality is not None:
             q = self.quality
         else:
             q = np.ones(len(self.xtime), dtype=bool)
@@ -166,7 +192,7 @@ class OMC:
         model : pm.Model()
         """
         # quality mask
-        if ignore_bad:
+        if ignore_bad and self.quality is not None:
             q = self.quality
         else:
             q = np.ones(len(self.xtime), dtype=bool)
@@ -238,15 +264,15 @@ class OMC:
         Arguments
         ---------
         critical_fap : float
-            false alarm probability threshold to consider a frequency significant (default=0.1)
+            false alarm probability threshold to consider a frequency significant
         """
         q = self.quality
         npts = np.sum(self.quality)
 
-        peakfreq = None
-        peakfap = None
+        peakfreq = np.nan
+        peakfap = 1.0
 
-        if npts > 8:
+        if npts >= 8:
             try:
                 xf, yf, freqs, faps = self.LS_estimator(self.xtime[q], self.yobs[q], fap=critical_fap)
 
@@ -343,16 +369,14 @@ class OMC:
             return xf_out, yf_out, freqs, faps
 
 
-    def select_best_model(self, traces, dofs, verbose=True):
+    def select_best_model(self, traces, dofs, return_name=True, verbose=True):
         """
-        Arguments
-            traces : dict
-              dictionary of PyMC3 MultiTraces, model output from self.sample()
-            dofs : dict
-              degrees-of-freedom corresponding to each model trace
+        Args:
+            traces (dict): PyMC3 MultiTraces, output from omc.sample()
+            dofs (dict): degrees-of-freedom corresponding to each model trace
 
-        Returns
-            best_omc_model (str)
+        Returns:
+            str : name (dict key) of selected best model
         """
         q = self.quality
         npts = np.sum(self.quality)
@@ -371,34 +395,51 @@ class OMC:
         preferred_by_aic = min(aic, key=aic.get)
         preferred_by_bic = min(bic, key=bic.get)
 
-        if verbose:
-            print(f"AIC : {preferred_by_aic}, BIC : {preferred_by_bic}")
-
         # Case 1: AIC and BIC match recommendation
         if preferred_by_aic == preferred_by_bic:
-            best_omc_model = preferred_by_aic
+            best_omc_model_name = preferred_by_aic
 
         # Case 2: Select parametric models over Matern-3/2 GP
         elif np.any(np.array([preferred_by_aic, preferred_by_bic]) == 'matern32'):
             if preferred_by_aic == 'matern32':
-                best_omc_model = preferred_by_bic
+                best_omc_model_name = preferred_by_bic
             elif preferred_by_bic == 'matern32':
-                best_omc_model = preferred_by_aic
+                best_omc_model_name = preferred_by_aic
         
         # Case 3: Select model with more degrees of freedom
         else:
             if dofs[preferred_by_aic] >= dofs[preferred_by_bic]:
-                best_omc_model = preferred_by_aic
+                best_omc_model_name = preferred_by_aic
             elif dofs[preferred_by_aic] < dofs[preferred_by_bic]:
-                best_omc_model = preferred_by_bic
+                best_omc_model_name = preferred_by_bic
 
-        return best_omc_model
+        if verbose:
+            print("\bselecting best model")
+            print(f"  AIC : {preferred_by_aic}")
+            print(f"  BIC : {preferred_by_bic}")
+            print(f"  returning: {best_omc_model_name}")
+
+        # calculate best model prediction and return
+        self.ymod = np.nanmedian(traces[best_omc_model_name]['pred'], 0)
+
+        if return_name:
+            return self.ymod, best_omc_model_name
+        return self.ymod
 
 
     def calculate_outlier_probability(self, ymod):
         """
-        Arguments:
+        Calculate the probability that each measured omc transit time is an outlier
+        Assumes a two-component Gaussian mixture model to calculate outlier probabilty
+        Applies K-means clustering to assign each point to foreground or background
+
+        Args:
             ymod (ndarray) : regularized model for self.yobs
+
+        Returns:
+            tuple : (out_prob, out_class)
+              * out_prob (ndarray) : probability that each transit time is an outlier
+              * out_class (ndarray) : boolean flag that each transit time is an outlier
         """
         # normalize and center residuals
         res = self.yobs - ymod
@@ -414,8 +455,10 @@ class OMC:
 
             obs = pm.NormalMixture("obs", w, mu=mu * T.ones(2), tau=tau, observed=res)
 
-        with model:
-            trace = self.sample(model)
+        with warnings.catch_warnings(record=True) as catch:
+            warnings.simplefilter('always', category=RuntimeWarning)
+            with model:
+                trace = self.sample(model)
 
         # calculate foreground/background probability
         loc = np.nanmedian(trace["mu"], axis=0)
@@ -432,9 +475,13 @@ class OMC:
         centroids = np.array([np.mean(fg_prob[group == 0]), np.mean(fg_prob[group == 1])])
         out = group == np.argmin(centroids)
 
-        # reduce fg_prob threshold until less than 30% of points are flagged
+        # reduce fg_prob threshold so that than 30% of points are flagged
         if np.sum(out) / len(out) > 0.3:
             out = fg_prob < np.percentile(fg_prob, 0.3)
 
-        # return quality vector
-        return fg_prob, out
+        print(f"{np.sum(out)} of {len(out)} ({100*np.sum(out)/len(out):.1f}%) of transit times flagged as outliers")
+
+        self.out_prob = 1 - fg_prob
+        self.out_class = out
+
+        return 1 - fg_prob, out

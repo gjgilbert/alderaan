@@ -1,0 +1,74 @@
+import os
+import sys
+import warnings
+
+from copy import deepcopy
+import numpy as np
+from alderaan.modules.transit import CrossCorrelationTTVFitter, OptimizationTTVFitter
+from alderaan.utils.astro import predict_tc_error
+
+def run(context):
+    print('\n\nSUBRECIPE: QUICK FIT TRANSIT TIMES\n')
+
+    # infer context
+    NPL = context.NPL
+    planets = context.planets
+    litecurve = context.litecurve
+    limbdark = context.limbdark
+
+    # fit transit times using Mazeh+13 / Holczer+16 cross-correlation method
+    print("\nApplying cross-correlation method")
+    ttvmodel = CrossCorrelationTTVFitter(litecurve, planets, limbdark)
+    ttime_cc = [None]*NPL
+    error_cc = [None]*NPL
+
+    for n, p in enumerate(planets):
+        print(f"\nPlanet {n} : fitting {np.sum(p.ephemeris.quality)} transit times")
+
+        ttime_cc[n], error_cc[n] = ttvmodel.mazeh13_holczer16_method(n, target=context.target, quicklook_dir=context.quicklook_dir)
+
+        assert (len(ttime_cc[n]) == len(p.ephemeris.ttime))
+        assert (len(error_cc[n]) == len(p.ephemeris.error))
+
+        _nfit = np.sum(~np.isnan(ttime_cc[n]))
+        _ntot = np.sum(p.ephemeris.quality)
+
+        print(f"Planet {n} : {_nfit} of {_ntot} transit times ({_nfit / _ntot * 100:.1f}%) fit successfully")
+
+    # update ephemerides
+    for n, p in enumerate(planets):
+        q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
+        p.ephemeris.ttime[q] = ttime_cc[n][q]
+        p.ephemeris.error[q] = error_cc[n][q]
+        planets[n] = p.update_ephemeris(p.ephemeris)
+
+    # fit transit times using least squares optimization
+    print("\nOptimizing independent transit times")
+    ttvmodel = OptimizationTTVFitter(litecurve, planets, limbdark)
+    ttime_opt = [None]*NPL
+
+    for n, p in enumerate(planets):
+        print(f"\nPlanet {n}")
+        ttime_opt[n] = ttvmodel.optimize(n)
+
+    # update ephemerides, prioritizing cross-correlation transit times
+    for n, p in enumerate(planets):
+        error_obs = np.copy(error_cc[n])
+        error_exp = np.zeros_like(error_obs)
+
+        for obsmode in ttvmodel.unique_obsmodes:
+            exptime = ttvmodel._exptime_lookup[obsmode]
+            sigma_f = np.nanmedian(litecurve.error[litecurve.obsmode==obsmode])
+            error_exp[ttvmodel.transit_obsmode[n] == obsmode] = predict_tc_error(p.ror, p.impact, p.duration, exptime, sigma_f)
+        
+        q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
+        ttime_new = np.copy(ttime_cc[n])
+        ttime_new[~q] = ttime_opt[n][~q]
+        error_new = np.sqrt(error_obs**2 + error_exp**2)
+        error_new[~q] = np.nanpercentile(error_new, 90)
+
+        p.ephemeris.ttime = ttime_new
+        p.ephemeris.error = error_new
+        planets[n] = p.update_ephemeris(p.ephemeris)
+
+    return {'planets': planets}

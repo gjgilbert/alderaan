@@ -1,0 +1,106 @@
+import os
+import sys
+import warnings
+
+from astropy.stats import mad_std
+import numpy as np
+
+from alderaan.ephemeris import Ephemeris
+from alderaan.litecurve import LiteCurve
+from alderaan.planet import Planet
+from alderaan.modules.quicklook import plot_litecurve
+from alderaan.utils.io import parse_koi_catalog, parse_holczer16_catalog
+from alderaan.utils.pipeline import capture_locals
+from alderaan.utils.stats import set_sigma_cutoff
+
+
+@capture_locals
+def run(context):
+    print("\n\nSUBRECIPE: LOAD KEPLER DATA\n")
+
+    # infer context
+    target = context.target
+
+    # load KOI catalog
+    catalog = parse_koi_catalog(context.catalog_filepath, target)
+
+    assert np.all(np.diff(catalog.period) > 0), "Planets should be ordered by ascending period"
+
+    NPL = int(catalog.npl[0])
+    koi_id = catalog.koi_id[0]
+    kic_id = int(catalog.kic_id[0])
+    limbdark = [catalog.limbdark_1[0], catalog.limbdark_2[0]]
+
+    # load lightcurves
+    litecurve_master = LiteCurve().from_kplr_pdcsap(context.data_dir, kic_id, 'long cadence', visits=2)
+
+    t_min = litecurve_master.time.min()
+    t_max = litecurve_master.time.max()
+    if t_min < 0:
+        raise ValueError("Lightcurve has negative timestamps...this will cause problems")
+
+    # split litecurves by quarter
+    litecurves = litecurve_master.split_visits()
+
+    for j, lc in enumerate(litecurves):
+        assert len(np.unique(lc.visit)) == 1, "expected one quarter per litecurve"
+        assert len(np.unique(lc.obsmode)) == 1, "expected one obsmode per litecurve"
+
+    print(f"{len(litecurves)} litecurves loaded for {target}")
+
+    # initialize planets (catch no ephemeris warning)
+    with warnings.catch_warnings(record=True) as catch:
+        warnings.simplefilter('always', category=UserWarning)
+        planets = [None]*NPL
+        for n in range(NPL):
+            planets[n] = Planet(catalog, target, n)
+
+    print(f"\n{NPL} planets loaded for {target}")
+    print([np.round(p.period,6) for p in planets])
+
+    # update planet ephemerides
+    for n, p in enumerate(planets):
+        if p.ephemeris is None:
+            _ephemeris = Ephemeris(period=p.period, epoch=p.epoch, t_min=t_min, t_max=t_max)
+            planets[n] = p.update_ephemeris(_ephemeris)
+
+    # load Holczer+2016 catalog
+    _filepath = os.path.join(context.catalog_dir, 'holczer_2016_kepler_ttvs.txt')
+    holczer_ephemerides = parse_holczer16_catalog(_filepath, koi_id, NPL)
+
+    print(f"\n{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
+
+    # match Holczer ephemerides to Planets
+    _count = 0
+    for n, p in enumerate(planets):
+        for _ephem in holczer_ephemerides:
+            _match = np.isclose(_ephem.period, p.period, rtol=0.01, atol=p.duration)
+
+            if _match:
+                print(f"  Planet {n} : {p.period:.6f} --> {_ephem.period:.6f}")
+                planets[n] = p.update_ephemeris(_ephem)
+                _count += 1
+
+    print(f"{_count} matching ephemerides found ({len(holczer_ephemerides)} expected)")
+
+    # quicklook litecurve
+    _filepath = os.path.join(context.quicklook_dir, f"{target}_litecurve_raw.png")
+    _ = plot_litecurve(litecurve_master, target, planets, _filepath)
+
+    # enforce (t_min, t_max) consistency on litecurve and planets
+    for n, p in enumerate(planets):
+        p.ephemeris.clip_range(t_min, t_max)
+        p.ephemeris.set_static_references()
+        planets[n] = p.update_ephemeris(p.ephemeris)
+
+        print(f"  Planet {n} : {len(p.ephemeris.ttime)} transits")
+
+    # track TTV scatter and TTV buffer
+    ttv_scatter = [None]*NPL
+    ttv_buffer = [None]*NPL
+
+    for n, p in enumerate(planets):
+        ttv_scatter[n] = mad_std(p.ephemeris.ttime - p.ephemeris.eval_linear_ephemeris())
+        ttv_buffer[n] = set_sigma_cutoff(len(p.ephemeris.ttime)) * ttv_scatter[n]
+
+    return

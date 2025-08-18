@@ -1,11 +1,13 @@
 __all__ = ['uniform_ppf',
            'loguniform_ppf',
            'norm_ppf',
+           'set_sigma_cutoff',
            ]
 
 
 import numpy as np
 from scipy.special import erfinv
+from scipy.stats import norm as scipy_norm
 
 
 def uniform_ppf(u, a, b):
@@ -53,3 +55,14 @@ def norm_ppf(u, mu, sig, eps=1e-12):
         array-like : transformed samples from Normal distribution
     """
     return mu + sig * np.sqrt(2) * erfinv((2 * u - 1) / (1 + eps))
+
+
+def set_sigma_cutoff(npts, sigma_min=3.0):
+    """
+    Set sigma cutoff such that not even one outlier is expected if distribution is normal
+
+    Args:
+        npts (int) : number of points
+        sigma_min (float) : minimum sigma cutoff, default=3.0
+    """
+    return np.max([sigma_min, scipy_norm.interval((npts - 1) / npts)[1]])

@@ -1,0 +1,45 @@
+import os
+import sys
+import warnings
+
+from astropy.stats import mad_std
+from copy import deepcopy
+from alderaan.modules.omc import OMC
+from alderaan.modules.quicklook import plot_omc
+from alderaan.utils.stats import set_sigma_cutoff
+
+def run(context, full=True):
+    print('\n\nSUBRECIPE: OMC CLEANUP\n')
+
+    # infer context
+    NPL = context.NPL
+    target = context.target
+    planets = context.planets
+
+    # flag outliers and estimate TTV buffer for each ephemeris
+    omc_list = [None]*NPL
+    ttv_scatter = [None]*NPL
+    ttv_buffer = [None]*NPL
+
+    for n, p in enumerate(planets):
+        omc = OMC(p.ephemeris)
+        omc.ymod = omc.quick_fit_trend()
+
+        old_ephemeris = deepcopy(p.ephemeris)
+        new_ephemeris = p.ephemeris.update_from_omc(omc).interpolate(full=full)
+        
+        planets[n].update_ephemeris(new_ephemeris)
+        print(f"Planet {n} : {old_ephemeris.period:.6f} --> {new_ephemeris.period:.6f}")
+
+        omc_list[n] = omc
+        ttv_scatter[n] = mad_std(omc.yobs - omc.ymod)
+        ttv_buffer[n] = set_sigma_cutoff(len(omc.yobs)) * ttv_scatter[n]
+
+    
+    _filepath = os.path.join(context.quicklook_dir, f"{target}_omc_initial.png")
+    _ = plot_omc(omc_list, target, _filepath)
+
+    return {'planets': planets,
+            'ttv_scatter': ttv_scatter,
+            'ttv_buffer': ttv_buffer,
+            }

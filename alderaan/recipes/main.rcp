@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+
+from pathlib import Path
+from timeit import default_timer as timer
+
+from alderaan.utils.pipeline import PipelineContext, invoke_subrecipe
+
+BASE_PATH = Path(__file__).resolve().parents[2]
+
+def main():
+    print("\n\n=== entering main pipeline ===\n\n")
+
+    with PipelineContext() as context:
+        context.BASE_PATH = BASE_PATH
+        context.pipeline_start_time = timer()
+
+        invoke_subrecipe(context, 'startup.rcp', progress=False)
+        assert hasattr(context, "mission"), "undefined mission"
+        assert hasattr(context, "target"), "undefined target"
+
+        # data i/o
+        if context.mission == 'Kepler':
+            invoke_subrecipe(context, 'load_kepler_data.rcp')
+            invoke_subrecipe(context, 'omc_cleanup.rcp', full=True)
+        elif context.mission == 'K2':
+            raise NotImplementedError(f"K2 mission not yet implemented")
+        elif context.mission == 'TESS':
+            raise NotImplementedError(f"TESS mission not yet implemented")
+        else:
+            raise ValueError(f"Unsupported mission : {context.mission}")
+        
+        # 1st pass
+        invoke_subrecipe(context, 'detrend_visits.rcp', tight_mask=False, clip_outliers=True)
+        invoke_subrecipe(context, 'quality_control.rcp')
+        invoke_subrecipe(context, 'quick_fit_transit_shape.rcp')
+        invoke_subrecipe(context, 'quick_fit_transit_times.rcp')
+        invoke_subrecipe(context, 'omc_regularization.rcp')
+        invoke_subrecipe(context, 'reset_litecurves.rcp')
+
+        # 2nd pass
+        invoke_subrecipe(context, 'detrend_visits.rcp', tight_mask=True, clip_outliers=False)
+        invoke_subrecipe(context, 'quality_control.rcp')        
+        invoke_subrecipe(context, 'sample_transit_model.rcp')
+
+    print("\n\n=== exiting main pipeline ===\n\n")
+
+
+if __name__ == '__main__':
+    main()

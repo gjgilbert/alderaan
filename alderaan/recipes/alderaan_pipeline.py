@@ -455,7 +455,7 @@ def main():
         fig, ax = dynesty_traceplot(results, koi_id, n, filepath=filepath)
 
         filepath=os.path.join(quicklook_dir, f'{koi_id}_dynesty_cornerplot_{n:02d}.png')
-        fig, ax = dynesty_cornerplot(results, koi_id, n, filepath=filepath, interactive=True)
+        fig, ax = dynesty_cornerplot(results, koi_id, n, filepath=filepath)
 
 
 if __name__ == '__main__':
