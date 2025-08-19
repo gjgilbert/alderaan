@@ -9,7 +9,7 @@ For detailed documentation, see [readthedocs.org](https://alderaan.readthedocs.i
 
 ## Installation instructions
 
-ALDERAAN requires a complex set of dependencies in order to run. To create a conda environment capable of running the ALDERAAN pipeline, copy environment.yml from the `alderaan` github repository to your local machine:
+`alderaan` requires a complex set of dependencies in order to run. To create a conda environment capable of running the `alderaan` pipeline, copy environment.yml from the `alderaan` github repository to your local machine:
 
 ```
 curl -O https://raw.githubusercontent.com/gjgilbert/alderaan/develop/environment.yml
@@ -18,10 +18,10 @@ curl -O https://raw.githubusercontent.com/gjgilbert/alderaan/develop/environment
 Then run:
 
 ```
-conda env create -n <ENV_NAME> -f environment.yml
+conda env create -f environment.yml
 ```
 
-If <ENV_NAME> is not specified, the conda environment will be named "alderaan-env".
+to creat a conda environment named "alderaan-env".
 
 You can then activate your environment and safely pip install the package:
 
