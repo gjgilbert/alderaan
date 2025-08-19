@@ -12,7 +12,7 @@ For detailed documentation, see [readthedocs.org](https://alderaan.readthedocs.i
 ALDERAAN requires a complex set of dependencies in order to run. To create a conda environment capable of running the ALDERAAN pipeline, copy environment.yml from the `alderaan` github repository to your local machine:
 
 ```
-curl -o ./environment.yml https://raw.githubusercontent.comefs/heads/develop/environment.yml
+curl -O https://raw.githubusercontent.com/gjgilbert/alderaan/develop/environment.yml
 ```
 
 Then run:
