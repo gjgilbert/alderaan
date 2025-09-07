@@ -35,7 +35,7 @@ def run(context):
         fig, ax = dynesty_cornerplot(results, target, n, filepath=_filepath)
 
     save_dynesty_results(
-        context.output_dir, 
+        context.outputs_dir, 
         results, 
         context.mission, 
         context.target, 

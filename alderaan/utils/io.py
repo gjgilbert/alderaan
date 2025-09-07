@@ -225,6 +225,9 @@ def save_dynesty_results(output_dir, results, mission, target, run_id):
             )
 
             hdul.append(ttimes_hdu)
+
+        _filename = os.path.join(output_dir, f"results/{run_id}/{target}/{target}-results.fits")
+        hdul.writeto(_filename, overwrite=True)
    
     except FileNotFoundError as e:
         print(e)
