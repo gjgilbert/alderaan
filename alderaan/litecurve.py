@@ -194,8 +194,7 @@ class LiteCurve:
             with fits.open(mf) as hdu_list:
                 if hdu_list[0].header["OBSMODE"] == obsmode and np.isin(
                     hdu_list[0].header["QUARTER"], quarters # hard coded for Kepler
-                    hdu_list[0].header["QUARTER"], quarters # hard coded for Kepler
-                ):
+                    ):
                     mast_data_list.append(lk.read(mf))
 
         lk_col_raw = lk.LightCurveCollection(mast_data_list)
@@ -208,7 +207,6 @@ class LiteCurve:
             quarters.append(lkc.quarter) # hard coded for Kepler
 
         lk_col_clean = []
-        for v in np.unique(quarters):
         for v in np.unique(quarters):
             lkc_list = []
             cadno = []
