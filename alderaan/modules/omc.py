@@ -269,7 +269,7 @@ class OMC:
         q = self.quality
         npts = np.sum(self.quality)
 
-        peakfreq = np.nan
+        peakfreq = None
         peakfap = 1.0
 
         if npts >= 8:
