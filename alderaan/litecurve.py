@@ -197,3 +197,37 @@ class LiteCurve:
         self.quality = np.ones(len(self.time), dtype=bool)
 
         return self
+    
+    def to_fits(self, target, filename, cadence):
+        """
+        Save LiteCurve object as a fits file
+
+        Args:
+            target (str) : name of target
+            filename (str) : path to save the fits file to
+            cadence (str) : cadence of lightcurve data; "LONG" or "SHORT" "
+        """
+        # make primary HDU
+        primary_hdu = fits.PrimaryHDU()
+
+        header = primary_hdu.header
+
+        header["TARGET"] = target
+        header["CADENCE"] = cadence
+
+        primary_hdu.header = header
+
+        # add it to HDU list
+        hdulist = []
+        hdulist.append(primary_hdu)
+
+        hdulist.append(fits.ImageHDU(self.time, name="TIME"))
+        hdulist.append(fits.ImageHDU(self.flux, name="FLUX"))
+        hdulist.append(fits.ImageHDU(self.error, name="ERROR"))
+        hdulist.append(fits.ImageHDU(self.cadno, name="CADNO"))
+        hdulist.append(fits.ImageHDU(self.visit, name="QUARTER"))
+
+        hdulist = fits.HDUList(hdulist)
+        hdulist.writeto(filename, overwrite=True)
+
+        return None
