@@ -1,4 +1,4 @@
-__all__ = ['KeplerLiteCurve']
+__all__ = ['LiteCurve', 'KeplerLiteCurve']
 
 from astropy.io import fits
 import glob
@@ -7,35 +7,18 @@ import numpy as np
 from alderaan.constants import kepler_lcit, kepler_scit
 
 
-
-
-
-class KeplerLiteCurve(LiteCurve):
-    
-    def __init__(self, data_dir, target_id, obsmode, quarters=None):
-        
-        super().__init__()
-
-    def split_quarters(*args, quarters=None):
-        pass
-        # super LiteCurve.split_visits(vists --> quarters)
-
-
-    def load_kepler_pdcsap():
-        pass
-        # super __LiteCurve_load_from_nasa()
-        # etc.
-
-
-
-
-
 class LiteCurve:
     """
-    Base class for inheritence
+    Base class for inheritance
     """
     def __init__(self, *args, **kwargs):
-        self._set_empty_attribute_arrays()
+        self.time = np.array([]).astype(float)
+        self.flux = np.array([]).astype(float)
+        self.error = np.array([]).astype(float)
+        self.cadno = np.array([]).astype(int)
+        self.visit = np.array([]).astype(int)
+        self.obsmode = np.array([]).astype(str)
+        self.quality = np.array([]).astype(bool)
 
     
     @classmethod
@@ -65,23 +48,6 @@ class LiteCurve:
         return lc_instance
     
 
-    #@classmethod
-    #def from_kepler(cls, data_dir, target_id, obsmode, quarters=None):
-    #    raise NotImplementedError("Loading Kepler data not yet implemented")
-
-    #@classmethod
-    #def from_k2(cls, data_dir, target_id, obsmode, campaigns=None):
-    #    raise NotImplementedError("Loading K2 data not yet implemented")
-    
-    #@classmethod
-    #def from_tess(cls, data_dir, target_id, obsmode, sectors=None):
-    #    raise NotImplementedError("Loading TESS data not yet implemented")
-
-    #@classmethod
-    #def from_alderaan(cls, data_dir, target_id):
-    #    raise NotImplementedError("Loading ALDERAAN files not yet implemented")
-    
-    
     def split_visits(self):
         visits = np.unique(self.visit)
 
@@ -89,8 +55,6 @@ class LiteCurve:
         for v in visits:
             litecurve = LiteCurve()
             for k in self.__dict__.keys():
-            # for k in litecurve.__dict__.keys():
-                # if type(litecurve.__dict__[k]) is np.ndarray:
                 if type(self.__dict__[k]) is np.ndarray:
                     litecurve.__setattr__(k, self.__dict__[k][self.visit == v])
             litecurve_list.append(litecurve)
@@ -111,51 +75,11 @@ class LiteCurve:
         return self
     
 
-    
 
-class DeprecatedLiteCurve:
-    """
-    Deprecated legacy class from before misison abstraction was implemented
-    """
+class KeplerLiteCurve(LiteCurve):
+    
     def __init__(self, *args, **kwargs):
-        
-        if len(args) == 0:
-            self = self._set_empty_attribute_arrays()
-        
-        elif len(args) == 1 and isinstance(args[0], list):
-            if all([isinstance(lc, LiteCurve) for lc in args[0]]):
-                self = self.from_list(*args, **kwargs)
-            else:
-                raise TypeError("Unexpected input types in list")
-        
-        elif (len(args) > 1) and isinstance(args[0], str):
-            if 'data_source' not in kwargs:
-                raise ValueError("Missing required keyword argmument 'data_source")
-            else:
-                data_source = kwargs.pop('data_source')
-
-            if data_source == 'Kepler PDCSAP':
-                self = self.from_kplr_pdcsap(*args, **kwargs)
-            elif data_source == 'ALDERAAN':
-                self = self.from_alderaan(*args, **kwargs)
-            else:
-                raise ValueError(f"Unsupported data_source: {data_source}")      
-        
-        else:
-            raise TypeError("Unsupported init signature")
-    
-    
-    @classmethod
-    def _set_empty_attribute_arrays(cls):
-        lc_instance = cls.__new__(cls)
-        lc_instance.time = np.array([]).astype(float)
-        lc_instance.flux = np.array([]).astype(float)
-        lc_instance.error = np.array([]).astype(float)
-        lc_instance.cadno = np.array([]).astype(int)
-        lc_instance.visit = np.array([]).astype(int)
-        lc_instance.obsmode = np.array([]).astype(str)
-        lc_instance.quality = np.array([]).astype(bool)
-        return lc_instance
+        super().__init__(*args, **kwargs)
 
 
     @classmethod
@@ -173,9 +97,8 @@ class DeprecatedLiteCurve:
             target_id (int) : KIC number
             obsmode (str) : 'short cadence' or 'long cadence'
             quarters (list) : optional, list of quarters (Kepler quarters) to load.
-            quarters (list) : optional, list of quarters (Kepler quarters) to load.
         Returns:
-            LiteCurve : self
+            KeplerLiteCurve : instance
         """
 
         # create instance of litecurve
@@ -184,10 +107,6 @@ class DeprecatedLiteCurve:
         lc_instance.mission = "Kepler"
 
         # sanitize inputs
-        if quarters is None:
-            quarters = np.arange(18, dtype=int) # hard coded for Kepler
-        if isinstance(quarters, int):
-            quarters = [quarters]
         if quarters is None:
             quarters = np.arange(18, dtype=int) # hard coded for Kepler
         if isinstance(quarters, int):
@@ -209,9 +128,7 @@ class DeprecatedLiteCurve:
 
         # clean up the Collection data structure
         quarters = []
-        quarters = []
         for lkc in lk_col_raw:
-            quarters.append(lkc.quarter) # hard coded for Kepler
             quarters.append(lkc.quarter) # hard coded for Kepler
 
         lk_col_clean = []

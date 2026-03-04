@@ -54,6 +54,11 @@ def run(context):
     catalog_name = str(config['ARGS']['catalog_csv'])
     catalog_filepath = os.path.join(catalog_dir, catalog_name)
 
+    # optional: restrict to specific quarters (comma-separated list of ints)
+    quarters = config['ARGS'].get('quarters', None)
+    if quarters is not None:
+        quarters = [int(q.strip()) for q in quarters.split(',')]
+
     print("")
     print(f"   MISSION : {mission}")
     print(f"   TARGET  : {target}")
