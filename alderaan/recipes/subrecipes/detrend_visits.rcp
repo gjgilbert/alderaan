@@ -66,6 +66,20 @@ def run(context, tight_mask=False, clip_outliers=True):
 
     print(f"\nNominal stellar oscillation period = {osc_per_mu:.1f} +/- {osc_per_sd:.1f} days")
 
+<<<<<<< HEAD
+=======
+    # Save stellar oscillation periods
+    print("\nSaving stellar oscillation periods...\n")
+    filename = os.path.join(context.results_dir, f"{context.target}_stellar_oscillations.txt")
+    oscillation_period_by_quarter = np.ones(18) * np.nan
+    quarter_indexes = [detrender.litecurve.visit[0]-1 for detrender in detrenders]
+    oscillation_period_by_quarter[quarter_indexes] = oscillation_periods
+    np.savetxt(
+        filename, 
+        np.stack([np.arange(18), oscillation_period_by_quarter]).T)
+
+
+>>>>>>> develop
     # detrend the litecurves
     for j, detrender in enumerate(detrenders):
         print(f"\nDetrending {j+1} of {len(detrenders)} litecurves", flush=True)
@@ -140,7 +154,20 @@ def run(context, tight_mask=False, clip_outliers=True):
     # recombine litecurves, make quicklook plot, and return detrended litecurve
     litecurve = LiteCurve().from_list(litecurves)
 
+<<<<<<< HEAD
     _filepath = os.path.join(context.quicklook_dir, f"{target}_litecurve_detrended.png")
     _ = plot_litecurve(litecurve, target, planets, _filepath)
+=======
+    # save detrended lightcurve
+    _filepath = os.path.join(context.quicklook_dir, f"{target}_litecurve_detrended.png")
+    _ = plot_litecurve(litecurve, target, planets, _filepath)
+    if obsmode=='long cadence':
+	    filename = os.path.join(context.results_dir, f"{context.target}_lc_detrended.fits")
+        litecurve.to_fits(context.target, filename, cadence="LONG")
+    
+    elif obsmode=='short cadence':
+        filename = os.path.join(context.results_dir, f"{context.target}_sc_detrended.fits")
+        litecurve.to_fits(context.target, filename, cadence="SHORT")
+>>>>>>> develop
 
     return {'litecurve': litecurve}
