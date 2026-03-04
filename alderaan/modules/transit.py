@@ -46,8 +46,26 @@ class TransitModel(BaseAlg):
 
         self._set_bins()
         self._set_warps()
+        self._cache_obsmode_masks()
 
         return self
+
+
+    def _cache_obsmode_masks(self):
+        """Pre-compute obsmode boolean masks.
+
+        Avoids repeated string comparisons (lc.obsmode == obsmode) inside the
+        hot model_flux loop — this comparison runs on the full array for every
+        likelihood evaluation.
+
+        Note: only boolean masks are cached here (not warped-time slices),
+        because TTVTransitModel mutates _warped_time on every call.
+        """
+        lc = self.litecurve
+        self._obsmode_mask = {}
+
+        for obsmode in self.unique_obsmodes:
+            self._obsmode_mask[obsmode] = (lc.obsmode == obsmode)
 
 
     def _init_time_warping(self):
@@ -66,6 +84,7 @@ class TransitModel(BaseAlg):
         # set warping bins
         self._set_bins()
         self._set_warps()
+        self._cache_obsmode_masks()
 
 
 
@@ -198,13 +217,14 @@ class RBDTransitModel(TransitModel):
         flux_mod = np.ones_like(lc.flux)
 
         for obsmode in tm.unique_obsmodes:
+            om_mask = tm._obsmode_mask[obsmode]
             exptime_ioff = tm._exptime_integration_offset_lookup[obsmode]
             supersample = tm._supersample_lookup[obsmode]
 
             for n, p in enumerate(tm.planets):
                 C0, C1, rp, b, T14 = np.array(theta[5 * n : 5 * (n + 1)])
 
-                _t = tm._warped_time[n][lc.obsmode == obsmode] + C0 + C1 * tm._warped_legx[n][lc.obsmode == obsmode]
+                _t = tm._warped_time[n][om_mask] + C0 + C1 * tm._warped_legx[n][om_mask]
                 _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).flatten()
 
                 nthreads = 1
@@ -227,7 +247,7 @@ class RBDTransitModel(TransitModel):
                     qld_flux.reshape(-1, supersample), axis=1
                 )
 
-                flux_mod[lc.obsmode == obsmode] += qld_flux - 1.0
+                flux_mod[om_mask] += qld_flux - 1.0
                 
         return flux_mod      
                 
