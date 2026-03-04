@@ -5,6 +5,7 @@ import warnings
 import numpy as np
 from alderaan.modules.transit import RBDTransitModel
 from alderaan.modules.quicklook import dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
+from alderaan.utils.io import dynesty_results_to_fits
 
 def run(context):
     print('\n\nSUBRECIPE: SAMPLE TRANSIT MODEL\n')
@@ -22,7 +23,11 @@ def run(context):
     transitmodel = RBDTransitModel(litecurve, planets, limbdark)
     results = transitmodel.sample(progress_every=10)
 
-    # make quickook plots
+    # save sampling results
+    hdu_list = dynesty_results_to_fits(results, context) 
+    hdu_list.writeto(os.path.join(context.results_dir, f"{context.target}-results.fits"), overwrite=True)
+
+    # make quicklook plots
     _filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_runplot.png')
     fig, ax = dynesty_runplot(results, koi_id, filepath=_filepath)
 

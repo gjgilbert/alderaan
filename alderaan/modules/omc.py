@@ -3,8 +3,10 @@ __all__ = ['OMC']
 import aesara_theano_fallback.tensor as T
 from astropy.stats import mad_std
 from astropy.timeseries import LombScargle
+from astropy.timeseries import LombScargle
 from celerite2.theano import terms as GPterms
 from celerite2.theano import GaussianProcess
+from copy import deepcopy
 from copy import deepcopy
 import numpy as np
 import pymc3 as pm
@@ -269,7 +271,7 @@ class OMC:
         q = self.quality
         npts = np.sum(self.quality)
 
-        peakfreq = np.nan
+        peakfreq = None
         peakfap = 1.0
 
         if npts >= 8:

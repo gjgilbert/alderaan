@@ -6,7 +6,11 @@ from astropy.stats import mad_std
 import numpy as np
 
 from alderaan.ephemeris import Ephemeris
+<<<<<<< HEAD
 from alderaan.litecurve import KeplerLiteCurve
+=======
+from alderaan.litecurve import LiteCurve
+>>>>>>> develop
 from alderaan.planet import Planet
 from alderaan.modules.quicklook import plot_litecurve
 from alderaan.utils.io import parse_koi_catalog, parse_holczer16_catalog
@@ -32,7 +36,11 @@ def run(context):
     limbdark = [catalog.limbdark_1[0], catalog.limbdark_2[0]]
 
     # load lightcurves
+<<<<<<< HEAD
     litecurve_master = LiteCurve().from_kplr_pdcsap(context.data_dir, kic_id, 'long cadence', visits=2)
+=======
+    litecurve_master = LiteCurve().from_kplr_pdcsap(context.data_dir, kic_id, 'long cadence', visits=[1,2,3])
+>>>>>>> develop
 
     t_min = litecurve_master.time.min()
     t_max = litecurve_master.time.max()
