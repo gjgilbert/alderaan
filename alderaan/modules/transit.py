@@ -24,6 +24,12 @@ from alderaan.modules.quicklook import plot_quick_fit_ttvs
 from alderaan.utils.astro import bin_data, estimate_transit_depth
 from alderaan.utils.stats import uniform_ppf, loguniform_ppf, norm_ppf
 
+# Number of threads for batman's OpenMP-parallelized C extensions (_rsky, _quadratic_ld).
+# Set to 1 because on Apple Silicon the non-OpenMP build uses NEON auto-vectorization,
+# which is faster than OpenMP threading for the array sizes in this pipeline (~65k points).
+# If batman is recompiled with OpenMP on a platform where it helps, increase this.
+BATMAN_NTHREADS = 1
+
 
 class TransitModel(BaseAlg):
     """
@@ -52,20 +58,30 @@ class TransitModel(BaseAlg):
 
 
     def _cache_obsmode_masks(self):
-        """Pre-compute obsmode boolean masks.
+        """Pre-compute obsmode boolean masks and per-obsmode warped time slices.
 
-        Avoids repeated string comparisons (lc.obsmode == obsmode) inside the
-        hot model_flux loop — this comparison runs on the full array for every
-        likelihood evaluation.
+        Avoids repeated string comparisons (lc.obsmode == obsmode) and boolean
+        indexing inside the hot model_flux loop.
 
-        Note: only boolean masks are cached here (not warped-time slices),
-        because TTVTransitModel mutates _warped_time on every call.
+        The warped-time/legx caches are used by RBDTransitModel.model_flux
+        (where warps are constant across calls).  TTVTransitModel.model_flux
+        mutates _warped_time on every call and does not use these caches.
         """
         lc = self.litecurve
         self._obsmode_mask = {}
+        self._warped_time_by_obsmode = {}
+        self._warped_legx_by_obsmode = {}
 
         for obsmode in self.unique_obsmodes:
-            self._obsmode_mask[obsmode] = (lc.obsmode == obsmode)
+            mask = (lc.obsmode == obsmode)
+            self._obsmode_mask[obsmode] = mask
+
+            self._warped_time_by_obsmode[obsmode] = [
+                self._warped_time[n][mask] for n in range(self.npl)
+            ]
+            self._warped_legx_by_obsmode[obsmode] = [
+                self._warped_legx[n][mask] for n in range(self.npl)
+            ]
 
 
     def _init_time_warping(self):
@@ -210,9 +226,12 @@ class RBDTransitModel(TransitModel):
         tm = transitmodel
         lc = tm.litecurve
 
-        q1, q2 = np.array(theta[-2:])
-        u1 = 2 * np.sqrt(q1) * q2
-        u2 = np.sqrt(q1) * (1 - 2 * q2)
+        # limb darkening transform (Kipping 2013)
+        q1 = theta[-2]
+        q2 = theta[-1]
+        sqrt_q1 = np.sqrt(q1)
+        u1 = 2 * sqrt_q1 * q2
+        u2 = sqrt_q1 * (1 - 2 * q2)
 
         flux_mod = np.ones_like(lc.flux)
 
@@ -220,14 +239,20 @@ class RBDTransitModel(TransitModel):
             om_mask = tm._obsmode_mask[obsmode]
             exptime_ioff = tm._exptime_integration_offset_lookup[obsmode]
             supersample = tm._supersample_lookup[obsmode]
+            wt_by_om = tm._warped_time_by_obsmode[obsmode]
+            wl_by_om = tm._warped_legx_by_obsmode[obsmode]
 
-            for n, p in enumerate(tm.planets):
-                C0, C1, rp, b, T14 = np.array(theta[5 * n : 5 * (n + 1)])
+            for n in range(tm.npl):
+                C0  = theta[5 * n]
+                C1  = theta[5 * n + 1]
+                rp  = theta[5 * n + 2]
+                b   = theta[5 * n + 3]
+                T14 = theta[5 * n + 4]
 
-                _t = tm._warped_time[n][om_mask] + C0 + C1 * tm._warped_legx[n][om_mask]
+                _t = wt_by_om[n] + C0 + C1 * wl_by_om[n]
                 _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).flatten()
 
-                nthreads = 1
+                nthreads = BATMAN_NTHREADS
                 ds = _rsky._rsky(
                     _t_supersample,
                     0.0,
@@ -512,7 +537,7 @@ class TTVTransitModel(TransitModel):
                 _t = tm._warped_time[n][lc.obsmode == obsmode]
                 _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).flatten()
 
-                nthreads = 1
+                nthreads = BATMAN_NTHREADS
                 ds = _rsky._rsky(
                     _t_supersample,
                     0.0,
@@ -757,7 +782,7 @@ class OptimizationTTVFitter(TransitModel):
 
         for n, p in enumerate(tm.planets):
             
-            nthreads = 1
+            nthreads = BATMAN_NTHREADS
             ds = _rsky._rsky(
                 _t_supersample,
                 theta[n],
@@ -803,7 +828,7 @@ class CrossCorrelationTTVFitter(TransitModel):
         time_template = np.hstack([-time_template[:-1][::-1], time_template])
         flux_template = np.zeros_like(time_template)
 
-        nthreads = 1
+        nthreads = BATMAN_NTHREADS
         ds = _rsky._rsky(
             time_template,
             0.0,

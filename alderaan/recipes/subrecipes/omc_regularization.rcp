@@ -119,10 +119,7 @@ def run(context, check_periodic=True):
         
         omc.out_prob, omc.out_class = omc.calculate_outlier_probability(omc.ymod)
 
-<<<<<<< HEAD
-=======
         # save transit times
->>>>>>> develop
         _filename = os.path.join(context.results_dir, f'{target}_{n:02d}_quick.ttvs')
         save_omc_ephemeris(_filename, omc)
 
