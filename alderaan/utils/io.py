@@ -2,11 +2,13 @@ __all__ = ['resolve_config_path',
            'parse_koi_catalog',
            'parse_holczer16_catalog',
            'copy_input_target_catalog',
+           'dynesty_results_to_fits'
           ]
 
 
 import os
 import sys
+from astropy.io import fits
 from pathlib import Path
 
 import numpy as np
@@ -138,3 +140,67 @@ def save_omc_ephemeris(filename, omc, verbose=True):
 
     if verbose:
         print(f"successfully wrote omc ephemeris to {filename}")
+
+def dynesty_results_to_fits(results, context):
+    """
+    results : dynesty.DynamicNestedSampling.results
+    context : alderaan.utils.pipeline.PipelineContext
+    """
+    npl = (results.samples.shape[1] - 2) // 5
+
+    # package nested samples
+    samples_keys = []
+
+    for n in range(npl):
+        samples_keys += "C0_{0} C1_{0} ROR_{0} IMPACT_{0} DUR14_{0}".format(n).split()
+
+    samples_keys += ["LD_Q1", "LD_Q2"]
+    samples_keys += ["LN_WT", "LN_LIKE", "LN_Z"]
+
+    samples_data = np.vstack(
+        [results.samples.T, results.logwt, results.logl, results.logz]
+    ).T
+    samples_df = pd.DataFrame(samples_data, columns=samples_keys)
+
+    # primary HDU
+    primary_hdu = fits.PrimaryHDU()
+    primary_hdu.header["MISSION"] = context.mission
+    primary_hdu.header["TARGET"] = context.target
+    primary_hdu.header["RUN_ID"] = context.run_id
+    primary_hdu.header["NPL"] = npl
+
+    # samples HDU
+    samples_hdu = fits.BinTableHDU(
+        data=samples_df.to_records(index=False), name="SAMPLES"
+    )
+
+    samples_hdu.header["NITER"] = results.niter
+    samples_hdu.header["NBATCH"] = len(results.batch_nlive)
+    for i, nlive in enumerate(results.batch_nlive):
+        samples_hdu.header[f"NLIVE{i}"] = nlive
+    samples_hdu.header["EFF"] = results.eff
+
+    # build HDU List
+    hduL = fits.HDUList([primary_hdu, samples_hdu])
+
+    # add transit times to HDU List
+    for n in range(npl):
+        ttimes_file = os.path.join(
+            context.results_dir,
+            f"{context.target}_{str(n).zfill(2)}_quick.ttvs",
+        )
+        ttimes_keys = "INDEX TTIME MODEL OUT_PROB OUT_FLAG".split()
+        ttimes_data = np.loadtxt(ttimes_file)
+
+        ttimes_df = pd.DataFrame(ttimes_data, columns=ttimes_keys)
+        ttimes_df.INDEX = ttimes_df.INDEX.astype("int")
+        ttimes_df.OUT_FLAG = ttimes_df.OUT_FLAG.astype("int")
+
+        ttimes_hdu = fits.BinTableHDU(
+            data=ttimes_df.to_records(index=False),
+            name=f"TTIMES_{str(n).zfill(2)}",
+        )
+
+        hduL.append(ttimes_hdu)
+
+    return hduL
