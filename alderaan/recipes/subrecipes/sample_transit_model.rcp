@@ -4,7 +4,7 @@ import warnings
 
 import numpy as np
 from alderaan.modules.transit import RBDTransitModel
-from alderaan.modules.quicklook import dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
+from alderaan.modules.quicklook import dynesty_cornerplot, dynesty_runplot, dynesty_traceplot, plot_folded_transit
 from alderaan.utils.io import dynesty_results_to_fits
 
 def run(context):
@@ -15,7 +15,7 @@ def run(context):
     litecurve = context.litecurve
     limbdark = context.limbdark
 
-    koi_id = context.koi_id
+    target = context.target
     quicklook_dir = context.quicklook_dir
 
     # fit transit times
@@ -26,17 +26,20 @@ def run(context):
 
     # save sampling results
     hdu_list = dynesty_results_to_fits(results, context) 
-    hdu_list.writeto(os.path.join(context.results_dir, f"{context.target}-results.fits"), overwrite=True)
+    hdu_list.writeto(os.path.join(context.results_dir, f"{target}-results.fits"), overwrite=True)
 
     # make quicklook plots
-    _filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_runplot.png')
-    fig, ax = dynesty_runplot(results, koi_id, filepath=_filepath)
+    _filepath = os.path.join(quicklook_dir, f'{target}_dynesty_runplot.png')
+    fig, ax = dynesty_runplot(results, target, filepath=_filepath)
 
     for n, p in enumerate(transitmodel.planets):
-        _filepath = os.path.join(quicklook_dir, f'{koi_id}_dynesty_traceplot_{n:02d}.png')
-        fig, ax = dynesty_traceplot(results, koi_id, n, filepath=_filepath)
+        _filepath = os.path.join(quicklook_dir, f'{target}_dynesty_traceplot_{n:02d}.png')
+        fig, ax = dynesty_traceplot(results, target, n, filepath=_filepath)
 
-        _filepath=os.path.join(quicklook_dir, f'{koi_id}_dynesty_cornerplot_{n:02d}.png')
-        fig, ax = dynesty_cornerplot(results, koi_id, n, filepath=_filepath)
+        _filepath=os.path.join(quicklook_dir, f'{target}_dynesty_cornerplot_{n:02d}.png')
+        fig, ax = dynesty_cornerplot(results, target, n, filepath=_filepath)
+
+        _filepath = os.path.join(quicklook_dir, f'{target}_folded_transit_{n:02d}.png')
+        fig, ax = plot_folded_transit(litecurve, p, n, target, filepath=_filepath)
 
     return {'results': results}
