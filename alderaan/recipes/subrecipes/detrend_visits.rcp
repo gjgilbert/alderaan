@@ -155,7 +155,7 @@ def run(context, tight_mask=False, clip_outliers=True):
     _filepath = os.path.join(context.quicklook_dir, f"{target}_litecurve_detrended.png")
     _ = plot_litecurve(litecurve, target, planets, _filepath)
     if obsmode=='long cadence':
-	    filename = os.path.join(context.results_dir, f"{context.target}_lc_detrended.fits")
+        filename = os.path.join(context.results_dir, f"{context.target}_lc_detrended.fits")
         litecurve.to_fits(context.target, filename, cadence="LONG")
     
     elif obsmode=='short cadence':
