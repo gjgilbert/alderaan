@@ -10,12 +10,12 @@ class Planet:
     """
     def __init__(self, 
                  catalog,
-                 koi_id,
+                 target,
                  planet_no, 
                  ephemeris=None
                 ):
         # read transit parameters from pandas dataframe
-        self = self._from_dataframe(catalog, koi_id, planet_no)
+        self = self._from_dataframe(catalog, target, planet_no)
 
         # set up ephemeris
         if ephemeris is not None:
@@ -25,11 +25,25 @@ class Planet:
             warnings.warn("WARNING: Planet initiated without Ephemeris")
 
 
-    def _from_dataframe(self, catalog, koi_id, planet_no):
-        df = catalog.loc[catalog.koi_id == koi_id].sort_values(by='period').reset_index(drop=True)
+    def _from_dataframe(self, catalog, target, planet_no):
+        # Detect mission from catalog columns and filter accordingly
+        if 'koi_id' in catalog.columns:
+            # Kepler catalog
+            df = catalog.loc[catalog.koi_id == target].sort_values(by='period').reset_index(drop=True)
+            self.koi_id = target
+            self.kic_id = str(df.at[planet_no, 'kic_id'])
+            self.target_id = target
+            self.star_id = self.kic_id
+        elif 'toi_id' in catalog.columns:
+            # TESS catalog
+            df = catalog.loc[catalog.toi_id == target].sort_values(by='period').reset_index(drop=True)
+            self.toi_id = target
+            self.tic_id = str(df.at[planet_no, 'tic_id'])
+            self.target_id = target
+            self.star_id = self.tic_id
+        else:
+            raise ValueError("Catalog must contain either 'koi_id' or 'toi_id' column")
 
-        self.koi_id = koi_id
-        self.kic_id = str(df.at[planet_no, 'kic_id'])
         self.period = float(df.at[planet_no, 'period'])
         self.epoch = float(df.at[planet_no, 'epoch'])
         self.depth = float(df.at[planet_no, 'depth']) * 1e-6       # ppm

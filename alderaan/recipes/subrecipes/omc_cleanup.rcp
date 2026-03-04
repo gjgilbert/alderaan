@@ -36,8 +36,9 @@ def run(context, full=True):
         ttv_buffer[n] = set_sigma_cutoff(len(omc.yobs)) * ttv_scatter[n]
 
     
+    _time_label = getattr(context, 'time_label', 'Time [BJKD]')
     _filepath = os.path.join(context.quicklook_dir, f"{target}_omc_initial.png")
-    _ = plot_omc(omc_list, target, _filepath)
+    _ = plot_omc(omc_list, target, _filepath, time_label=_time_label)
 
     return {'planets': planets,
             'ttv_scatter': ttv_scatter,

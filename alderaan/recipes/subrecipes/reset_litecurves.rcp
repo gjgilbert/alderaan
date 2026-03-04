@@ -31,7 +31,7 @@ def run(context):
         dt.clip_outliers(trend=f_mod, sigma_upper=sigma, sigma_lower=sigma)
         npts_final = len(dt.litecurve.time)
 
-        print(f"  Quarter {dt.litecurve.visit[0]} : {npts_initial-npts_final} outliers rejected")
+        print(f"  Visit {dt.litecurve.visit[0]} : {npts_initial-npts_final} outliers rejected")
 
         litecurves[j] = deepcopy(dt.litecurve)
 

@@ -18,3 +18,6 @@ RHOSUN_GCM3 = (
 
 kepler_lcit = 29.4243885 / 60 / 24  # Kepler long cadence integration time + readout time [days]
 kepler_scit = 58.848777 / 3600 / 24 # Kepler short cadence integration time + readout time [days]
+
+tess_2min_it = 120.0 / 86400.0      # TESS 2-min cadence integration time [days]
+tess_20sec_it = 20.0 / 86400.0      # TESS 20-sec cadence integration time [days]
