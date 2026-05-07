@@ -130,7 +130,8 @@ def main():
 
     # load lightcurves
     #litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP')
-    litecurve_master = LiteCurve().from_kplr_pdcsap(data_dir, kic_id, 'long cadence', visits=2)
+    litecurve_master = LiteCurve().load_kepler_pdcsap(data_dir, kic_id, 'long cadence', visits=2)
+    
 
     t_min = litecurve_master.time.min()
     t_max = litecurve_master.time.max()
@@ -146,6 +147,10 @@ def main():
 
     print(f"{len(litecurves)} litecurves loaded for {target}")
 
+
+    exit(0)  # temporary exit to test I/O block before proceeding with pipeline
+
+    
     # initialize planets (catch no ephemeris warning)
     with warnings.catch_warnings(record=True) as catch:
         warnings.simplefilter('always', category=UserWarning)
