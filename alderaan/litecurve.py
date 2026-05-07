@@ -92,6 +92,18 @@ class LiteCurve:
         return self
     
 
+
+
+class KeplerLiteCurve(LiteCurve):
+    
+    def __init__(self, data_dir, target_id, obsmode, visits=None):
+        super().__init__()
+
+    def split_visits(*args, visits=None):
+        pass
+        # super LiteCurve.split_visits(vists --> visits)
+
+    
     @classmethod
     def load_kepler_pdcsap(cls, data_dir, target_id, obsmode, visits=None):
         """
@@ -187,18 +199,6 @@ class LiteCurve:
         lc_instance = lc_instance._remove_flagged_cadences(lklc.quality)
 
         return lc_instance
-    
-
-
-class KeplerLiteCurve(LiteCurve):
-    
-    def __init__(self, data_dir, target_id, obsmode, visits=None):
-        super().__init__()
-
-    def split_visits(*args, visits=None):
-        pass
-        # super LiteCurve.split_visits(vists --> visits)
-
     
 
 

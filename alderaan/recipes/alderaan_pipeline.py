@@ -149,7 +149,6 @@ def main():
 
 
     exit(0)  # temporary exit to test I/O block before proceeding with pipeline
-
     
     # initialize planets (catch no ephemeris warning)
     with warnings.catch_warnings(record=True) as catch:
