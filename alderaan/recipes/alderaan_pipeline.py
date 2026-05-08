@@ -1,7 +1,7 @@
 import os
 import sys
 
-from aesara_theano_fallback import aesara as theano
+# from aesara_theano_fallback import aesara as theano
 import argparse
 from astropy.units import UnitsWarning
 from astropy.stats import mad_std
@@ -20,12 +20,12 @@ from alderaan.constants import *
 from alderaan.ephemeris import Ephemeris
 from alderaan.litecurve import LiteCurve
 from alderaan.planet import Planet
-from alderaan.modules.detrend import GaussianProcessDetrender
-from alderaan.modules.omc import OMC
-from alderaan.modules.transit_model import ShapeTransitModel, TTimeTransitModel
-from alderaan.modules.quality_control import QualityControl
-from alderaan.modules.quicklook import plot_litecurve, plot_omc, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
-from alderaan.utils.io import resolve_config_path, parse_koi_catalog, parse_holczer16_catalog, copy_input_target_catalog
+# from alderaan.modules.detrend import GaussianProcessDetrender
+# from alderaan.modules.omc import OMC
+# from alderaan.modules.transit_model import ShapeTransitModel, TTimeTransitModel
+# from alderaan.modules.quality_control import QualityControl
+# from alderaan.modules.quicklook import plot_litecurve, plot_omc, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
+# from alderaan.utils.io import resolve_config_path, parse_koi_catalog, parse_holczer16_catalog, copy_input_target_catalog
 
 
 def initialize_pipeline():
@@ -69,6 +69,10 @@ def main():
     parser.add_argument('-t', '--target', required=True, type=str, help='Target ID for star')
     parser.add_argument('-c', '--config', required=True, type=str, help='Path to config file')
     args = parser.parse_args()
+
+    print(args)
+
+    exit(0)
 
     config = ConfigParser()
     config.read(args.config)
@@ -146,9 +150,6 @@ def main():
         assert len(np.unique(litecurve.obsmode)) == 1, "expected one obsmode per litecurve"
 
     print(f"{len(litecurves)} litecurves loaded for {target}")
-
-
-    exit(0)  # temporary exit to test I/O block before proceeding with pipeline
     
     # initialize planets (catch no ephemeris warning)
     with warnings.catch_warnings(record=True) as catch:

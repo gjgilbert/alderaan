@@ -96,7 +96,7 @@ class LiteCurve:
 
 class KeplerLiteCurve(LiteCurve):
     
-    def __init__(self, data_dir, target_id, obsmode, quarters=None):
+    def __init__(self, *args, **kwargs):
         super().__init__()
 
     def split_quarters(self, quarters=None):
