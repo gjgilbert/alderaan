@@ -37,6 +37,7 @@ class Ephemeris:
         if init_linear_ephem + init_ttv_ephem != 1:
             raise ValueError("must supply exactly one of (ttime, index) or (period, epoch)")
         
+        
         # Case 1 : linear ephemeris
         if init_linear_ephem:
             self.period = period
@@ -65,6 +66,9 @@ class Ephemeris:
 
         # put epoch in range (t_min, t_min + period)
         self.adjust_epoch(t_min)
+
+        # set static reference period, epoch, and linear ephemeris
+        self.set_static_references()
 
 
     def clip_range(self, t_min, t_max, adjust_epoch=True):
@@ -115,11 +119,10 @@ class Ephemeris:
     
     
     def set_static_references(self):
-        assert not hasattr(self, '_static_period'), "attribute '_static_period' already exists"
-        self._static_period = deepcopy(self.period)
-
-        assert not hasattr(self, '_static_epoch'), "attribute '_static_epoch' already exists"
-        self._static_epoch = deepcopy(self.epoch)
+        if not hasattr(self, '_static_period'):
+            self._static_period = deepcopy(self.period)
+        if not hasattr(self, '_static_epoch'):
+            self._static_epoch = deepcopy(self.epoch)
 
 
     def fit_linear_ephemeris(self, ignore_bad=True):
@@ -162,7 +165,7 @@ class Ephemeris:
         return self
         
 
-    def interpolate(self, full=False, reset_quality=True):
+    def interpolate(self, kind='linear', full=False, reset_quality=True):
         """
         Interpolate poor quality transit times and optionally interpolate missing transit times
 
@@ -179,7 +182,7 @@ class Ephemeris:
         else:
             q = np.ones(len(self.ttime), dtype=bool)
 
-        interpolator = interp1d(self.index[q], self.ttime[q], kind='linear', fill_value='extrapolate')
+        interpolator = interp1d(self.index[q], self.ttime[q], kind=kind, fill_value='extrapolate')
         
         index_full = np.arange(0, self.index.max()+1, dtype=int)
         ttime_full = interpolator(index_full)

@@ -45,6 +45,9 @@ class OMC:
 
 
     def _set_static_references(self, ephemeris):
+        if not hasattr(ephemeris, '_static_period'):
+            ephemeris.set_static_references()
+        
         self._static_period = ephemeris._static_period.copy()
         self._static_epoch = ephemeris._static_epoch.copy()
 

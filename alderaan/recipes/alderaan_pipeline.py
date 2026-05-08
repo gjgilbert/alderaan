@@ -1,7 +1,7 @@
 import os
 import sys
 
-# from aesara_theano_fallback import aesara as theano
+from aesara_theano_fallback import aesara as theano
 import argparse
 from astropy.units import UnitsWarning
 from astropy.stats import mad_std
@@ -19,13 +19,15 @@ import warnings
 from alderaan.constants import *
 from alderaan.ephemeris import Ephemeris
 from alderaan.litecurve import LiteCurve
+from alderaan.litecurve import KeplerLiteCurve
 from alderaan.planet import Planet
-# from alderaan.modules.detrend import GaussianProcessDetrender
-# from alderaan.modules.omc import OMC
+from alderaan.modules.detrend import GaussianProcessDetrender
+from alderaan.modules.omc import OMC
 # from alderaan.modules.transit_model import ShapeTransitModel, TTimeTransitModel
-# from alderaan.modules.quality_control import QualityControl
-# from alderaan.modules.quicklook import plot_litecurve, plot_omc, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
-# from alderaan.utils.io import resolve_config_path, parse_koi_catalog, parse_holczer16_catalog, copy_input_target_catalog
+from alderaan.modules.transit import TransitModel, TTVTransitModel
+from alderaan.modules.quality_control import QualityControl
+from alderaan.modules.quicklook import plot_litecurve, plot_omc, dynesty_cornerplot, dynesty_runplot, dynesty_traceplot
+from alderaan.utils.io import resolve_config_path, parse_koi_catalog, parse_holczer16_catalog, copy_input_target_catalog
 
 
 def initialize_pipeline():
@@ -70,14 +72,13 @@ def main():
     parser.add_argument('-c', '--config', required=True, type=str, help='Path to config file')
     args = parser.parse_args()
 
-    print(args)
-
-    exit(0)
-
     config = ConfigParser()
     config.read(args.config)
 
     alderaan_base_path = Path(__file__).resolve().parents[2]
+
+    print(config.sections())      # lists all section names
+
     for key, value in config["PATHS"].items():
         config['PATHS'][key] = resolve_config_path(config['PATHS'][key], alderaan_base_path)
 
@@ -134,7 +135,8 @@ def main():
 
     # load lightcurves
     #litecurve_master = LiteCurve(data_dir, kic_id, 'long cadence', data_source='Kepler PDCSAP')
-    litecurve_master = LiteCurve().load_kepler_pdcsap(data_dir, kic_id, 'long cadence', visits=2)
+    # litecurve_master = LiteCurve().load_kepler_pdcsap(data_dir, kic_id, 'long cadence', visits=2)
+    litecurve_master = KeplerLiteCurve().load_kepler_pdcsap(data_dir, kic_id, 'long cadence', quarters=[1,2,3])
     
 
     t_min = litecurve_master.time.min()
