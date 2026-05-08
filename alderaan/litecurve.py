@@ -96,12 +96,8 @@ class LiteCurve:
 
 class KeplerLiteCurve(LiteCurve):
     
-    def __init__(self, data_dir, target_id, obsmode, visits=None):
+    def __init__(self, data_dir, target_id, obsmode, quarters=None):
         super().__init__()
-
-    def split_quarters(*args, visits=None):
-        pass
-        # super LiteCurve.split_visits(vists --> visits)
 
     def split_quarters(self, quarters=None):
         """
@@ -116,12 +112,11 @@ class KeplerLiteCurve(LiteCurve):
         if quarters is not None:
             litecurve_list = [lc for lc in litecurve_list if lc.quarter[0] in quarters]
         return litecurve_list
-
     
+
     @classmethod
-    def load_kepler_pdcsap(cls, data_dir, target_id, obsmode, visits=None):
+    def load_kepler_pdcsap(cls, data_dir, target_id, obsmode, quarters=None):
         """
-        TODO: put back quarters keyword. mirror with visit.
 
         Load photometric data from Kepler Project PDCSAP Flux lightcurves
         The raw fits files must be pre-downloaded from MAST servers and stored locally

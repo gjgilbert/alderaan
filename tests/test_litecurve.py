@@ -25,14 +25,18 @@ kic_id = 8644288  # KOI-137 (Kepler-18)
 litecurve = KeplerLiteCurve.load_kepler_pdcsap(data_dir, kic_id, 'long cadence')
 
 # Integer quarter
-litecurve = KeplerLiteCurve.load_kepler_pdcsap(data_dir, kic_id, 'long cadence', visits=1)
+litecurve = KeplerLiteCurve.load_kepler_pdcsap(data_dir, kic_id, 'long cadence', quarters=1)
 
 # List quarters
-litecurve = KeplerLiteCurve.load_kepler_pdcsap(data_dir, kic_id, 'long cadence', visits=[1,2,3])
+litecurve = KeplerLiteCurve.load_kepler_pdcsap(data_dir, kic_id, 'long cadence', quarters=[1,2,3])
+
+litecurves = litecurve.split_quarters()
+
+print(litecurves)
 
 
 # K2
-epic_id = 211913977
+# epic_id = 211913977
 
 # No campaign
 #litecurve = K2LiteCurve.load_K2_everest(data_dir, epic_id, 'long cadence')
