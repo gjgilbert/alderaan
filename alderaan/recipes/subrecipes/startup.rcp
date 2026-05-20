@@ -54,6 +54,22 @@ def run(context):
     catalog_name = str(config['ARGS']['catalog_csv'])
     catalog_filepath = os.path.join(catalog_dir, catalog_name)
 
+    # optional: restrict to specific visits (generic term for observing segments)
+    # Config may use 'visits', 'quarters' (Kepler), or 'sectors' (TESS)
+    _visits_str = config['ARGS'].get('visits', None)
+    if _visits_str is None:
+        _visits_str = config['ARGS'].get('quarters', None)
+    if _visits_str is None:
+        _visits_str = config['ARGS'].get('sectors', None)
+
+    visits = None
+    if _visits_str is not None:
+        visits = [int(q.strip()) for q in _visits_str.split(',')]
+
+    # Keep mission-specific aliases for backward compatibility
+    quarters = visits if mission == 'Kepler' else None
+    sectors = visits if mission == 'TESS' else None
+
     print("")
     print(f"   MISSION : {mission}")
     print(f"   TARGET  : {target}")
@@ -75,8 +91,9 @@ def run(context):
     quicklook_dir = os.path.join(outputs_dir, 'quicklook', run_id, target)
     os.makedirs(quicklook_dir, exist_ok=True)
 
-    # copy input catalog into results directory
+    # copy input catalog into results directory (skip if catalog will be downloaded later)
     _copied_catalog_filepath = os.path.join(outputs_dir, 'results', run_id, f'{run_id}.csv')
-    copy_input_target_catalog(catalog_filepath, _copied_catalog_filepath)
+    if os.path.exists(catalog_filepath):
+        copy_input_target_catalog(catalog_filepath, _copied_catalog_filepath)
 
     return

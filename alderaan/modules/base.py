@@ -2,7 +2,7 @@ __all__ = ['BaseAlg']
 
 from copy import deepcopy
 import numpy as np
-from alderaan.constants import kepler_lcit, kepler_scit
+from alderaan.constants import kepler_lcit, kepler_scit, tess_2min_it, tess_20sec_it
 from alderaan.litecurve import LiteCurve
 from alderaan.planet import Planet
 
@@ -56,6 +56,8 @@ class BaseAlg():
         self._exptime_lookup = {
             'long cadence': kepler_lcit,
             'short cadence': kepler_scit,
+            '2 min cadence': tess_2min_it,
+            '20 sec cadence': tess_20sec_it,
         }
 
 

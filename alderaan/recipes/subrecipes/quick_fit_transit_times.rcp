@@ -28,7 +28,7 @@ def run(context):
         ttime_cc[n], error_cc[n] = ttvmodel.mazeh13_holczer16_method(n, target=context.target, quicklook_dir=context.quicklook_dir)
 
         assert (len(ttime_cc[n]) == len(p.ephemeris.ttime))
-        assert (len(error_cc[n]) == len(p.ephemeris.error))
+        assert (len(error_cc[n]) == len(p.ephemeris.ttime))
 
         _nfit = np.sum(~np.isnan(ttime_cc[n]))
         _ntot = np.sum(p.ephemeris.quality)
@@ -39,6 +39,9 @@ def run(context):
     for n, p in enumerate(planets):
         q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
         p.ephemeris.ttime[q] = ttime_cc[n][q]
+        # initialize error array if needed (e.g. linear ephemeris has None errors)
+        if p.ephemeris.error is None:
+            p.ephemeris.error = np.full(len(p.ephemeris.ttime), np.nan)
         p.ephemeris.error[q] = error_cc[n][q]
         planets[n] = p.update_ephemeris(p.ephemeris)
 

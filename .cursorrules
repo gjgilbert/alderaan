@@ -1,0 +1,73 @@
+# ALDERAAN Project Context
+
+## Background
+ALDERAAN (Automated Lightcurve Detrending, Exoplanet Recovery, and Analysis of Autocorrelated Noise) was originally developed by Greg Gilbert and Erik Petigura to fit light curves and transit shape parameters using data from the Kepler Space Telescope.
+
+## Refactoring Motivation
+Erik Petigura is refactoring this codebase to support TESS (Transiting Exoplanet Survey Satellite) data in addition to Kepler. The goal is to generalize the pipeline so it is not hardcoded to Kepler-specific assumptions. When refactoring, never generate fake data. If something fails, I want to know about it.
+
+
+
+## Key Kepler-Specific Areas That Need Refactoring
+
+### 1. Cadence constants (`alderaan/constants.py`)
+- Kepler long cadence (29.42 min) and short cadence (58.85 sec) are hardcoded.
+- TESS uses 2-min, 20-sec, and FFI cadences (200-sec / 10-min / 30-min depending on mission phase).
+
+### 2. Data I/O (`alderaan/io.py`)
+- `parse_catalog()` only accepts 'Kepler' or 'Kepler-Validation'; uses `koi_id`/`kic_id` columns. TESS uses `toi_id`/`tic_id`.
+- `read_mast_files()` reads Kepler FITS headers (OBSMODE, QUARTER). TESS uses SECTOR.
+- `cleanup_lkc()` organizes data by Kepler quarters.
+- `LightKurve_to_LiteCurve()` uses `.quarter` and `season = quarter % 4` (Kepler's 4-season CCD rotation).
+
+### 3. Quality flags (`alderaan/detrend.py`)
+- Uses `lk.KeplerQualityFlags`. TESS needs `lk.TessQualityFlags`.
+
+### 4. LiteCurve (`alderaan/LiteCurve.py`)
+- Has `quarter` and `season` attributes (Kepler-specific segmentation).
+- Plot labels use "BKJD" (Barycentric Kepler Julian Date). TESS uses "BTJD".
+
+### 5. Pipeline scripts (`bin/detrend_and_estimate_ttvs.py`, `bin/fit_transit_shape_*.py`)
+- Hardcoded to 18 Kepler quarters (`range(18)`, arrays of size 18).
+- 4 seasons (`oscillation_period_by_season`).
+- Kepler file glob pattern: `kplr{KIC_ID:09d}*.fits`.
+- Holczer+2016 Kepler TTV catalog (no TESS equivalent).
+
+### 6. Holczer TTVs (`alderaan/omc.py`)
+- `load_holczer_ttvs()` applies a +67 day offset specific to Kepler time system.
+- This step should be made optional for TESS targets.
+
+### 7. Instrumental artifacts (`alderaan/detrend.py`)
+- `filter_ringing()` addresses Kepler-specific long cadence ringing (Gilliland+ 2010). Not applicable to TESS.
+
+### 8. Data download (`bin/get_kepler_data.py`)
+- Entirely Kepler-specific. A TESS equivalent is needed.
+
+### 9. Catalogs (`Catalogs/`)
+- All catalog files are Kepler-specific. TESS catalogs (TOI list, TIC) will be needed.
+
+## Mission-Agnostic Components (No Changes Needed)
+- `alderaan/astro.py` — transit geometry (depths, durations, masks)
+- `alderaan/Planet.py` — parameter container
+- `alderaan/Ephemeris.py` — ephemeris math
+- `alderaan/noise.py` — ACF/GP noise modeling
+- `alderaan/utils.py` — smoothing, FFT, Lomb-Scargle, binning
+- `alderaan/umbrella.py` — umbrella sampling
+- Transit modeling (batman, exoplanet/starry)
+
+## Refactoring Strategy
+1. Replace Kepler "quarters" with a generic "segment" concept (covers both Kepler quarters and TESS sectors).
+2. Make the number of segments dynamic rather than hardcoded to 18.
+3. Introduce a mission configuration system to parameterize cadences, quality flags, time labels, file patterns, and FITS header keys.
+4. Generalize I/O to handle both Kepler and TESS data formats.
+5. Make Kepler-specific steps (Holczer TTVs, ringing filter) optional.
+
+## TESS-Specific Considerations
+- Shorter baseline per sector (~27 days vs Kepler's ~4 years), so fewer transits per sector.
+- Larger pixels (21" vs 4") means more contamination/dilution.
+- Different systematics (scattered light, momentum dumps) vs Kepler (ringing, seasonal focus changes).
+- TESS 2-min cadence sits between Kepler long and short cadence; oversample logic needs re-tuning.
+
+## Tech Stack
+- Python with astropy, batman, celerite2, dynesty, exoplanet, lightkurve, PyMC3, scipy, starry
+- Uses aesara/theano backend via aesara_theano_fallback

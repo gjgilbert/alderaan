@@ -1,5 +1,6 @@
 __all__ = ['plot_omc',
            'plot_litecurve',
+           'plot_folded_transit',
            'dynesty_runplot',
            'dynesty_traceplot',
            'dynesty_cornerplot',
@@ -14,9 +15,10 @@ import numpy as np
 from alderaan.planet import Planet
 from alderaan.ephemeris import Ephemeris
 from alderaan.modules.omc import OMC
+from alderaan.utils.astro import bin_data
 
 
-def plot_omc(data, target, filepath=None, interactive=False):
+def plot_omc(data, target, filepath=None, interactive=False, time_label="Time [BJKD]"):
     """
     Plot observed-minus-calculated
     Input can be an alderaan Ephmeris or OMC object or a list of these
@@ -99,7 +101,7 @@ def plot_omc(data, target, filepath=None, interactive=False):
         ax[n].set_ylim(-yrange, +yrange)
 
     ax[0].set_title(f"{target}", fontsize=20)
-    ax[n].set_xlabel("Time [BJKD]", fontsize=20)
+    ax[n].set_xlabel(time_label, fontsize=20)
 
     plt.tight_layout()
 
@@ -111,7 +113,7 @@ def plot_omc(data, target, filepath=None, interactive=False):
     return fig
 
 
-def plot_litecurve(litecurve, target, planets=None, filepath=None, interactive=False):
+def plot_litecurve(litecurve, target, planets=None, filepath=None, interactive=False, time_label="Time [BJKD]"):
     # shorthand
     lc = litecurve
 
@@ -122,7 +124,7 @@ def plot_litecurve(litecurve, target, planets=None, filepath=None, interactive=F
     fig, ax = plt.subplots(1,1, figsize=(20,4))
     ax.plot(lc.time, lc.flux, 'k.', ms=0.5)
     ax.tick_params(labelsize=12)
-    ax.set_xlabel("Time [BJKD]", fontsize=24)
+    ax.set_xlabel(time_label, fontsize=24)
     ax.set_ylabel("Flux", fontsize=24)
     ax.set_xlim(lc.time.min(), lc.time.max())
 
@@ -151,6 +153,108 @@ def plot_litecurve(litecurve, target, planets=None, filepath=None, interactive=F
     if not interactive:
         plt.close(fig)
     
+    return fig, ax
+
+
+def plot_folded_transit(litecurve, planet, planet_no, target, filepath=None, interactive=False, max_pts=3000):
+    """
+    Plot phase-folded transit light curve for a single planet.
+
+    Data within ±1.5 transit durations of each transit time are folded 
+    to a common mid-transit at t=0, then binned and plotted.
+
+    Args:
+        litecurve (LiteCurve): detrended light curve
+        planet (Planet): planet object with ephemeris and duration attributes
+        planet_no (int): planet index (used for color and labeling)
+        target (str): target name for title/label
+        filepath (str, optional): if provided, save figure to this path
+        interactive (bool): if False (default), close figure after saving
+        max_pts (int): maximum number of individual points to plot (default 3000)
+
+    Returns:
+        tuple : (fig, ax) matplotlib figure and axes
+    """
+    time = litecurve.time
+    flux = litecurve.flux
+    tts = planet.ephemeris.ttime
+    duration = planet.duration
+
+    # fold photometry around each transit time
+    t_folded = []
+    f_folded = []
+
+    for t0 in tts:
+        use = np.abs(time - t0) / duration < 1.5
+
+        if np.sum(use) > 0:
+            t_folded.append(time[use] - t0)
+            f_folded.append(flux[use])
+
+    if len(t_folded) == 0:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 3))
+        ax.text(0.5, 0.5, "No in-transit data", transform=ax.transAxes,
+                ha='center', va='center', fontsize=14)
+        ax.set_title(f"{target} - Planet {planet_no}", fontsize=16)
+        if filepath is not None:
+            plt.savefig(filepath, bbox_inches='tight')
+        if not interactive:
+            plt.close(fig)
+        return fig, ax
+
+    t_folded = np.hstack(t_folded)
+    f_folded = np.hstack(f_folded)
+
+    # sort by time
+    order = np.argsort(t_folded)
+    t_folded = t_folded[order]
+    f_folded = f_folded[order]
+
+    # bin the data
+    t_binned, f_binned = bin_data(t_folded, f_folded, duration / 11)
+
+    # subsample individual points for plotting
+    inds = np.arange(len(t_folded), dtype=int)
+    if len(inds) > max_pts:
+        inds = np.random.choice(inds, size=max_pts, replace=False)
+
+    # convert to hours and ppm
+    t_hrs = t_folded[inds] * 24
+    f_ppm = (f_folded[inds] - 1) * 1e6
+    t_bin_hrs = t_binned * 24
+    f_bin_ppm = (f_binned - 1) * 1e6
+
+    # y-axis limits
+    scatter = mad_std(f_folded)
+    depth = planet.depth  # already in fractional units
+    ymin = (-3 * scatter - depth) * 1e6
+    ymax = (+3 * scatter) * 1e6
+
+    # plot
+    fig, ax = plt.subplots(1, 1, figsize=(8, 3))
+    ax.plot(t_hrs, f_ppm, '.', c='lightgrey', zorder=1)
+    ax.plot(t_bin_hrs, f_bin_ppm, 'o', ms=8, color=f'C{planet_no}',
+            label=f'{target} - {planet_no}', zorder=2)
+
+    ax.set_xlim(t_folded.min() * 24, t_folded.max() * 24)
+    ax.set_ylim(ymin, ymax)
+    ax.tick_params(labelsize=12)
+    ax.set_xlabel("Time from mid-transit [hrs]", fontsize=16)
+    ax.set_ylabel("Flux (ppm)", fontsize=16)
+    ax.legend(fontsize=12, loc='lower right', framealpha=1)
+
+    # annotate with number of transits
+    n_transits = len(planet.ephemeris.ttime)
+    ax.text(0.05, 0.10, f"N transits = {n_transits}",
+            transform=ax.transAxes, fontsize=12, ha='left', backgroundcolor='w')
+
+    plt.tight_layout()
+
+    if filepath is not None:
+        plt.savefig(filepath, bbox_inches='tight')
+    if not interactive:
+        plt.close(fig)
+
     return fig, ax
 
 
@@ -222,7 +326,7 @@ def _parameter_labels(npl, subscripts=True):
     return labels
 
 
-def plot_quick_fit_ttvs(target, planet_no, _t_obs, _t_mod, _f_obs, _f_mod, tc, tc_offset, tc_fit, x2_fit, chisq, transit_window_size, filepath=None, interactive=False):
+def plot_quick_fit_ttvs(target, planet_no, _t_obs, _t_mod, _f_obs, _f_mod, tc, tc_offset, tc_fit, x2_fit, chisq, transit_window_size, filepath=None, interactive=False, time_label="Time [BJKD]"):
     # recompute a fdew quantities
     quad_coeffs = np.polyfit(tc_fit, x2_fit, 2)
     quad_model = np.polyval(quad_coeffs, tc_fit)
@@ -241,7 +345,7 @@ def plot_quick_fit_ttvs(target, planet_no, _t_obs, _t_mod, _f_obs, _f_mod, tc, t
     xticks = np.array([tc-transit_window_size/2, tc, tc+transit_window_size/2]).round(2)
     ax[0].set_xticks(xticks)
     ax[0].yaxis.set_major_formatter(FormatStrFormatter('%.4f'))
-    ax[0].set_xlabel("Time [BJKD]", fontsize=14)
+    ax[0].set_xlabel(time_label, fontsize=14)
     ax[0].set_ylabel("Flux", fontsize=14)
 
     display = np.abs(chisq - qx2_min) < 2.5

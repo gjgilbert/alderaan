@@ -42,7 +42,10 @@ class Ephemeris:
         if init_linear_ephem:
             self.period = period
             self.epoch = epoch
-            self.ttime = np.arange(self.epoch, t_max, self.period)
+            # Generate transits in both directions from epoch
+            ttime_fwd = np.arange(self.epoch, t_max + self.period, self.period)
+            ttime_bwd = np.arange(self.epoch - self.period, t_min - self.period, -self.period)
+            self.ttime = np.sort(np.concatenate([ttime_bwd, ttime_fwd]))
             self.index = np.array(np.round((self.ttime - self.epoch) / self.period), dtype=int)
             self.error = None
             self.quality = None
@@ -95,6 +98,36 @@ class Ephemeris:
 
         if adjust_epoch:
             self.adjust_epoch(self.t_min)
+
+
+    def filter_to_segments(self, segment_ranges):
+        """
+        Keep only transit times that fall within observed data segments.
+        
+        This is essential for missions like TESS where sectors are separated
+        by large time gaps. Without this filter, the ephemeris would predict
+        transits in gaps where there is no data.
+
+        Args:
+            segment_ranges (list of tuples) : list of (t_start, t_end) for
+                each observed segment (e.g. TESS sector)
+
+        Returns:
+            Ephemeris : self
+        """
+        in_segment = np.zeros(len(self.ttime), dtype=bool)
+        for t_start, t_end in segment_ranges:
+            in_segment |= (self.ttime >= t_start) & (self.ttime <= t_end)
+        
+        for k in self.__dict__.keys():
+            if type(self.__dict__[k]) is np.ndarray:
+                self.__setattr__(k, self.__dict__[k][in_segment])
+
+        # Shift indices so the first one is zero
+        if hasattr(self, 'index') and len(self.index) > 0:
+            self.index -= self.index[0]
+
+        return self
 
 
     def adjust_epoch(self, t_min):
@@ -188,8 +221,10 @@ class Ephemeris:
         ttime_full = interpolator(index_full)
 
         if self.error is not None:
-            error_full = np.nanmedian(self.error)*np.ones_like(index_full)
+            error_full = np.nanmedian(self.error)*np.ones_like(index_full, dtype=float)
             error_full[np.isin(index_full, self.index[q])] = self.error[q]
+        else:
+            error_full = None
         
         if reset_quality:
             quality_full = np.ones(len(index_full), dtype=bool)
@@ -204,7 +239,7 @@ class Ephemeris:
         
         self.index = index_full[keep]
         self.ttime = ttime_full[keep]
-        self.error = error_full[keep]
+        self.error = error_full[keep] if error_full is not None else None
         self.quality = quality_full[keep]
 
         self = self.update_period_and_epoch()
@@ -221,7 +256,7 @@ class Ephemeris:
         
         self.index = omc.index.copy()
         self.ttime = self._static_epoch + self._static_period*self.index + omc.ymod
-        self.error = omc.yerr.copy()
+        self.error = omc.yerr.copy() if omc.yerr is not None else None
         self.quality = omc.quality.copy()
 
         self.period, self.epoch = self.fit_linear_ephemeris()

@@ -59,7 +59,11 @@ class OMC:
             ysmooth = np.median(self.yobs)
 
         if len(self.yobs) > 4:
-            quality = np.abs(self.yobs - ysmooth)/mad_std(self.yobs - ysmooth) < sigma_cut
+            scatter = mad_std(self.yobs - ysmooth)
+            if scatter == 0:
+                quality = np.ones(len(self.yobs), dtype=bool)
+            else:
+                quality = np.abs(self.yobs - ysmooth)/scatter < sigma_cut
         else:
             quality = np.ones(len(self.yobs), dtype=bool)
 

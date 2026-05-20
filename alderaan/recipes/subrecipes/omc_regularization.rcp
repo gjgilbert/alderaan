@@ -119,10 +119,7 @@ def run(context, check_periodic=True):
         
         omc.out_prob, omc.out_class = omc.calculate_outlier_probability(omc.ymod)
 
-<<<<<<< HEAD
-=======
         # save transit times
->>>>>>> develop
         _filename = os.path.join(context.results_dir, f'{target}_{n:02d}_quick.ttvs')
         save_omc_ephemeris(_filename, omc)
 
@@ -136,8 +133,9 @@ def run(context, check_periodic=True):
 
 
     # make quicklook plot and return planets
+    _time_label = getattr(context, 'time_label', 'Time [BJKD]')
     _filepath = os.path.join(context.quicklook_dir, f"{target}_omc.png")
-    _ = plot_omc(omc_list, target, _filepath)
+    _ = plot_omc(omc_list, target, _filepath, time_label=_time_label)
 
     return {'planets': planets,
             'ttv_scatter': ttv_scatter,

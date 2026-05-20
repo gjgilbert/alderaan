@@ -9,6 +9,7 @@ dependencies:
   - python>=3.9
   - pip
   - line_profiler
+  - libopenblas
   - aesara-theano-fallback==0.1.0
   - arviz==0.12.1
   - astropy==5.3.2
