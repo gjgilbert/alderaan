@@ -8,6 +8,7 @@ import warnings
 
 from alderaan.litecurve import LiteCurve
 from alderaan.litecurve import KeplerLiteCurve
+from alderaan.litecurve import TessLiteCurve
 #from alderaan.litecurve import K2LiteCurve
 
 warnings.simplefilter('always', UserWarning)
@@ -46,6 +47,13 @@ print(litecurves)
 
 # List campaigns
 #litecurve = K2LiteCurve.load_K2_everest(data_dir, epic_id, 'long cadence', campaigns=[5, 16, 18])
+
+
+# TESS
+epictoi_id_id = 211913977
+
+# No campaign
+litecurve = K2LiteCurve.load_K2_everest(data_dir, epic_id, 'long cadence')
 
 
 print("\npassing")
