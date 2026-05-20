@@ -103,7 +103,7 @@ class KeplerLiteCurve(LiteCurve):
     
 
     @classmethod
-    def load_kplr_pdcsap(cls, data_dir, target_id, obsmode, visits=None):
+    def load_kplr_pdcsap(cls, data_dir, target_id, obsmode, quarters=None):
         """
         Load photometric data from Kepler Project PDCSAP Flux lightcurves
         The raw fits files must be pre-downloaded from MAST servers and stored locally
@@ -140,7 +140,7 @@ class KeplerLiteCurve(LiteCurve):
         for i, mf in enumerate(mast_files):
             with fits.open(mf) as hdu_list:
                 if hdu_list[0].header["OBSMODE"] == obsmode and np.isin(
-                    hdu_list[0].header["QUARTER"], visits # hard coded for Kepler
+                    hdu_list[0].header["QUARTER"], quarters # hard coded for Kepler
                     ):
                     mast_data_list.append(lk.read(mf))
 
@@ -152,12 +152,12 @@ class KeplerLiteCurve(LiteCurve):
             quarters.append(lkc.quarter) # hard coded for Kepler
 
         lk_col_clean = []
-        for v in np.unique(visits):
+        for q in np.unique(quarters):
             lkc_list = []
             cadno = []
 
             for lkc in lk_col_raw:
-                if (lkc.quarter == v) * (lkc.targetid == target_id): # hard coded for kepler
+                if (lkc.quarter == q) * (lkc.targetid == target_id): # hard coded for kepler
                     lkc_list.append(lkc)
                     cadno.append(lkc.cadenceno.min())
 
@@ -231,6 +231,23 @@ class TessLiteCurve(LiteCurve):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+
+
+    def split_sectors(self, sectors=None):
+        """
+        TESS wrapper for split_visits().
+        
+        Args:
+            sectors (list) : optional, subset of sectors to return. If None, returns all.
+        Returns:
+            list of LiteCurve : one per sector
+        """
+        litecurve_list = self.split_visits()
+        if sectors is not None:
+            litecurve_list = [lc for lc in litecurve_list if lc.quarter[0] in sectors]
+        return litecurve_list
+    
 
 
     def _remove_flagged_cadences(self, quality_flags, bitmask='default'):

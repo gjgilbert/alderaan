@@ -23,13 +23,13 @@ data_dir = os.path.join(base_path, 'alderaan/examples/data/MAST_downloads/')
 kic_id = 8644288  # KOI-137 (Kepler-18)
 
 # No quarters
-litecurve = KeplerLiteCurve.load_kepler_pdcsap(data_dir, kic_id, 'long cadence')
+litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence')
 
 # Integer quarter
-litecurve = KeplerLiteCurve.load_kepler_pdcsap(data_dir, kic_id, 'long cadence', quarters=1)
+litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence', quarters=1)
 
 # List quarters
-litecurve = KeplerLiteCurve.load_kepler_pdcsap(data_dir, kic_id, 'long cadence', quarters=[1,2,3])
+litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence', quarters=[1,2,3])
 
 litecurves = litecurve.split_quarters()
 
@@ -50,10 +50,10 @@ print(litecurves)
 
 
 # TESS
-epictoi_id_id = 211913977
+tic_id = 120255950
 
-# No campaign
-litecurve = K2LiteCurve.load_K2_everest(data_dir, epic_id, 'long cadence')
+# No sectors
+tess_litecurve = TessLiteCurve.load_tess_pdcsap(tic_id, data_dir=data_dir)
 
 
 print("\npassing")
