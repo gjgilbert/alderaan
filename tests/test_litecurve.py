@@ -20,20 +20,20 @@ base_path = Path(__file__).resolve().parents[1]
 data_dir = os.path.join(base_path, 'alderaan/examples/data/MAST_downloads/')
 
 # KEPLER
-kic_id = 8644288  # KOI-137 (Kepler-18)
+# kic_id = 8644288  # KOI-137 (Kepler-18)
 
-# No quarters
-litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence')
+# # No quarters
+# litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence')
 
-# Integer quarter
-litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence', quarters=1)
+# # Integer quarter
+# litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence', quarters=1)
 
-# List quarters
-litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence', quarters=[1,2,3])
+# # List quarters
+# litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence', quarters=[1,2,3])
 
-litecurves = litecurve.split_quarters()
+# litecurves = litecurve.split_quarters()
 
-print(litecurves)
+# print(litecurves)
 
 
 # K2
@@ -55,5 +55,10 @@ tic_id = 120255950
 # No sectors
 tess_litecurve = TessLiteCurve.load_tess_pdcsap(tic_id, data_dir=data_dir)
 
+# Integer sector
+tess_litecurve = TessLiteCurve.load_tess_pdcsap(tic_id, data_dir=data_dir, sectors=40)
+
+# List sectors
+tess_litecurve = TessLiteCurve.load_tess_pdcsap(tic_id, data_dir=data_dir, sectors=[40, 41, 53, 74, 81])
 
 print("\npassing")

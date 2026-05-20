@@ -1,4 +1,4 @@
-__all__ = ['LiteCurve', 'KeplerLiteCurve', 'TessLiteCurve']
+__all__ = ['LiteCurve', 'KeplerLiteCurve', 'K2LiteCurve', 'TessLiteCurve']
 
 from astropy.io import fits
 import glob
@@ -67,7 +67,7 @@ class LiteCurve:
       
 
     def _remove_flagged_cadences(self, quality_flags, bitmask='default'):
-        qmask = lk.KeplerQualityFlags.create_quality_mask(
+        qmask = lk.QualityFlags.create_quality_mask(
             quality_flags, bitmask=bitmask
         )
         for k in self.__dict__.keys():
@@ -233,7 +233,6 @@ class TessLiteCurve(LiteCurve):
         super().__init__(*args, **kwargs)
 
 
-
     def split_sectors(self, sectors=None):
         """
         TESS wrapper for split_visits().
@@ -250,18 +249,18 @@ class TessLiteCurve(LiteCurve):
     
 
 
-    def _remove_flagged_cadences(self, quality_flags, bitmask='default'):
-        """Override to use TESS quality flags instead of Kepler."""
-        qmask = lk.TessQualityFlags.create_quality_mask(
-            quality_flags, bitmask=bitmask
-        )
-        for k in self.__dict__.keys():
-            if type(self.__dict__[k]) is np.ndarray:
-                self.__setattr__(k, self.__dict__[k][qmask])
+    # def _remove_flagged_cadences(self, quality_flags, bitmask='default'):
+    #     """Override to use TESS quality flags instead of Kepler."""
+    #     qmask = lk.TessQualityFlags.create_quality_mask(
+    #         quality_flags, bitmask=bitmask
+    #     )
+    #     for k in self.__dict__.keys():
+    #         if type(self.__dict__[k]) is np.ndarray:
+    #             self.__setattr__(k, self.__dict__[k][qmask])
 
-        self.quality = np.ones(len(self.time), dtype=bool)
+    #     self.quality = np.ones(len(self.time), dtype=bool)
 
-        return self
+    #     return self
 
 
     @classmethod
