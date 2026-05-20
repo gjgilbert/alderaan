@@ -182,7 +182,7 @@ class KeplerLiteCurve(LiteCurve):
         lc_instance.flux = np.array(lklc.flux.value, dtype=float)
         lc_instance.error = np.array(lklc.flux_err.value, dtype=float)
         lc_instance.cadno = np.array(lklc.cadenceno.value, dtype=int)
-        lc_instance.visit = np.array(lklc.visit, dtype=int) # hard coded for Kepler
+        lc_instance.visit = np.array(lklc.quarter, dtype=int) # hard coded for Kepler
         lc_instance.obsmode = np.array([obsmode]*len(lc_instance.cadno), dtype=str)
         lc_instance.quality = np.array(lklc.quality.value, dtype=int)
         lc_instance.season = np.array(lklc.season, dtype=int)
@@ -245,7 +245,7 @@ class TessLiteCurve(LiteCurve):
         """
         litecurve_list = self.split_visits()
         if sectors is not None:
-            litecurve_list = [lc for lc in litecurve_list if lc.quarter[0] in sectors]
+            litecurve_list = [lc for lc in litecurve_list if lc.sector[0] in sectors]
         return litecurve_list
     
 
