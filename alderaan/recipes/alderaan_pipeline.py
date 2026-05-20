@@ -239,7 +239,7 @@ def main():
         omc_list[n] = omc
 
         p.ephemeris = p.ephemeris.update_from_omc(omc)
-        p.ephemeris = p.ephemeris.interpolate(kind='third', full=True)
+        p.ephemeris = p.ephemeris.interpolate(kind='cubic', full=True)
         planets[n] = p.update_ephemeris(p.ephemeris)
 
         # make quicklook plot
