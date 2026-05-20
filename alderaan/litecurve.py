@@ -66,8 +66,18 @@ class LiteCurve:
         return litecurve_list
       
 
+
+
+
+
+class KeplerLiteCurve(LiteCurve):
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
     def _remove_flagged_cadences(self, quality_flags, bitmask='default'):
-        qmask = lk.QualityFlags.create_quality_mask(
+        qmask = lk.KeplerQualityFlags.create_quality_mask(
             quality_flags, bitmask=bitmask
         )
         for k in self.__dict__.keys():
@@ -78,14 +88,6 @@ class LiteCurve:
 
         return self
     
-
-
-
-class KeplerLiteCurve(LiteCurve):
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
 
     def split_quarters(self, quarters=None):
         """
@@ -233,6 +235,7 @@ class TessLiteCurve(LiteCurve):
         super().__init__(*args, **kwargs)
 
 
+
     def split_sectors(self, sectors=None):
         """
         TESS wrapper for split_visits().
@@ -249,18 +252,18 @@ class TessLiteCurve(LiteCurve):
     
 
 
-    # def _remove_flagged_cadences(self, quality_flags, bitmask='default'):
-    #     """Override to use TESS quality flags instead of Kepler."""
-    #     qmask = lk.TessQualityFlags.create_quality_mask(
-    #         quality_flags, bitmask=bitmask
-    #     )
-    #     for k in self.__dict__.keys():
-    #         if type(self.__dict__[k]) is np.ndarray:
-    #             self.__setattr__(k, self.__dict__[k][qmask])
+    def _remove_flagged_cadences(self, quality_flags, bitmask='default'):
+        """Override to use TESS quality flags instead of Kepler."""
+        qmask = lk.TessQualityFlags.create_quality_mask(
+            quality_flags, bitmask=bitmask
+        )
+        for k in self.__dict__.keys():
+            if type(self.__dict__[k]) is np.ndarray:
+                self.__setattr__(k, self.__dict__[k][qmask])
 
-    #     self.quality = np.ones(len(self.time), dtype=bool)
+        self.quality = np.ones(len(self.time), dtype=bool)
 
-    #     return self
+        return self
 
 
     @classmethod

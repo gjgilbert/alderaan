@@ -20,18 +20,18 @@ base_path = Path(__file__).resolve().parents[1]
 data_dir = os.path.join(base_path, 'alderaan/examples/data/MAST_downloads/')
 
 # KEPLER
-# kic_id = 8644288  # KOI-137 (Kepler-18)
+kic_id = 8644288  # KOI-137 (Kepler-18)
 
-# # No quarters
-# litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence')
+# No quarters
+litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence')
 
-# # Integer quarter
-# litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence', quarters=1)
+# Integer quarter
+litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence', quarters=1)
 
-# # List quarters
-# litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence', quarters=[1,2,3])
+# List quarters
+litecurve = KeplerLiteCurve.load_kplr_pdcsap(data_dir, kic_id, 'long cadence', quarters=[1,2,3])
 
-# litecurves = litecurve.split_quarters()
+litecurves = litecurve.split_quarters()
 
 # print(litecurves)
 
