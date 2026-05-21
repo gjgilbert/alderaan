@@ -44,8 +44,8 @@ class Planet:
         else:
             raise ValueError("Catalog must contain either 'koi_id' or 'toi_id' column")
 
-        self.period = float(df.at[planet_no, 'period'])
-        self.epoch = float(df.at[planet_no, 'epoch'])
+        self.period = np.float64(df.at[planet_no, 'period'])
+        self.epoch = np.float64(df.at[planet_no, 'epoch'])
         self.depth = float(df.at[planet_no, 'depth']) * 1e-6       # ppm
         self.duration = float(df.at[planet_no, 'duration']) / 24.  # hrs --> days
         self.impact = float(df.at[planet_no, 'impact'])

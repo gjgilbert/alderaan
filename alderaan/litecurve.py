@@ -68,8 +68,6 @@ class LiteCurve:
 
 
 
-
-
 class KeplerLiteCurve(LiteCurve):
     
     def __init__(self, *args, **kwargs):
