@@ -136,3 +136,6 @@ temp*
 
 # line profiler
 *.lprof
+
+# TESS MAST files
+alderaan/examples/data/MAST_downloads/tess*
