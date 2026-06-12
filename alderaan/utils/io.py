@@ -69,6 +69,36 @@ def parse_koi_catalog(filepath, koi_id):
     
     return catalog
 
+def fetch_k2_table(catalog_dir, force_refresh=False):
+    """Downloads the full K2 table from the NASA Exoplanet Archive TAP API.
+
+    The table is cached as a local CSV file. If a cached file already exists
+    in catalog_dir and force_refresh=False, the download is skipped.
+
+    Args:
+        catalog_dir (str) : directory to store the cached CSV
+        force_refresh (bool) : if True, re-download even if cached file exists
+
+    Returns:
+        str : path to the cached CSV file
+    """
+    os.makedirs(catalog_dir, exist_ok=True)
+    cached_path = os.path.join(catalog_dir, "k2_conf_cand.csv")
+
+    if os.path.exists(cached_path) and not force_refresh:
+        print(f"Using cached K2 table: {cached_path}")
+        return cached_path
+
+    tap_url = (
+        "https://exoplanetarchive.ipac.caltech.edu/TAP/sync?"
+        "query=select+*+from+k2pandc&format=csv"
+    )
+    print(f"Downloading K2 table from Exoplanet Archive...")
+    urllib.request.urlretrieve(tap_url, cached_path)
+    print(f"K2 table saved to: {cached_path}")
+
+    return cached_path
+
 
 def fetch_toi_table(catalog_dir, force_refresh=False):
     """Downloads the full TOI table from the NASA Exoplanet Archive TAP API.
@@ -99,6 +129,93 @@ def fetch_toi_table(catalog_dir, force_refresh=False):
     print(f"TOI table saved to: {cached_path}")
 
     return cached_path
+
+
+def parse_k2_catalog(filepath, epic_id):
+    """Reads a K2 catalog CSV and returns a DataFrame matching ALDERAAN format.
+
+    Analogous to parse_koi_catalog() but for K2 Objects of Interest.
+
+    Args:
+        filepath (str) : path to K2 CSV file (from fetch_k2_table)
+        epic_id (str) : system-level EPIC identifier, e.g. "EPIC 201912552"
+
+    Returns:
+        pd.DataFrame : catalog with columns:
+            [tic_id, toi_id, npl, period, epoch, depth, duration,
+             impact, limbdark_1, limbdark_2, Rstar, Mstar, Teff]
+
+    # NOTE: K2 exoplanet archive catalog does not have limb darkening. Default for now is [0.4, 0.2].
+    """
+
+    # Parse the system number from epic_id string (e.g., "EPIC-201912552" -> 201912552)
+    system_num = int(epic_id.split("-")[1])
+
+    # Read the full K2 table
+    k2_table = pd.read_csv(filepath, comment='#')
+
+    # Drop rows with missing 'epic_hostname' values
+    k2_table = k2_table[k2_table['epic_hostname'].notna()]
+
+    # Strip "EPIC " prefix from 'epic_candname' column
+    k2_table['epic_hostname'] = k2_table['epic_hostname'].str.replace('EPIC ', '', regex=False)
+
+    # Filter to planet candidates in this system
+    # The 'epic_hostname' column contains values like 201912552, 201912553, etc.
+    system_mask = k2_table['epic_hostname'].apply(lambda x: int(x) == system_num)
+    system = k2_table.loc[system_mask].copy()
+
+    if len(system) == 0:
+        raise ValueError(f"No K2 entries found for {epic_id} (system number {system_num})")
+
+    # Build the output DataFrame
+    npl = len(system)
+
+    catalog = pd.DataFrame()
+    catalog['epic_id'] = system['epic_hostname'].values
+    catalog['epic_cand_name'] = system['epic_candname'].values
+    catalog['npl'] = npl
+    catalog['period'] = system['pl_orbper'].values
+    catalog['epoch'] = system['pl_tranmid'].values - 2454833.0  # BJD -> BTJD
+    catalog['depth'] = (system['pl_ratror'].values**2)*1E6          # ppm
+    catalog['duration'] = system['pl_trandur'].values        # hours
+
+    # Limb darkening: default to [0.4, 0.2]
+    catalog['limbdark_1'] = 0.4
+    catalog['limbdark_2'] = 0.2
+
+    # Impact parameter: default to 0.5
+    catalog['impact'] = 0.5
+
+    # Stellar parameters (may have NaNs)
+    catalog['Rstar'] = system['st_rad'].values if 'st_rad' in system.columns else np.nan
+    catalog['Mstar'] = system['st_mass'].values if 'st_mass' in system.columns else np.nan
+    catalog['Teff'] = system['st_teff'].values if 'st_teff' in system.columns else np.nan
+
+    # Sort by ascending period
+    catalog = catalog.sort_values(by='period').reset_index(drop=True)
+
+    # Consistency checks (same as parse_koi_catalog)
+    if not all(epic == catalog.epic_id.to_numpy()[0] for epic in catalog.epic_id):
+        raise ValueError("There are inconsistencies with EPIC_ID in the K2 catalog")
+
+    if not all(
+        ld_u1 == catalog.limbdark_1.to_numpy()[0] for ld_u1 in catalog.limbdark_1
+    ):
+        raise ValueError("There are inconsistencies with LD_U1 in the K2 catalog")
+
+    if not all(
+        ld_u2 == catalog.limbdark_2.to_numpy()[0] for ld_u2 in catalog.limbdark_2
+    ):
+        raise ValueError("There are inconsistencies with LD_U2 in the K2 catalog")
+
+    # Check for NaN valued transit parameters
+    if np.any(
+        np.isnan(np.array(catalog["period epoch depth duration impact".split()]))
+    ):
+        raise ValueError("NaN values found in K2 catalog for required transit parameters")
+
+    return catalog
 
 
 def parse_toi_catalog(filepath, toi_id):

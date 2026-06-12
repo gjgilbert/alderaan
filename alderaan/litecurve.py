@@ -225,6 +225,167 @@ class KeplerLiteCurve(LiteCurve):
         hdulist.writeto(filename, overwrite=True)
 
         return None
+    
+
+
+class K2LiteCurve(LiteCurve):
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
+    def _remove_flagged_cadences(self, quality_flags, bitmask='default'):
+        qmask = lk.K2QualityFlags.create_quality_mask(
+            quality_flags, bitmask=bitmask
+        )
+        for k in self.__dict__.keys():
+            if type(self.__dict__[k]) is np.ndarray:
+                self.__setattr__(k, self.__dict__[k][qmask])
+
+        self.quality = np.ones(len(self.time), dtype=bool)
+
+        return self
+    
+
+    def split_quarters(self, quarters=None):
+        """
+        Kepler wrapper for split_visits().
+        
+        Args:
+            quarters (list) : optional, subset of quarters to return. If None, returns all.
+        Returns:
+            list of LiteCurve : one per quarter
+        """
+        litecurve_list = self.split_visits()
+        if quarters is not None:
+            litecurve_list = [lc for lc in litecurve_list if lc.quarter[0] in quarters]
+        return litecurve_list
+    
+
+    @classmethod
+    def load_kplr_pdcsap(cls, data_dir, target_id, obsmode, quarters=None):
+        """
+        Load photometric data from Kepler Project PDCSAP Flux lightcurves
+        The raw fits files must be pre-downloaded from MAST servers and stored locally
+        
+        This function performs minimal detrending steps
+         * remove_nans()
+         * normalize()
+                
+        Args:
+            data_dir (str) : path to where data are stored
+            target_id (int) : KIC number
+            obsmode (str) : 'short cadence' or 'long cadence'
+            quarters (list) : optional, list of quarters (Kepler quarters) to load.
+        Returns:
+            KeplerLiteCurve : instance
+        """
+
+        # create instance of litecurve
+        lc_instance = cls.__new__(cls)
+        super(cls, lc_instance).__init__()  # initialize base attributes
+        lc_instance.mission = "Kepler"
+
+        # sanitize inputs
+        if quarters is None:
+            quarters = np.arange(18, dtype=int) # hard coded for Kepler
+        if isinstance(quarters, int):
+            quarters = [quarters]
+
+        # load the raw MAST files using lightcurve
+        mast_files = glob.glob(data_dir + f"kplr{target_id:09d}*.fits") # hard-coded for Kepler
+        mast_files.sort()
+        
+        mast_data_list = []
+        for i, mf in enumerate(mast_files):
+            with fits.open(mf) as hdu_list:
+                if hdu_list[0].header["OBSMODE"] == obsmode and np.isin(
+                    hdu_list[0].header["QUARTER"], quarters # hard coded for Kepler
+                    ):
+                    mast_data_list.append(lk.read(mf))
+
+        lk_col_raw = lk.LightCurveCollection(mast_data_list)
+
+        # clean up the Collection data structure
+        quarters = []
+        for lkc in lk_col_raw:
+            quarters.append(lkc.quarter) # hard coded for Kepler
+
+        lk_col_clean = []
+        for q in np.unique(quarters):
+            lkc_list = []
+            cadno = []
+
+            for lkc in lk_col_raw:
+                if (lkc.quarter == q) * (lkc.targetid == target_id): # hard coded for kepler
+                    lkc_list.append(lkc)
+                    cadno.append(lkc.cadenceno.min())
+
+            order = np.argsort(cadno)
+            lkc_list = [lkc_list[j] for j in order]
+
+            # lk.stitch() also normalizes the lightkurves
+            lkc = lk.LightCurveCollection(lkc_list).stitch().remove_nans()
+            
+            lkc.quarter = lkc.quarter*np.ones(len(lkc.time), dtype='int') # hard coded for kepler
+            lkc.season = lkc.quarter % 4 # hard coded for Kepler
+            
+            lk_col_clean.append(lkc)
+
+        lk_col_clean = lk.LightCurveCollection(lk_col_clean)
+
+        # stitch into a single LightCurve
+        lklc = lk_col_clean.stitch()
+
+        # set LiteCurve attributes
+        lc_instance.time = np.array(lklc.time.value, dtype=float)
+        lc_instance.flux = np.array(lklc.flux.value, dtype=float)
+        lc_instance.error = np.array(lklc.flux_err.value, dtype=float)
+        lc_instance.cadno = np.array(lklc.cadenceno.value, dtype=int)
+        lc_instance.visit = np.array(lklc.quarter, dtype=int) # hard coded for Kepler
+        lc_instance.obsmode = np.array([obsmode]*len(lc_instance.cadno), dtype=str)
+        lc_instance.quality = np.array(lklc.quality.value, dtype=int)
+        lc_instance.season = np.array(lklc.season, dtype=int)
+        
+        # remove cadences flagged by Kepler project pipeline
+        lc_instance = lc_instance._remove_flagged_cadences(lklc.quality)
+
+        return lc_instance
+
+    def to_fits(self, target, filename, cadence):
+        """
+        Save LiteCurve object as a fits file
+
+        Args:
+            target (str) : name of target
+            filename (str) : path to save the fits file to
+            cadence (str) : cadence of lightcurve data; "LONG" or "SHORT" "
+        """
+        # make primary HDU
+        primary_hdu = fits.PrimaryHDU()
+
+        header = primary_hdu.header
+
+        header["TARGET"] = target
+        header["CADENCE"] = cadence
+
+        primary_hdu.header = header
+
+        # add it to HDU list
+        hdulist = []
+        hdulist.append(primary_hdu)
+
+        hdulist.append(fits.ImageHDU(self.time, name="TIME"))
+        hdulist.append(fits.ImageHDU(self.flux, name="FLUX"))
+        hdulist.append(fits.ImageHDU(self.error, name="ERROR"))
+        hdulist.append(fits.ImageHDU(self.cadno, name="CADNO"))
+        hdulist.append(fits.ImageHDU(self.visit, name="visit"))
+
+        hdulist = fits.HDUList(hdulist)
+        hdulist.writeto(filename, overwrite=True)
+
+        return None
+    
 
 
 class TessLiteCurve(LiteCurve):

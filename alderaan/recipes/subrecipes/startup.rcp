@@ -38,6 +38,8 @@ def run(context):
     parser.add_argument('-c', '--config', required=True, type=str, help='Path to config file')
     args = parser.parse_args()
 
+
+
     config = ConfigParser()
     config.read(args.config)
 

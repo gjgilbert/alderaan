@@ -23,7 +23,8 @@ def main():
             invoke_subrecipe(context, 'load_kepler_data.rcp')
             invoke_subrecipe(context, 'omc_cleanup.rcp', full=True)
         elif context.mission == 'K2':
-            raise NotImplementedError(f"K2 mission not yet implemented")
+            # raise NotImplementedError(f"K2 mission not yet implemented")
+            invoke_subrecipe(context, 'load_k2_data.rcp')
         elif context.mission == 'TESS':
             invoke_subrecipe(context, 'load_tess_data.rcp')
             # full=False: don't interpolate transits into inter-sector gaps
