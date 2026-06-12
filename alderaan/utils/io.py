@@ -176,7 +176,7 @@ def parse_k2_catalog(filepath, epic_id):
     catalog['epic_cand_name'] = system['epic_candname'].values
     catalog['npl'] = npl
     catalog['period'] = system['pl_orbper'].values
-    catalog['epoch'] = system['pl_tranmid'].values - 2454833.0  # BJD -> BTJD
+    catalog['epoch'] = system['pl_tranmid'].values - 2454833.0  # BJD -> BKJD
     catalog['depth'] = (system['pl_ratror'].values**2)*1E6          # ppm
     catalog['duration'] = system['pl_trandur'].values        # hours
 

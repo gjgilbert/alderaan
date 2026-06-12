@@ -316,7 +316,7 @@ class K2LiteCurve(LiteCurve):
             search_result = search_result[mask]
             if len(search_result) == 0:
                 raise ValueError(
-                    f"No K2 EVEREST lightcurves found for EPIC {epic_id} "
+                    f"No K2 lightcurves found for EPIC {epic_id} "
                     f"in campaigns {campaigns}"
                 )
 
