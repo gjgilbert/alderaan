@@ -147,6 +147,15 @@ class Ephemeris:
             adj = (self.epoch - t_min) // self.period
             self.epoch -= adj * self.period
 
+        # Ensure epoch is strictly after the earliest transit time
+        if hasattr(self, 'ttime') and len(self.ttime) > 0:
+            earliest = self.ttime.min()
+            if self.epoch <= earliest:
+                # shift epoch forward by the minimum integer number of periods
+                # so that epoch > earliest
+                n = int(np.floor((earliest - self.epoch) / self.period)) + 1
+                self.epoch += n * self.period
+
         if hasattr(self, 'index'):
             self.index -= self.index[0]
     

@@ -48,11 +48,14 @@ def run(context):
     if t_min < 0:
         raise ValueError("Lightcurve has negative timestamps...this will cause problems")
     
-    for n in range(len(catalog.epoch)):
-        if t_min > catalog.epoch[n]:
-            warnings.warn("Lightcurve starts before the first transit; this will cause indexing problems. Shifting epoch forward.")
-            n_shifts = np.ceil((t_min - catalog.epoch[n]) / catalog.period[n]).astype(int)
-            catalog.epoch[n] += n_shifts * catalog.period[n]
+    # for n in range(len(catalog.epoch)):
+    #     if t_min > catalog.epoch[n]:
+    #         warnings.warn("Lightcurve starts before the first transit; this will cause indexing problems. Shifting epoch forward.")
+    #         n_shifts = np.ceil((t_min - catalog.epoch[n]) / catalog.period[n]).astype(int)
+    #         # catalog.epoch[n] += catalog.epoch[n] + n_shifts * catalog.period[n]
+    #         catalog.loc[n, 'epoch'] += n_shifts * catalog.loc[n, 'period']
+
+
 
     # split litecurves by campaign (visit)
     litecurves = litecurve_master.split_visits()
