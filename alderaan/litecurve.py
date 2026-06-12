@@ -32,7 +32,7 @@ class LiteCurve:
         lc_instance.visit = np.array([]).astype(int)
         lc_instance.obsmode = np.array([]).astype(str)
         lc_instance.quality = np.array([]).astype(bool)
-        lc_instance.season = np.array([]).astype(int)
+        # lc_instance.season = np.array([]).astype(int)
         return lc_instance
 
     
@@ -235,9 +235,13 @@ class K2LiteCurve(LiteCurve):
 
 
     def _remove_flagged_cadences(self, quality_flags, bitmask='default'):
-        qmask = lk.K2QualityFlags.create_quality_mask(
-            quality_flags, bitmask=bitmask
-        )
+        # qmask = lk.K2QualityFlags.create_quality_mask( # this method doesn't exist
+        #     quality_flags, bitmask=bitmask
+        # )
+
+        # Only take light curve points where quality flags are zero
+        qmask = np.where(quality_flags == 0)[0]
+
         for k in self.__dict__.keys():
             if type(self.__dict__[k]) is np.ndarray:
                 self.__setattr__(k, self.__dict__[k][qmask])
@@ -263,10 +267,9 @@ class K2LiteCurve(LiteCurve):
     
 
     @classmethod
-    def load_kplr_pdcsap(cls, data_dir, target_id, obsmode, quarters=None):
+    def load_k2_everest(cls, data_dir, target_id, obsmode, campaigns=None):
         """
-        Load photometric data from Kepler Project PDCSAP Flux lightcurves
-        The raw fits files must be pre-downloaded from MAST servers and stored locally
+        Load photometric data from K2 Everest lightcurves
         
         This function performs minimal detrending steps
          * remove_nans()
@@ -274,50 +277,78 @@ class K2LiteCurve(LiteCurve):
                 
         Args:
             data_dir (str) : path to where data are stored
-            target_id (int) : KIC number
+            target_id (int) : EPIC number
             obsmode (str) : 'short cadence' or 'long cadence'
-            quarters (list) : optional, list of quarters (Kepler quarters) to load.
+            campaigns (list) : optional, list of campaigns to load.
         Returns:
-            KeplerLiteCurve : instance
+            K2LiteCurve : instance
         """
 
         # create instance of litecurve
         lc_instance = cls.__new__(cls)
         super(cls, lc_instance).__init__()  # initialize base attributes
-        lc_instance.mission = "Kepler"
+        lc_instance.mission = "K2"
 
         # sanitize inputs
-        if quarters is None:
-            quarters = np.arange(18, dtype=int) # hard coded for Kepler
-        if isinstance(quarters, int):
-            quarters = [quarters]
+        if campaigns is None:
+            campaigns = np.arange(20, dtype=int) # hard coded for K2
+        if isinstance(campaigns, int):
+            campaigns = [campaigns]
 
-        # load the raw MAST files using lightcurve
-        mast_files = glob.glob(data_dir + f"kplr{target_id:09d}*.fits") # hard-coded for Kepler
-        mast_files.sort()
+        # Search for TESS lightcurves via lightkurve
+        # This is hard-coded to only take long-cadence K2 EVEREST data. Todo: add support for short cadence.
+        search_result = lk.search_lightcurve(
+            f"EPIC {target_id}",
+            mission="K2",
+            author="K2",
+            exptime="1800"
+        )
+
+        if len(search_result) == 0:
+            raise ValueError(f"No K2 EVEREST lightcurves found for EPIC {epic_id}. Other K2 lightcurves may be available.")
+
+        # Filter by campaigns if requested
+        if campaigns is not None:
+            if isinstance(campaigns, int):
+                campaigns = [campaigns]
+            # search_result.table has a 'sequence_number' column for sector
+            mask = np.isin(search_result.table['sequence_number'], campaigns)
+            search_result = search_result[mask]
+            if len(search_result) == 0:
+                raise ValueError(
+                    f"No K2 EVEREST lightcurves found for EPIC {epic_id} "
+                    f"in campaigns {campaigns}"
+                )
+
+        # Download the lightcurves (lightkurve handles caching)
+        lk_col_raw = search_result.download_all()
         
-        mast_data_list = []
-        for i, mf in enumerate(mast_files):
-            with fits.open(mf) as hdu_list:
-                if hdu_list[0].header["OBSMODE"] == obsmode and np.isin(
-                    hdu_list[0].header["QUARTER"], quarters # hard coded for Kepler
-                    ):
-                    mast_data_list.append(lk.read(mf))
+        # Optionally copy FITS files into data_dir for offline reproducibility
+        if data_dir is not None:
+            os.makedirs(data_dir, exist_ok=True)
+            for lkc in lk_col_raw:
+                if hasattr(lkc, 'filename') and lkc.filename is not None:
+                    src = lkc.filename
+                    dst = os.path.join(data_dir, os.path.basename(src))
+                    if not os.path.exists(dst):
+                        import shutil
+                        shutil.copy2(src, dst)
 
-        lk_col_raw = lk.LightCurveCollection(mast_data_list)
+        lk_col_raw = lk.LightCurveCollection(lk_col_raw)
 
         # clean up the Collection data structure
-        quarters = []
+        campaigns = []
         for lkc in lk_col_raw:
-            quarters.append(lkc.quarter) # hard coded for Kepler
+            campaigns.append(lkc.campaign) # hard coded for Kepler
 
         lk_col_clean = []
-        for q in np.unique(quarters):
+        for q in np.unique(campaigns):
             lkc_list = []
             cadno = []
 
+            target_id_int = int(target_id) if isinstance(target_id, str) else target_id
             for lkc in lk_col_raw:
-                if (lkc.quarter == q) * (lkc.targetid == target_id): # hard coded for kepler
+                if (lkc.campaign == q) * (lkc.targetid == target_id_int): # hard coded for kepler
                     lkc_list.append(lkc)
                     cadno.append(lkc.cadenceno.min())
 
@@ -327,8 +358,8 @@ class K2LiteCurve(LiteCurve):
             # lk.stitch() also normalizes the lightkurves
             lkc = lk.LightCurveCollection(lkc_list).stitch().remove_nans()
             
-            lkc.quarter = lkc.quarter*np.ones(len(lkc.time), dtype='int') # hard coded for kepler
-            lkc.season = lkc.quarter % 4 # hard coded for Kepler
+            lkc.campaign = lkc.campaign*np.ones(len(lkc.time), dtype='int') # hard coded for K2
+            # lkc.season = lkc.quarter % 4 # hard coded for Kepler
             
             lk_col_clean.append(lkc)
 
@@ -342,10 +373,10 @@ class K2LiteCurve(LiteCurve):
         lc_instance.flux = np.array(lklc.flux.value, dtype=float)
         lc_instance.error = np.array(lklc.flux_err.value, dtype=float)
         lc_instance.cadno = np.array(lklc.cadenceno.value, dtype=int)
-        lc_instance.visit = np.array(lklc.quarter, dtype=int) # hard coded for Kepler
+        lc_instance.visit = np.array(lklc.campaign, dtype=int) # hard coded for K2
         lc_instance.obsmode = np.array([obsmode]*len(lc_instance.cadno), dtype=str)
         lc_instance.quality = np.array(lklc.quality.value, dtype=int)
-        lc_instance.season = np.array(lklc.season, dtype=int)
+        # lc_instance.season = np.array(lklc.season, dtype=int)
         
         # remove cadences flagged by Kepler project pipeline
         lc_instance = lc_instance._remove_flagged_cadences(lklc.quality)

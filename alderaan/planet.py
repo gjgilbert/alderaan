@@ -34,6 +34,14 @@ class Planet:
             self.kic_id = str(df.at[planet_no, 'kic_id'])
             self.target_id = target
             self.star_id = self.kic_id
+        elif 'epic_id' in catalog.columns:
+            # K2 catalog
+            target_id = target.split('-')[-1]
+            df = catalog.loc[catalog.epic_id == target_id].sort_values(by='period').reset_index(drop=True)
+            self.epic_id = target
+            # self.cand_id = str(df.at[planet_no, 'epic_id'])
+            self.target_id = target
+            self.star_id = self.epic_id
         elif 'toi_id' in catalog.columns:
             # TESS catalog
             df = catalog.loc[catalog.toi_id == target].sort_values(by='period').reset_index(drop=True)
@@ -42,7 +50,7 @@ class Planet:
             self.target_id = target
             self.star_id = self.tic_id
         else:
-            raise ValueError("Catalog must contain either 'koi_id' or 'toi_id' column")
+            raise ValueError("Catalog must contain either 'koi_id' or 'epic_id' or 'toi_id' column")
 
         self.period = np.float64(df.at[planet_no, 'period'])
         self.epoch = np.float64(df.at[planet_no, 'epoch'])

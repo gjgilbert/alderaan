@@ -34,24 +34,37 @@ def run(context):
     epic_id = catalog.epic_id[0]
     limbdark = [catalog.limbdark_1[0], catalog.limbdark_2[0]]
 
-    # load lightcurves
-    litecurve_master = K2LiteCurve.load_kplr_pdcsap(context.data_dir, epic_id, 'long cadence', quarters=context.quarters)
+    # load lightcurves via lightkurve (with caching)
+    campaigns = getattr(context, 'campaigns', None)
+    litecurve_master = K2LiteCurve.load_k2_everest(
+        data_dir=context.data_dir,
+        target_id=epic_id,
+        obsmode='long cadence', # Always long cadence for K2 (for now)
+        campaigns=campaigns,
+    )
 
     t_min = litecurve_master.time.min()
     t_max = litecurve_master.time.max()
     if t_min < 0:
         raise ValueError("Lightcurve has negative timestamps...this will cause problems")
 
-    # split litecurves by quarter
+    # split litecurves by campaign (visit)
     litecurves = litecurve_master.split_visits()
 
     for j, lc in enumerate(litecurves):
-        assert len(np.unique(lc.visit)) == 1, "expected one quarter per litecurve"
+        assert len(np.unique(lc.visit)) == 1, "expected one campaign per litecurve"
         assert len(np.unique(lc.obsmode)) == 1, "expected one obsmode per litecurve"
 
     print(f"{len(litecurves)} litecurves loaded for {target}")
 
-    # initialize planets (catch no ephemeris warning)
+
+    # Build segment ranges from observed campaigns
+    # Only keep transit times that fall within actual data, not in gaps
+    segment_ranges = []
+    for lc in litecurves:
+        segment_ranges.append((lc.time.min(), lc.time.max()))
+
+    # initialize planets with linear ephemeris (no TTVs for K2 for now)
     with warnings.catch_warnings(record=True) as catch:
         warnings.simplefilter('always', category=UserWarning)
         planets = [None]*NPL
@@ -61,33 +74,17 @@ def run(context):
     print(f"\n{NPL} planets loaded for {target}")
     print([np.round(p.period,6) for p in planets])
 
-    # update planet ephemerides
+    # update planet ephemerides with linear ephemeris, filtered to observed sectors
     for n, p in enumerate(planets):
         if p.ephemeris is None:
             _ephemeris = Ephemeris(period=p.period, epoch=p.epoch, t_min=t_min, t_max=t_max)
+            _ephemeris.filter_to_segments(segment_ranges)
             planets[n] = p.update_ephemeris(_ephemeris)
 
-    # load Holczer+2016 catalog
-    _filepath = os.path.join(context.catalog_dir, 'holczer_2016_kepler_ttvs.txt')
-    holczer_ephemerides = parse_holczer16_catalog(_filepath, koi_id, NPL)
+    print(f"\nUsing linear ephemeris for all {NPL} planets (no external TTV catalog for K2)")
 
-    print(f"\n{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
-
-    # match Holczer ephemerides to Planets
-    _count = 0
-    for n, p in enumerate(planets):
-        for _ephem in holczer_ephemerides:
-            _match = np.isclose(_ephem.period, p.period, rtol=0.01, atol=p.duration)
-
-            if _match:
-                print(f"  Planet {n} : {p.period:.6f} --> {_ephem.period:.6f}")
-                planets[n] = p.update_ephemeris(_ephem)
-                _count += 1
-
-    print(f"{_count} matching ephemerides found ({len(holczer_ephemerides)} expected)")
-
-    # Kepler time label for plots
-    time_label = "Time [BJKD]"
+    # K2 time label for plots
+    time_label = "Time [BKJD]"
 
     # quicklook litecurve
     _filepath = os.path.join(context.quicklook_dir, f"{target}_litecurve_raw.png")
