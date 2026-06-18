@@ -83,7 +83,7 @@ def fetch_k2_table(catalog_dir, force_refresh=False):
         str : path to the cached CSV file
     """
     os.makedirs(catalog_dir, exist_ok=True)
-    cached_path = os.path.join(catalog_dir, "k2_conf_cand.csv")
+    cached_path = os.path.join(catalog_dir, "k2_condensed_planets.csv")
 
     if os.path.exists(cached_path) and not force_refresh:
         print(f"Using cached K2 table: {cached_path}")
@@ -434,3 +434,79 @@ def dynesty_results_to_fits(results, context):
         hduL.append(ttimes_hdu)
 
     return hduL
+
+
+
+
+def read_results(filepath):
+    """Reads in ALDERAAN format results.fits file.
+
+    Args:
+        filepath (str) : path to results.fits file
+
+    Returns:
+        astropy.Table : catalog with columns:
+    """
+    # Parse the system number from toi_id string (e.g., "TOI-5145" -> 5145)
+    system_num = int(toi_id.split("-")[1])
+
+    # Read the full TOI table
+    toi_table = pd.read_csv(filepath, comment='#')
+
+    # Filter to planet candidates in this system
+    # The 'toi' column contains values like 5145.01, 5145.02, etc.
+    system_mask = toi_table['toi'].apply(lambda x: int(x) == system_num)
+    system = toi_table.loc[system_mask].copy()
+
+    if len(system) == 0:
+        raise ValueError(f"No TOI entries found for {toi_id} (system number {system_num})")
+
+    # Build the output DataFrame
+    npl = len(system)
+
+    catalog = pd.DataFrame()
+    catalog['tic_id'] = system['tid'].values
+    catalog['toi_id'] = [toi_id] * npl
+    catalog['toi_pl'] = system['toi'].values
+    catalog['npl'] = npl
+    catalog['period'] = system['pl_orbper'].values
+    catalog['epoch'] = system['pl_tranmid'].values - 2457000.0  # BJD -> BTJD
+    catalog['depth'] = system['pl_trandep'].values          # ppm
+    catalog['duration'] = system['pl_trandurh'].values        # hours
+
+    # Impact parameter: not in TOI table, default to 0.5
+    catalog['impact'] = 0.5
+
+    # Limb darkening: default to [0.4, 0.2]
+    catalog['limbdark_1'] = 0.4
+    catalog['limbdark_2'] = 0.2
+
+    # Stellar parameters (may have NaNs)
+    catalog['Rstar'] = system['st_rad'].values if 'st_rad' in system.columns else np.nan
+    catalog['Mstar'] = system['st_mass'].values if 'st_mass' in system.columns else np.nan
+    catalog['Teff'] = system['st_teff'].values if 'st_teff' in system.columns else np.nan
+
+    # Sort by ascending period
+    catalog = catalog.sort_values(by='period').reset_index(drop=True)
+
+    # Consistency checks (same as parse_koi_catalog)
+    if not all(tic == catalog.tic_id.to_numpy()[0] for tic in catalog.tic_id):
+        raise ValueError("There are inconsistencies with TIC_ID in the TOI catalog")
+
+    if not all(
+        ld_u1 == catalog.limbdark_1.to_numpy()[0] for ld_u1 in catalog.limbdark_1
+    ):
+        raise ValueError("There are inconsistencies with LD_U1 in the TOI catalog")
+
+    if not all(
+        ld_u2 == catalog.limbdark_2.to_numpy()[0] for ld_u2 in catalog.limbdark_2
+    ):
+        raise ValueError("There are inconsistencies with LD_U2 in the TOI catalog")
+
+    # Check for NaN valued transit parameters
+    if np.any(
+        np.isnan(np.array(catalog["period epoch depth duration impact".split()]))
+    ):
+        raise ValueError("NaN values found in TOI catalog for required transit parameters")
+
+    return catalog

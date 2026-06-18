@@ -300,7 +300,7 @@ class RBDTransitModel(TransitModel):
         if not np.isfinite(lnlike):
             return -1e300
         
-        return lnlike
+        return np.float64(lnlike)
     
     
     @staticmethod
@@ -406,7 +406,7 @@ class RBDTransitModel(TransitModel):
         for fix in [fix_r_b_T14, fix_C0_C1] * niter:
             print(f"optimizing logp for variables: [{', '.join(var_names[~fix[:5]])}]")
 
-            logp_initial = self.ln_likelihood(theta, self).copy()
+            logp_initial = np.float64(self.ln_likelihood(theta, self)).copy()
 
             result = least_squares(
                 _fxn,
@@ -417,7 +417,9 @@ class RBDTransitModel(TransitModel):
             )
 
             theta[~fix] = result.x.copy()
-            logp_final = self.ln_likelihood(theta, self).copy()
+            # print(np.float64(self.ln_likelihood(theta, self)))
+            # print(type(np.float64(self.ln_likelihood(theta, self))))
+            logp_final = np.float64(self.ln_likelihood(theta, self)).copy()
 
             print(f"logp: {logp_initial} -> {logp_final}")
             print(f"message: {result['message']}")
@@ -634,7 +636,7 @@ class TTVTransitModel(TransitModel):
         for i in range(np.sum(self.num_transits)):
             print(f"optimizing transit {i} of {len(theta)}")
 
-            logp_initial = self.ln_likelihood(theta, self).copy()
+            logp_initial = np.float64(self.ln_likelihood(theta, self)).copy()
 
             fix = np.ones(len(theta), dtype=bool)
             fix[i] = False
@@ -652,7 +654,7 @@ class TTVTransitModel(TransitModel):
             )
 
             theta[~fix] = result.x.copy()
-            logp_final = self.ln_likelihood(theta, self).copy()
+            logp_final = np.float64(self.ln_likelihood(theta, self)).copy()
 
             print(f"logp: {logp_initial} -> {logp_final}")
             print(f"message: {result['message']}")
@@ -728,7 +730,7 @@ class OptimizationTTVFitter(TransitModel):
 
             print(f"optimizing logp for transit {i} (tc = {np.round(tc,1)})")
 
-            logp_initial = self.ln_likelihood(theta, self, obsmode[i], t_obs, f_obs, f_err).copy()
+            logp_initial = np.float64(self.ln_likelihood(theta, self, obsmode[i], t_obs, f_obs, f_err)).copy()
 
             def _fxn(x, x0, fix, self, obsmode, t_obs, f_obs, f_err):
                 _x = x0.copy()
@@ -744,7 +746,7 @@ class OptimizationTTVFitter(TransitModel):
 
             theta[~fix] = result.x.copy()
             ttime_new[i] = theta[planet_no].copy()
-            logp_final = self.ln_likelihood(theta, self, obsmode[i], t_obs, f_obs, f_err).copy()
+            logp_final = np.float64(self.ln_likelihood(theta, self, obsmode[i], t_obs, f_obs, f_err)).copy()
 
             print(f"logp: {logp_initial} -> {logp_final}")
             print(f"message: {result['message']}")

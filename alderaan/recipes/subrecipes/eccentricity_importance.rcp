@@ -1,0 +1,52 @@
+import os
+import sys
+import warnings
+
+import numpy as np
+from alderaan.modules.photoeccentric import parse_results, imp_sample_rhostar, plot_ecc_corner
+
+
+def run(context, tight_mask=False, clip_outliers=True):
+    print('\n\nSUBRECIPE: ECC IMPORTANCE SAMPLING\n')
+
+    # infer context
+    target = context.target
+    planets = context.planets
+    litecurves = context.litecurves
+
+    # read results
+    results = context.results
+    # Add warning here for no results
+
+    planet_result = parse_results(results, target, planet_index=0)
+
+    rho_mean = 1
+    rho_std = 1
+
+    rho_star = (rho_mean, rho_std)
+    w, d = imp_sample_rhostar(planet_result['period'], planet_result['duration'], planet_result['rprs'], planet_result['impact'], rho_star)
+    
+    planet_result.update({
+        'importance_samples': d,
+        'weights': w,
+        'posteriors': {
+            'period': np.array(d['PERIOD']),
+            'ror': np.array(d['ROR']),
+            'impact': np.array(d['IMPACT']),
+            'duration': np.array(d['DUR14']),
+            'ecc': np.array(d['ECC']),
+            'omega': np.array(d['OMEGA'])
+        }
+    })
+
+    plot_ecc_corner(d, 'alderaan/examples/outputs/quicklook/develop/EPIC-210508766/')
+
+
+
+
+
+
+
+
+
+
