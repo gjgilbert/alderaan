@@ -3,7 +3,10 @@ import sys
 import warnings
 
 import numpy as np
+from alderaan.utils.io import fetch_k2_table, parse_k2_catalog
 from alderaan.modules.photoeccentric import parse_results, imp_sample_rhostar, plot_ecc_corner
+from alderaan.utils.io import dynesty_results_to_fits
+from astropy.table import Table
 
 
 def run(context, tight_mask=False, clip_outliers=True):
@@ -14,35 +17,56 @@ def run(context, tight_mask=False, clip_outliers=True):
     planets = context.planets
     litecurves = context.litecurves
 
+    # fetch and parse K2 catalog
+    k2_csv = fetch_k2_table(context.catalog_dir)
+    catalog = parse_k2_catalog(k2_csv, target)
+
+    # Ensure target is formatted as string with EPIC prefix
+    if not str(target).startswith('EPIC'):
+        target_str = f'EPIC-{target}'
+    else:
+        target_str = target
+
     # read results
-    results = context.results
+    results_fits_file = f'alderaan/examples/outputs/results/develop/{target_str}/{target_str}-results.fits'
+    results_fits_format = Table.read(results_fits_file)
     # Add warning here for no results
 
-    planet_result = parse_results(results, target, planet_index=0)
+    # Process all planets
+    all_planet_results = {}
+    output_dir = f'alderaan/examples/outputs/quicklook/develop/{target_str}/'
 
-    rho_mean = 1
-    rho_std = 1
-
-    rho_star = (rho_mean, rho_std)
-    w, d = imp_sample_rhostar(planet_result['period'], planet_result['duration'], planet_result['rprs'], planet_result['impact'], rho_star)
+    rho_mean = (catalog['Mstar']/(catalog['Rstar']**3)) * 1.41175  # g/cm³
+    rho_std = 1.0
     
-    planet_result.update({
-        'importance_samples': d,
-        'weights': w,
-        'posteriors': {
-            'period': np.array(d['PERIOD']),
-            'ror': np.array(d['ROR']),
-            'impact': np.array(d['IMPACT']),
-            'duration': np.array(d['DUR14']),
-            'ecc': np.array(d['ECC']),
-            'omega': np.array(d['OMEGA'])
-        }
-    })
+    for planet_index, planet in enumerate(planets):
+        print(f'  Processing planet {planet_index}...')
+        
+        planet_result = parse_results(results_fits_format, target, planet_index=planet_index)
 
-    plot_ecc_corner(d, 'alderaan/examples/outputs/quicklook/develop/EPIC-210508766/')
+        rho_star = (rho_mean, rho_std)
+        w, d = imp_sample_rhostar(planet_result['period'], planet_result['duration'], planet_result['rprs'], planet_result['impact'], rho_star)
+        
+        planet_result.update({
+            'importance_samples': d,
+            'weights': w,
+            'posteriors': {
+                'period': np.array(d['PERIOD']),
+                'ror': np.array(d['ROR']),
+                'impact': np.array(d['IMPACT']),
+                'duration': np.array(d['DUR14']),
+                'ecc': np.array(d['ECC']),
+                'omega': np.array(d['OMEGA'])
+            }
+        })
 
+        # Save corner plot for each planet
+        planet_output_dir = f'{output_dir}planet_{planet_index}/'
+        plot_ecc_corner(d, planet_output_dir, planet_index)
+        
+        all_planet_results[f'planet_{planet_index}'] = planet_result
 
-
+    return {'planet_results': all_planet_results}
 
 
 

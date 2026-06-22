@@ -12,6 +12,11 @@ from copy import deepcopy
 import io
 import numpy as np
 import time
+import matplotlib.pyplot as plt
+import numpy.polynomial.polynomial as poly
+
+import corner
+
 
 
 import pandas as pd
@@ -23,24 +28,31 @@ pi = np.pi
 BIGG = 6.6743 * 10**(-8)
 
 
-def parse_results(results, epic_id, planet_index=0):
+def parse_results(results_fits_format, epic_id, planet_index=0):
     """
-    CURRENTLY HARD CODED
-    This might need to be moved to a 'results.py' in the future
+    Parse results for a given EPIC ID and planet index.
+    
+    Args:
+        results_fits_format: FITS format results data
+        epic_id: EPIC ID (e.g., 'EPIC-210508766' or 210508766)
+        planet_index: Planet index (default 0)
     """
+    # Ensure epic_id is formatted as string
+    if not str(epic_id).startswith('EPIC'):
+        epic_id = f'EPIC-{epic_id}'
 
     # if mission == K2:
     k2planets = Table.read("alderaan/examples/catalogs/k2_condensed_planets.csv")
-    k2_hostrow = k2planets[(k2planets['epic_hostname'] == epic_id)] # & (toi_catalog['pl_orbper_rank'] == float(planet_index+1))]
+    k2_hostrow = k2planets[(k2planets['epic_hostname'] == epic_id)]
 
-    results_dir = 'alderaan/examples/outputs/quicklook/develop/EPIC-210508766/'
-    ttvs_file = 'alderaan/examples/outputs/quicklook/develop/EPIC-210508766/ttvs/'
+    results_dir = f'alderaan/examples/outputs/quicklook/develop/{epic_id}'
+    ttvs_file = f'alderaan/examples/outputs/results/develop/{epic_id}/{epic_id}_{planet_index:02d}_quick.ttvs'
 
     ttimes = Table.read(
         ttvs_file,
         format='ascii',
         delimiter='\t',
-        names=['index', 'observed_time', 'model_time', 'uncertainty', 'flag']
+        names=['index', 'observed_time', 'model_time', 'uncertainty', 'flag'])
 
     transit_index = ttimes['index'].value
     model_times = ttimes['model_time'].value
@@ -51,16 +63,17 @@ def parse_results(results, epic_id, planet_index=0):
     impact_name = f'IMPACT_{planet_index}'
     dur_name = f'DUR14_{planet_index}'
 
-    if c0_name not in samples.colnames or c1_name not in samples.colnames:
-        print(f"    Warning: missing ephemeris columns for planet {planet_index}, skipping")
-        continue
+    # if c0_name not in samples.colnames or c1_name not in samples.colnames:
+    #     print(f"    Warning: missing ephemeris columns for planet {planet_index}, skipping")
+    #     continue
 
-    if ror_name not in samples.colnames or impact_name not in samples.colnames or dur_name not in samples.colnames:
-        print(f"    Warning: missing transit parameters for planet {planet_index}, skipping")
-        continue
+    # if ror_name not in samples.colnames or impact_name not in samples.colnames or dur_name not in samples.colnames:
+    #     print(f"    Warning: missing transit parameters for planet {planet_index}, skipping")
+    #     continue
 
-    C0 = samples[c0_name].value
-    C1 = samples[c1_name].value
+
+    C0 = results_fits_format[c0_name].value
+    C1 = results_fits_format[c1_name].value
 
     centered_index = transit_index - transit_index[-1] // 2
     LegX = centered_index / (transit_index[-1] / 2)
@@ -69,16 +82,20 @@ def parse_results(results, epic_id, planet_index=0):
     t0, P = poly.polyfit(transit_index, ephem.T, 1)
 
     period = P
-    rprs = samples[ror_name]
-    impact = samples[impact_name]
-    duration = samples[dur_name]
+    rprs = results_fits_format[ror_name]
+    impact = results_fits_format[impact_name]
+    duration = results_fits_format[dur_name]
 
     planet_result = {
         'period': P,
         'epoch': t0,
-        'samples': samples,
+        'rprs': rprs,
+        'impact': impact,
+        'duration': duration,
+        'samples': results_fits_format,
         'ttimes': ttimes,
     }
+
 
     return planet_result
 
@@ -189,17 +206,28 @@ def imp_sample_rhostar(period, dur, rprs, impact, rho_star, norm=True, return_lo
         data['WEIGHTS'] = weights
         return weights, data
 
-fs = np.vstack((np.array(d['PERIOD']), np.array(d['ROR']), np.array(d['IMPACT']), np.array(d['DUR14']))).T #, np.array(d['LD_Q1']), np.array(d['LD_Q2']))).T
 
-def plot_ecc_corner(d, path):
-
+def plot_ecc_corner(d, path, planet_index):
+    """
+    Plot eccentricity-omega corner plot.
+    
+    Args:
+        d: DataFrame with OMEGA and ECC columns
+        path: Directory path or file path for saving the plot
+    """
     fs = np.vstack((np.array(d['OMEGA']), np.array(d['ECC']))).T
     omega_range = np.percentile(np.array(d['OMEGA']), [1,99])
     ecc_range = np.percentile(np.array(d['ECC']), [1,99])
     range = [omega_range, ecc_range]
 
+    # Ensure path is a directory and ends with /
+    if not path.endswith('/'):
+        path = path + '/'
+    os.makedirs(path, exist_ok=True)
+    
+    output_file = path + 'ew_corner_' + str(planet_index) + '.png'
+
     plt.clf()
     corner.corner(fs, labels=['w', 'e'], show_titles=True, plot_contours=True, range=range);
-    plt.suptitle('TOI ' + str(toi_plrow['toi'].value[0]), fontsize=30)
-    plt.savefig(path + 'ew_corner.png')
+    plt.savefig(output_file)
     plt.close()
