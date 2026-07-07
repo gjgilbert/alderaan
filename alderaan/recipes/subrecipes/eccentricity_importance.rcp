@@ -1,48 +1,88 @@
 import os
 import sys
+from turtle import pd
 import warnings
 
 import numpy as np
-from alderaan.utils.io import fetch_k2_table, parse_k2_catalog
 from alderaan.modules.photoeccentric import parse_results, imp_sample_rhostar, plot_ecc_corner
-from alderaan.utils.io import dynesty_results_to_fits
+from alderaan.utils.io import (
+    fetch_k2_table,
+    fetch_toi_table,
+    parse_k2_catalog,
+    parse_koi_catalog,
+    parse_toi_catalog,
+)
 from astropy.table import Table
 
 
-def run(context, tight_mask=False, clip_outliers=True):
+def _normalize_target_for_mission(mission, target):
+    mission = str(mission).strip().lower()
+    target_str = str(target)
+
+    if mission == 'k2':
+        if not target_str.startswith('EPIC'):
+            return f'EPIC-{target_str}'
+        return target_str
+
+    if mission == 'kepler':
+        if not target_str.startswith('K'):
+            return f'K{target_str}'
+        return target_str
+
+    if mission == 'tess':
+        if not target_str.startswith('TOI'):
+            return f'TOI-{target_str}'
+        return target_str
+
+    return target_str
+
+
+def run(context, tight_mask=False, clip_outliers=True, rho_mean=None, rho_std=None):
     print('\n\nSUBRECIPE: ECC IMPORTANCE SAMPLING\n')
 
     # infer context
     target = context.target
     planets = context.planets
     litecurves = context.litecurves
+    mission = str(context.mission).strip().lower()
+    quicklook_dir = context.quicklook_dir
 
-    # fetch and parse K2 catalog
-    k2_csv = fetch_k2_table(context.catalog_dir)
-    catalog = parse_k2_catalog(k2_csv, target)
-
-    # Ensure target is formatted as string with EPIC prefix
-    if not str(target).startswith('EPIC'):
-        target_str = f'EPIC-{target}'
+    if mission == 'k2':
+        k2_csv = fetch_k2_table(context.catalog_dir)
+        catalog = parse_k2_catalog(k2_csv, target)
+    elif mission == 'kepler':
+        catalog = parse_koi_catalog(context.catalog_filepath, target)
+    elif mission == 'tess':
+        toi_csv = fetch_toi_table(context.catalog_dir)
+        catalog = parse_toi_catalog(toi_csv, target)
     else:
-        target_str = target
+        raise ValueError(f"Unsupported mission '{context.mission}' for eccentricity importance sampling")
+
+    target_str = _normalize_target_for_mission(mission, target)
 
     # read results
-    results_fits_file = f'alderaan/examples/outputs/results/develop/{target_str}/{target_str}-results.fits'
+    results_fits_file = os.path.join(context.results_dir, f"{target}-results.fits")
     results_fits_format = Table.read(results_fits_file)
     # Add warning here for no results
 
     # Process all planets
     all_planet_results = {}
-    output_dir = f'alderaan/examples/outputs/quicklook/develop/{target_str}/'
+    output_dir = os.path.join(quicklook_dir, f'{target}_')
 
-    rho_mean = (catalog['Mstar']/(catalog['Rstar']**3)) * 1.41175  # g/cm³
-    rho_std = 1.0
+    if rho_mean is None:
+        rho_mean = np.float64(catalog['Mstar'] / (catalog['Rstar'] ** 3))
+    else:
+        rho_mean = np.float64(rho_mean)
+
+    if rho_std is None:
+        rho_std = 0.5
+    else:
+        rho_std = np.float64(rho_std)
     
     for planet_index, planet in enumerate(planets):
         print(f'  Processing planet {planet_index}...')
         
-        planet_result = parse_results(results_fits_format, target, planet_index=planet_index)
+        planet_result = parse_results(results_fits_format, target, context.results_dir, planet_index=planet_index)
 
         rho_star = (rho_mean, rho_std)
         w, d = imp_sample_rhostar(planet_result['period'], planet_result['duration'], planet_result['rprs'], planet_result['impact'], rho_star)
@@ -61,7 +101,7 @@ def run(context, tight_mask=False, clip_outliers=True):
         })
 
         # Save corner plot for each planet
-        planet_output_dir = f'{output_dir}planet_{planet_index}/'
+        planet_output_dir = output_dir
         plot_ecc_corner(d, planet_output_dir, planet_index)
         
         all_planet_results[f'planet_{planet_index}'] = planet_result

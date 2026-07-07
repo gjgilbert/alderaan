@@ -46,7 +46,10 @@ def main():
         invoke_subrecipe(context, 'sample_transit_model.rcp')
 
 
-        invoke_subrecipe(context, 'eccentricity_importance.rcp')
+        invoke_subrecipe(context, 'eccentricity_importance.rcp',
+            rho_mean=getattr(context, 'rho_mean', None),
+            rho_std=getattr(context, 'rho_std', None),
+        )
 
     print("\n\n=== exiting main pipeline ===\n\n")
 

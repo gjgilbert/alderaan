@@ -28,25 +28,19 @@ pi = np.pi
 BIGG = 6.6743 * 10**(-8)
 
 
-def parse_results(results_fits_format, epic_id, planet_index=0):
+def parse_results(results_fits_format, target_id, results_dir, planet_index=0):
     """
-    Parse results for a given EPIC ID and planet index.
+    Parse results for a given target identifier and planet index.
     
     Args:
         results_fits_format: FITS format results data
-        epic_id: EPIC ID (e.g., 'EPIC-210508766' or 210508766)
+        target_id: target identifier, e.g. 'EPIC-210508766', 'K01234', or 'TOI-700'
         planet_index: Planet index (default 0)
     """
-    # Ensure epic_id is formatted as string
-    if not str(epic_id).startswith('EPIC'):
-        epic_id = f'EPIC-{epic_id}'
+    target_id = str(target_id)
 
-    # if mission == K2:
-    k2planets = Table.read("alderaan/examples/catalogs/k2_condensed_planets.csv")
-    k2_hostrow = k2planets[(k2planets['epic_hostname'] == epic_id)]
-
-    results_dir = f'alderaan/examples/outputs/quicklook/develop/{epic_id}'
-    ttvs_file = f'alderaan/examples/outputs/results/develop/{epic_id}/{epic_id}_{planet_index:02d}_quick.ttvs'
+    ttvs_file = os.path.join(results_dir, f'{target_id}_{planet_index:02d}_quick.ttvs')
+    
 
     ttimes = Table.read(
         ttvs_file,
@@ -62,15 +56,6 @@ def parse_results(results_fits_format, epic_id, planet_index=0):
     ror_name = f'ROR_{planet_index}'
     impact_name = f'IMPACT_{planet_index}'
     dur_name = f'DUR14_{planet_index}'
-
-    # if c0_name not in samples.colnames or c1_name not in samples.colnames:
-    #     print(f"    Warning: missing ephemeris columns for planet {planet_index}, skipping")
-    #     continue
-
-    # if ror_name not in samples.colnames or impact_name not in samples.colnames or dur_name not in samples.colnames:
-    #     print(f"    Warning: missing transit parameters for planet {planet_index}, skipping")
-    #     continue
-
 
     C0 = results_fits_format[c0_name].value
     C1 = results_fits_format[c1_name].value
@@ -103,13 +88,14 @@ def parse_results(results_fits_format, epic_id, planet_index=0):
 def calc_aRs(P, rho):
     """
     P : period [days]
-    rho : stellar density [g/cm3]
+    rho : stellar density [solar density]
     """
-    P_   = P*86400.       # [seconds]
-    rho_ = rho*1000.      # [kg/m3]
-    G    = c.G.value
-
-    return ((G*P_**2*rho_)/(3*pi))**(1./3)
+    P_ = P * 86400.       # [seconds]
+    G = c.G.value
+    rho_ = rho * 1.408
+    
+    
+    return ((G*P_**2*rho_)/(3*pi))**(1.0/3)
 
 
 def calc_rho_star(P, T14, b, ror, ecc, omega):
@@ -134,6 +120,7 @@ def calc_rho_star(P, T14, b, ror, ecc, omega):
     arg = (pi*dur/per) * (1+ecc*np.sin(omega)) / np.sqrt(1-ecc**2)
     den = np.sin(arg)**2
     
+    # print('rho_star', con * (num/den + b**2) ** 1.5)
     return con * (num/den + b**2) ** 1.5
 
 
@@ -220,9 +207,6 @@ def plot_ecc_corner(d, path, planet_index):
     ecc_range = np.percentile(np.array(d['ECC']), [1,99])
     range = [omega_range, ecc_range]
 
-    # Ensure path is a directory and ends with /
-    if not path.endswith('/'):
-        path = path + '/'
     os.makedirs(path, exist_ok=True)
     
     output_file = path + 'ew_corner_' + str(planet_index) + '.png'

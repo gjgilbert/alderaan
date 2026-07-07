@@ -36,6 +36,10 @@ def run(context):
     parser.add_argument('-m', '--mission', required=True, type=str, help='Observing mission')
     parser.add_argument('-t', '--target', required=True, type=str, help='Target ID for star')
     parser.add_argument('-c', '--config', required=True, type=str, help='Path to config file')
+    parser.add_argument('--rho_mean', '--rho-mean', dest='rho_mean', type=float, default=None,
+                        help='Optional stellar density mean for eccentricity importance sampling')
+    parser.add_argument('--rho_std', '--rho-std', dest='rho_std', type=float, default=None,
+                        help='Optional stellar density uncertainty for eccentricity importance sampling')
     args = parser.parse_args()
 
 
@@ -49,6 +53,8 @@ def run(context):
     mission = args.mission
     target = args.target
     run_id = config['RUN']['run_id']
+    rho_mean = args.rho_mean
+    rho_std = args.rho_std
 
     data_dir =  config['PATHS']['data_dir']
     outputs_dir = config['PATHS']['outputs_dir']
