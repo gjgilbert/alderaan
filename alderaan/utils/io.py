@@ -31,7 +31,7 @@ def parse_koi_catalog(filepath, koi_id):
         koi_id (str) : KOI identification number in the format, e.g., K01234
 
     Returns:
-        pd.DataFrame: catalog of target star/planet properties
+        pd.DataFrame: catalog of target star/planet properties (depth as fraction, duration in days)
     """
     # read catalog from csv file
     catalog = pd.read_csv(filepath, index_col=0)
@@ -62,7 +62,11 @@ def parse_koi_catalog(filepath, koi_id):
         np.isnan(np.array(catalog["period epoch depth duration impact".split()]))
     ):
         raise ValueError("NaN values found in input catalog")
-    
+
+    # convert units
+    catalog['depth'] = catalog['depth'] * 1e-6        # ppm --> fraction
+    catalog['duration'] = catalog['duration'] / 24.   # hrs --> days
+
     return catalog
 
 

@@ -19,6 +19,13 @@ T_MIN = 131.51
 T_MAX = 1591.0
 
 
+def make_planets(koi_id):
+    catalog = parse_koi_catalog(catalog_csv, koi_id)
+    return [Planet(catalog.period[n], catalog.epoch[n], catalog.depth[n],
+                   catalog.duration[n], catalog.impact[n], T_MIN, T_MAX)
+            for n in range(int(catalog.npl[0]))]
+
+
 def record(result, koi_id, n, step, p):
     fields = {
         'index': p.transit_index,
@@ -47,16 +54,13 @@ def replay_pipeline_bookkeeping(koi_id):
     """Replay the sequence of ephemeris operations performed by the pipeline recipes"""
     result = {}
 
-    catalog = parse_koi_catalog(catalog_csv, koi_id)
-    NPL = int(catalog.npl[0])
-
     # step 1 : linear ephemeris
-    planets = [Planet(catalog, koi_id, n, T_MIN, T_MAX) for n in range(NPL)]
+    planets = make_planets(koi_id)
     for n, p in enumerate(planets):
         record(result, koi_id, n, 1, p)
 
     # step 2 : Holczer+2016 ephemerides
-    for index, ttime, error in parse_holczer16_catalog(holczer_txt, koi_id, NPL):
+    for index, ttime, error in parse_holczer16_catalog(holczer_txt, koi_id, len(planets)):
         for n, p in enumerate(planets):
             if np.isclose(Planet.fit_linear_ephemeris(index, ttime)[0], p.period, rtol=0.01, atol=p.duration):
                 planets[n] = p.set_transit_times(index, ttime, error)
@@ -118,8 +122,7 @@ def test_matches_golden(koi_id):
 
 
 def test_period_change_raises():
-    catalog = parse_koi_catalog(catalog_csv, 'K00137')
-    p = Planet(catalog, 'K00137', 0, T_MIN, T_MAX)
+    p = make_planets('K00137')[0]
     index = np.arange(10)
     ttime = 140. + 2 * p.period * index
 
@@ -128,8 +131,7 @@ def test_period_change_raises():
 
 
 def test_reference_period_and_epoch_set_once():
-    catalog = parse_koi_catalog(catalog_csv, 'K00137')
-    p = Planet(catalog, 'K00137', 0, T_MIN, T_MAX)
+    p = make_planets('K00137')[0]
     p.set_reference_period_and_epoch()
 
     with pytest.raises(AssertionError):

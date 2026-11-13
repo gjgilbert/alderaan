@@ -9,22 +9,19 @@ class Planet:
     """Planet
     """
     def __init__(self,
-                 catalog,
-                 koi_id,
-                 planet_no,
+                 period,
+                 epoch,
+                 depth,
+                 duration,
+                 impact,
                  t_min,
                  t_max
                 ):
-        # read transit parameters from pandas dataframe
-        df = catalog.loc[catalog.koi_id == koi_id].sort_values(by='period').reset_index(drop=True)
-
-        self.koi_id = koi_id
-        self.kic_id = str(df.at[planet_no, 'kic_id'])
-        self.period = float(df.at[planet_no, 'period'])
-        self.epoch = float(df.at[planet_no, 'epoch'])
-        self.depth = float(df.at[planet_no, 'depth']) * 1e-6       # ppm
-        self.duration = float(df.at[planet_no, 'duration']) / 24.  # hrs --> days
-        self.impact = float(df.at[planet_no, 'impact'])
+        self.period = period
+        self.epoch = epoch
+        self.depth = depth
+        self.duration = duration
+        self.impact = impact
 
         # initialize transit times from linear ephemeris
         self.transit_times = np.arange(self.epoch, t_max, self.period)

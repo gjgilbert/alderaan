@@ -49,7 +49,8 @@ def run(context):
     # initialize planets
     planets = [None]*NPL
     for n in range(NPL):
-        planets[n] = Planet(catalog, target, n, t_min, t_max)
+        planets[n] = Planet(catalog.period[n], catalog.epoch[n], catalog.depth[n],
+                            catalog.duration[n], catalog.impact[n], t_min, t_max)
 
     print(f"\n{NPL} planets loaded for {target}")
     print([np.round(p.period,6) for p in planets])
