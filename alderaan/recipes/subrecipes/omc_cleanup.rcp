@@ -25,7 +25,7 @@ def run(context, full=True):
         omc.ymod = omc.quick_fit_trend()
 
         _old_period = p.period
-        planets[n] = p.update_from_omc(omc, full=full)
+        planets[n] = p.update_ephemeris(omc.index, omc.ymod, omc.yerr, omc.quality, full=full)
         print(f"Planet {n} : {_old_period:.6f} --> {p.period:.6f}")
 
         omc_list[n] = omc

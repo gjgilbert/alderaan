@@ -2,7 +2,8 @@ __all__ = ['Planet']
 
 import numpy as np
 from scipy.interpolate import interp1d
-import warnings
+
+from alderaan.utils.stats import robust_polyfit
 
 
 class Planet:
@@ -55,7 +56,7 @@ class Planet:
         self.transit_errors = np.copy(error)
         self.transit_quality = None
 
-        self.period, self.epoch = self.fit_linear_ephemeris(self.transit_index, self.transit_times)
+        self.refit_period_and_epoch()
         self._check_period_change(old_period)
 
         t_min = self.transit_times.min() - self.period / 2
@@ -64,28 +65,6 @@ class Planet:
         self.refit_period_and_epoch()
 
         return self
-
-
-    @staticmethod
-    def fit_linear_ephemeris(index, ttime, quality=None):
-        """
-        Fit a linear ephemeris using unweighted least squares
-
-        Args:
-            index (ndarray) : transit index
-            ttime (ndarray) : transit times
-            quality (ndarray) : boolean mask; True for transits to include in fit (default=None, use all)
-
-        Returns:
-            ndarray : (period, epoch)
-        """
-        if quality is None:
-            quality = np.ones(len(index), dtype=bool)
-
-        A = np.ones((len(index[quality]), 2))
-        A[:, 0] = index[quality]
-
-        return np.linalg.lstsq(A, ttime[quality], rcond=None)[0]
 
 
     def _check_period_change(self, old_period):
@@ -156,35 +135,37 @@ class Planet:
         Returns:
             Planet : self
         """
-        self.period, self.epoch = self.fit_linear_ephemeris(self.transit_index, self.transit_times, self.transit_quality)
+        if self.transit_quality is not None:
+            q = self.transit_quality
+        else:
+            q = np.ones(len(self.transit_index), dtype=bool)
+
+        self.period, self.epoch = robust_polyfit(self.transit_index[q], self.transit_times[q], 1)
 
         return self
 
 
-    def update_from_omc(self, omc, full=False):
+    def update_ephemeris(self, index, omc_model, error, quality, full=False):
         """
         Replace transit times with O-C model added to the reference ephemeris,
         interpolate over poor quality transits, and reset all quality flags to True
 
         Args:
-            omc (OMC)
+            index (ndarray) : transit index
+            omc_model (ndarray) : O-C model relative to the reference ephemeris
+            error (ndarray) : transit time uncertainties
+            quality (ndarray) : boolean mask; True for good quality transits
             full (bool) : True to also interpolate missing transit times (default=False)
 
         Returns:
             Planet : self
         """
-        assert np.allclose(self.reference_period, omc._static_period, rtol=1e-12), "reference periods do not match"
-        assert np.allclose(self.reference_epoch, omc._static_epoch, rtol=1e-12), "reference epochs do not match"
-
-        if len(self.transit_times) != len(omc.xtime):
-            warnings.warn(f"updated ephemeris has {len(omc.xtime)} transit times (was {len(self.transit_times)})")
-
         old_period = self.period
 
-        self.transit_index = omc.index.copy()
-        self.transit_times = self.reference_epoch + self.reference_period*self.transit_index + omc.ymod
-        self.transit_errors = omc.yerr.copy()
-        self.transit_quality = omc.quality.copy()
+        self.transit_index = np.copy(index)
+        self.transit_times = self.reference_epoch + self.reference_period*self.transit_index + omc_model
+        self.transit_errors = np.copy(error)
+        self.transit_quality = np.copy(quality)
 
         self.refit_period_and_epoch()
         self._check_period_change(old_period)

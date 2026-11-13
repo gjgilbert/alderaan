@@ -13,6 +13,7 @@ import numpy as np
 
 from alderaan.data_models.planet import Planet
 from alderaan.modules.omc import OMC
+from alderaan.utils.stats import robust_polyfit
 
 
 def plot_omc(data, target, filepath=None, interactive=False):
@@ -223,7 +224,7 @@ def _parameter_labels(npl, subscripts=True):
 
 def plot_quick_fit_ttvs(target, planet_no, _t_obs, _t_mod, _f_obs, _f_mod, tc, tc_offset, tc_fit, x2_fit, chisq, transit_window_size, filepath=None, interactive=False):
     # recompute a fdew quantities
-    quad_coeffs = np.polyfit(tc_fit, x2_fit, 2)
+    quad_coeffs = robust_polyfit(tc_fit, x2_fit, 2)
     quad_model = np.polyval(quad_coeffs, tc_fit)
     qtc_min = -quad_coeffs[1] / (2 * quad_coeffs[0])
     qtc_err = np.sqrt(1 / quad_coeffs[0])

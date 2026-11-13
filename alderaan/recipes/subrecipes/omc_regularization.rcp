@@ -122,7 +122,7 @@ def run(context, check_periodic=True):
         _filename = os.path.join(context.results_dir, f'{target}_{n:02d}_quick.ttvs')
         save_omc_ephemeris(_filename, omc)
 
-        planets[n] = p.update_from_omc(omc, full=False)
+        planets[n] = p.update_ephemeris(omc.index, omc.ymod, omc.yerr, omc.quality, full=False)
         print(f"Planet {n} : {_old_period:.6f} --> {p.period:.6f}")
 
         ttv_scatter[n] = mad_std(omc.yobs - omc.ymod)

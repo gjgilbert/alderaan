@@ -15,14 +15,13 @@ import dynesty
 from dynesty.utils import print_fn
 import io
 import numpy as np
-import numpy.polynomial.polynomial as poly
 from scipy.optimize import least_squares
 import time
 
 from alderaan.modules.base import BaseAlg
 from alderaan.modules.quicklook import plot_quick_fit_ttvs
 from alderaan.utils.astro import bin_data, estimate_transit_depth
-from alderaan.utils.stats import uniform_ppf, loguniform_ppf, norm_ppf
+from alderaan.utils.stats import uniform_ppf, loguniform_ppf, norm_ppf, robust_polyfit
 
 
 class TransitModel(BaseAlg):
@@ -851,10 +850,9 @@ class CrossCorrelationTTVFitter(TransitModel):
 
                         # remove any residual out-of-transit trend
                         use = ~in_transit[in_window]
-                        try:
-                            _f_obs /= poly.polyval(_t, poly.polyfit(_t[use], _f_obs[use], 1))
-                        except TypeError:
-                            pass
+                        if np.any(use):
+                            _slope, _intercept = robust_polyfit(_t[use], _f_obs[use], 1)
+                            _f_obs /= _intercept + _slope * _t
 
                         # STEP 1: generate tc_offset vs chisq vectors
                         gridstep = exptime / supersample / 1.618 / 3
@@ -895,7 +893,7 @@ class CrossCorrelationTTVFitter(TransitModel):
                         # STEP 3: fit a parabola to local chisq minimum
                         if len(tc_fit) > 3:
                             # polynomial fitting
-                            quad_coeffs = np.polyfit(tc_fit, x2_fit, 2)
+                            quad_coeffs = robust_polyfit(tc_fit, x2_fit, 2)
                             quad_model = np.polyval(quad_coeffs, tc_fit)
                             qtc_min = -quad_coeffs[1] / (2 * quad_coeffs[0])
                             qtc_err = np.sqrt(1 / quad_coeffs[0])

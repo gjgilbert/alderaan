@@ -6,14 +6,14 @@ import pytest
 from alderaan.data_models.planet import Planet
 from alderaan.modules.omc import OMC
 from alderaan.utils.io import parse_koi_catalog, parse_holczer16_catalog
-
+from alderaan.utils.stats import robust_polyfit
 
 base_path = Path(__file__).resolve().parents[0]
 catalog_csv = os.path.join(base_path, 'catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
 holczer_txt = os.path.join(base_path, 'catalogs/holczer_2016_kepler_ttvs.txt')
 golden_npz = os.path.join(base_path, 'data/planet_golden.npz')
 
-# golden values were generated from the pre-merge Planet + Ephemeris classes
+# golden values lock in ephemeris bookkeeping; regenerate only for intentional changes to science output
 KOI_IDS = ['K00137', 'K00070', 'K00377', 'K00001']
 T_MIN = 131.51
 T_MAX = 1591.0
@@ -47,7 +47,7 @@ def record(result, koi_id, n, step, p):
 def omc_update(p, full):
     omc = OMC(p)
     omc.quick_fit_trend()
-    p.update_from_omc(omc, full=full)
+    p.update_ephemeris(omc.index, omc.ymod, omc.yerr, omc.quality, full=full)
 
 
 def replay_pipeline_bookkeeping(koi_id):
@@ -62,7 +62,7 @@ def replay_pipeline_bookkeeping(koi_id):
     # step 2 : Holczer+2016 ephemerides
     for index, ttime, error in parse_holczer16_catalog(holczer_txt, koi_id, len(planets)):
         for n, p in enumerate(planets):
-            if np.isclose(Planet.fit_linear_ephemeris(index, ttime)[0], p.period, rtol=0.01, atol=p.duration):
+            if np.isclose(robust_polyfit(index, ttime, 1)[0], p.period, rtol=0.01, atol=p.duration):
                 planets[n] = p.set_transit_times(index, ttime, error)
     for n, p in enumerate(planets):
         record(result, koi_id, n, 2, p)

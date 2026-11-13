@@ -2,10 +2,12 @@ __all__ = ['uniform_ppf',
            'loguniform_ppf',
            'norm_ppf',
            'set_sigma_cutoff',
+           'robust_polyfit',
            ]
 
 
 import numpy as np
+from numpy.polynomial import Legendre, Polynomial
 from scipy.special import erfinv
 from scipy.stats import norm as scipy_norm
 
@@ -66,3 +68,27 @@ def set_sigma_cutoff(npts, sigma_min=3.0):
         sigma_min (float) : minimum sigma cutoff, default=3.0
     """
     return np.max([sigma_min, scipy_norm.interval((npts - 1) / npts)[1]])
+
+
+def robust_polyfit(x, y, deg):
+    """
+    Drop-in replacement for np.polyfit(x, y, deg) that solves the least squares fit
+    in a Legendre basis over the span of x, which stays well conditioned where the
+    power-basis Vandermonde matrix does not
+
+    Args:
+        x (ndarray) : independent variable
+        y (ndarray) : dependent variable
+        deg (int) : degree of the fitted polynomial
+
+    Returns:
+        ndarray : power-basis coefficients, highest order first (same as np.polyfit)
+    """
+    series = Legendre.fit(x, y, deg)
+
+    # convert() trims trailing zero coefficients; np.polyfit always returns deg + 1
+    coeffs = np.zeros(deg + 1)
+    converted = series.convert(kind=Polynomial).coef
+    coeffs[:converted.size] = converted
+
+    return coeffs[::-1]
