@@ -116,7 +116,7 @@ class BaseAlg():
 
         for n, p in enumerate(self.planets):
             obsmode[n] = []
-            for tc in p.ephemeris.ttime:
+            for tc in p.transit_times:
                 obsmode[n].append(lc.obsmode[np.argmin(np.abs(lc.time-tc))])
             obsmode[n] = np.array(obsmode[n])
 
@@ -148,7 +148,7 @@ class BaseAlg():
 
         for n, p in enumerate(self.planets):
             half_width = 0.5*np.max([rel_size*p.duration, abs_size])
-            for tc in p.ephemeris.ttime:
+            for tc in p.transit_times:
                 mask[n] += np.abs(self.litecurve.time - tc) < half_width
 
         if mask_type == 'standard':
@@ -179,11 +179,11 @@ class BaseAlg():
         overlap = [None]*self.npl
 
         for i in range(self.npl):
-            overlap[i] = np.zeros(len(self.planets[i].ephemeris.ttime), dtype=bool)
-            ttime_i = self.planets[i].ephemeris.ttime
+            overlap[i] = np.zeros(len(self.planets[i].transit_times), dtype=bool)
+            ttime_i = self.planets[i].transit_times
             
             for j in range(i+1,self.npl):
-                for tc_j in self.planets[j].ephemeris.ttime:
+                for tc_j in self.planets[j].transit_times:
                     if rtol is not None:
                         overlap[i] |= np.abs(ttime_i - tc_j) < rtol * 0.5 * (self.durs[i] + self.durs[j])
                     if atol is not None:

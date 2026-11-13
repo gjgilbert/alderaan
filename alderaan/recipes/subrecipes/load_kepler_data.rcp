@@ -1,11 +1,9 @@
 import os
 import sys
-import warnings
 
 from astropy.stats import mad_std
 import numpy as np
 
-from alderaan.data_models.ephemeris import Ephemeris
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.planet import Planet
 from alderaan.modules.quicklook import plot_litecurve
@@ -48,21 +46,13 @@ def run(context):
 
     print(f"{len(litecurves)} litecurves loaded for {target}")
 
-    # initialize planets (catch no ephemeris warning)
-    with warnings.catch_warnings(record=True) as catch:
-        warnings.simplefilter('always', category=UserWarning)
-        planets = [None]*NPL
-        for n in range(NPL):
-            planets[n] = Planet(catalog, target, n)
+    # initialize planets
+    planets = [None]*NPL
+    for n in range(NPL):
+        planets[n] = Planet(catalog, target, n, t_min, t_max)
 
     print(f"\n{NPL} planets loaded for {target}")
     print([np.round(p.period,6) for p in planets])
-
-    # update planet ephemerides
-    for n, p in enumerate(planets):
-        if p.ephemeris is None:
-            _ephemeris = Ephemeris(period=p.period, epoch=p.epoch, t_min=t_min, t_max=t_max)
-            planets[n] = p.update_ephemeris(_ephemeris)
 
     # load Holczer+2016 catalog
     _filepath = os.path.join(context.catalog_dir, 'holczer_2016_kepler_ttvs.txt')
@@ -73,12 +63,13 @@ def run(context):
     # match Holczer ephemerides to Planets
     _count = 0
     for n, p in enumerate(planets):
-        for _ephem in holczer_ephemerides:
-            _match = np.isclose(_ephem.period, p.period, rtol=0.01, atol=p.duration)
+        for _index, _ttime, _error in holczer_ephemerides:
+            _period = Planet.fit_linear_ephemeris(_index, _ttime)[0]
+            _match = np.isclose(_period, p.period, rtol=0.01, atol=p.duration)
 
             if _match:
-                print(f"  Planet {n} : {p.period:.6f} --> {_ephem.period:.6f}")
-                planets[n] = p.update_ephemeris(_ephem)
+                print(f"  Planet {n} : {p.period:.6f} --> {_period:.6f}")
+                planets[n] = p.set_transit_times(_index, _ttime, _error)
                 _count += 1
 
     print(f"{_count} matching ephemerides found ({len(holczer_ephemerides)} expected)")
@@ -89,18 +80,18 @@ def run(context):
 
     # enforce (t_min, t_max) consistency on litecurve and planets
     for n, p in enumerate(planets):
-        p.ephemeris.clip_range(t_min, t_max)
-        p.ephemeris.set_static_references()
-        planets[n] = p.update_ephemeris(p.ephemeris)
+        p.clip_range(t_min, t_max)
+        p.set_reference_period_and_epoch()
+        planets[n] = p.refit_period_and_epoch()
 
-        print(f"  Planet {n} : {len(p.ephemeris.ttime)} transits")
+        print(f"  Planet {n} : {len(p.transit_times)} transits")
 
     # track TTV scatter and TTV buffer
     ttv_scatter = [None]*NPL
     ttv_buffer = [None]*NPL
 
     for n, p in enumerate(planets):
-        ttv_scatter[n] = mad_std(p.ephemeris.ttime - p.ephemeris.eval_linear_ephemeris())
-        ttv_buffer[n] = set_sigma_cutoff(len(p.ephemeris.ttime)) * ttv_scatter[n]
+        ttv_scatter[n] = mad_std(p.transit_times - p.eval_linear_ephemeris())
+        ttv_buffer[n] = set_sigma_cutoff(len(p.transit_times)) * ttv_scatter[n]
 
     return

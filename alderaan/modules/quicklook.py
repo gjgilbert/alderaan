@@ -12,26 +12,25 @@ from matplotlib.ticker import FormatStrFormatter
 import numpy as np
 
 from alderaan.data_models.planet import Planet
-from alderaan.data_models.ephemeris import Ephemeris
 from alderaan.modules.omc import OMC
 
 
 def plot_omc(data, target, filepath=None, interactive=False):
     """
     Plot observed-minus-calculated
-    Input can be an alderaan Ephmeris or OMC object or a list of these
+    Input can be an alderaan Planet or OMC object or a list of these
     """
     # check inputs
     if isinstance(data, OMC):
         omc_list = [data]
-    elif isinstance(data, Ephemeris):
+    elif isinstance(data, Planet):
         omc_list = [OMC(data)]
     elif isinstance(data, list) & all([isinstance(d, OMC) for d in data]):
         omc_list = [d for d in data]
-    elif isinstance(data, list) &  all([isinstance(d, Ephemeris) for d in data]):
+    elif isinstance(data, list) &  all([isinstance(d, Planet) for d in data]):
         omc_list = [OMC(d) for d in data]
     else:
-        raise ValueError("expected input: Ephemeris or OMC, or a list of these")
+        raise ValueError("expected input: Planet or OMC, or a list of these")
         
     npl = len(omc_list)
 
@@ -138,8 +137,8 @@ def plot_litecurve(litecurve, target, planets=None, filepath=None, interactive=F
         ax.set_ylim(ymin, ymax)
         for n, p in enumerate(planets):
             ax.plot(
-                p.ephemeris.ttime, 
-                np.ones_like(p.ephemeris.ttime) - (0.9-0.1*n)*(1-ymin), 
+                p.transit_times, 
+                np.ones_like(p.transit_times) - (0.9-0.1*n)*(1-ymin), 
                 '^',
                 c=f'C{n}'
             )

@@ -14,7 +14,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
-from alderaan.data_models.ephemeris import Ephemeris
 
 
 def resolve_config_path(path_str, base_path):
@@ -68,7 +67,7 @@ def parse_koi_catalog(filepath, koi_id):
 
 
 def parse_holczer16_catalog(filepath, koi_id, num_planets):
-    """Reads transit time table from Holczer+2016 into a list of Ephemeris objects
+    """Reads transit time table from Holczer+2016 into a list of (index, ttime, error) tuples
 
     Automatically corrects for zero-point offsets between catalogs
       - Holczer+2016 used BJD - 2454900
@@ -80,7 +79,7 @@ def parse_holczer16_catalog(filepath, koi_id, num_planets):
         num_planets : total number of planets in the system
 
     Returns:
-        list : list of (0,num_planets) Ephemeris objects
+        list : list of (0,num_planets) (index, ttime, error) tuples
     """
     data = np.loadtxt(filepath, usecols=[0,1,2,3,4], dtype=str)
     ephemerides = []
@@ -93,7 +92,7 @@ def parse_holczer16_catalog(filepath, koi_id, num_planets):
     for n in range(num_planets):
         use = planet_id == f"{int(koi_id[1:])}.0{1+n}"
         if np.sum(use) > 0:
-            ephemerides.append(Ephemeris(index=index[use], ttime=ttime[use], error=error[use]))
+            ephemerides.append((index[use], ttime[use], error[use]))
 
     return ephemerides
 

@@ -28,9 +28,9 @@ class QualityControl(BaseAlg):
             exptime = np.array([self._obsmode_to_exptime(om) for om in obsmode[n]])
             count_expected = np.maximum(1, np.array(p.duration / exptime, dtype=int))
 
-            quality[n] = np.zeros(len(p.ephemeris.ttime), dtype='bool')
+            quality[n] = np.zeros(len(p.transit_times), dtype='bool')
 
-            for i, tc in enumerate(p.ephemeris.ttime):
+            for i, tc in enumerate(p.transit_times):
 
                 in_transit = np.abs(lc.time - tc) / p.duration < 0.5
                 near_transit = np.abs(lc.time - tc) / p.duration < 1.5
@@ -64,14 +64,14 @@ class QualityControl(BaseAlg):
         obsmode = self.get_transit_obsmode()
 
         for n, p in enumerate(self.planets):
-            rms = np.zeros(len(p.ephemeris.ttime))
+            rms = np.zeros(len(p.transit_times))
             half_width = 0.5*np.max([rel_size*p.duration, abs_size])
 
-            for i, tc in enumerate(p.ephemeris.ttime):
+            for i, tc in enumerate(p.transit_times):
                 flux = lc.flux[np.abs(lc.time - tc) < half_width]
                 rms[i] = mad_std(flux, ignore_nan=True)
 
-            quality[n] = np.ones(len(p.ephemeris.ttime), dtype='bool')
+            quality[n] = np.ones(len(p.transit_times), dtype='bool')
 
             for om in np.unique(np.array(obsmode[n])):
                 use = (obsmode[n]== om) & overlap[n]

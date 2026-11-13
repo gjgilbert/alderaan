@@ -3,7 +3,6 @@ import sys
 import warnings
 
 from astropy.stats import mad_std
-from copy import deepcopy
 import numpy as np
 
 from alderaan.modules.omc import OMC
@@ -26,7 +25,7 @@ def run(context, check_periodic=True):
     ttv_buffer = [None]*NPL
     
     for n, p in enumerate(planets):
-        omc_list[n] = OMC(p.ephemeris)
+        omc_list[n] = OMC(p)
 
     # search for period signals
     if check_periodic:
@@ -51,7 +50,7 @@ def run(context, check_periodic=True):
             close = np.zeros((NPL,NPL), dtype=bool)
 
             for i in range(NPL):
-                df_min = 1 / (planets[i].ephemeris.ttime.max() - planets[i].ephemeris.ttime.min())
+                df_min = 1 / (planets[i].transit_times.max() - planets[i].transit_times.min())
                 
                 for j in range(i+1, NPL):
                     if freq[i] is not None and freq[j] is not None:
@@ -78,7 +77,7 @@ def run(context, check_periodic=True):
     for n, p in enumerate(planets):
         omc = omc_list[n]
         npts = np.sum(omc.quality)
-        old_ephemeris = deepcopy(p.ephemeris)
+        _old_period = p.period
 
         print(f"\nperforming omc model selection for Planet {n} ({npts} transits)")
 
@@ -123,10 +122,8 @@ def run(context, check_periodic=True):
         _filename = os.path.join(context.results_dir, f'{target}_{n:02d}_quick.ttvs')
         save_omc_ephemeris(_filename, omc)
 
-        new_ephemeris = p.ephemeris.update_from_omc(omc).interpolate(full=False)
-        
-        planets[n].update_ephemeris(new_ephemeris)
-        print(f"Planet {n} : {old_ephemeris.period:.6f} --> {new_ephemeris.period:.6f}")
+        planets[n] = p.update_from_omc(omc).interpolate(full=False)
+        print(f"Planet {n} : {_old_period:.6f} --> {p.period:.6f}")
 
         ttv_scatter[n] = mad_std(omc.yobs - omc.ymod)
         ttv_buffer[n] = set_sigma_cutoff(len(omc.yobs)) * ttv_scatter[n]

@@ -60,8 +60,8 @@ class TransitModel(BaseAlg):
         IMPORTANT!!! The warp functions assume zero-indexing on transit indexes
         """
         # track static ephemerides
-        self._static_period = np.array([p.ephemeris._static_period for p in self.planets])
-        self._static_epoch = np.array([p.ephemeris._static_epoch for p in self.planets])
+        self._static_period = np.array([p.reference_period for p in self.planets])
+        self._static_epoch = np.array([p.reference_epoch for p in self.planets])
 
         # set warping bins
         self._set_bins()
@@ -75,16 +75,16 @@ class TransitModel(BaseAlg):
 
         ttvs = [None]*self.npl
         for n, p in enumerate(self.planets):
-            ttvs[n] = np.zeros_like(p.ephemeris.ttime)
+            ttvs[n] = np.zeros_like(p.transit_times)
 
         self._update_bins(ttvs)
         
     
     def _update_bins(self, ttvs):
         for n, p, in enumerate(self.planets):
-            index_full = np.arange(0, p.ephemeris.index.max()+1, dtype=int)
+            index_full = np.arange(0, p.transit_index.max()+1, dtype=int)
             ttime_full = self._static_epoch[n] + self._static_period[n] * index_full
-            ttime_full[p.ephemeris.index] = p.ephemeris.ttime + ttvs[n]
+            ttime_full[p.transit_index] = p.transit_times + ttvs[n]
 
             self._bin_edges[n] = np.concatenate(
                 [
@@ -106,7 +106,7 @@ class TransitModel(BaseAlg):
 
     def _update_warps(self):
         for n, p in enumerate(self.planets):
-            index_midpoint = p.ephemeris.index[-1] // 2
+            index_midpoint = p.transit_index[-1] // 2
 
             _t, _i = self._warp_times(self.litecurve.time, n, return_inds=True)            
             _x = (_i -index_midpoint) / index_midpoint
@@ -456,7 +456,7 @@ class TTVTransitModel(TransitModel):
     def _count_transits(self):
         self.num_transits = np.zeros(self.npl,dtype=int)
         for n, p in enumerate(self.planets):
-            self.num_transits[n] = len(p.ephemeris.ttime)
+            self.num_transits[n] = len(p.transit_times)
         return self.num_transits
 
     
@@ -638,8 +638,8 @@ class TTVTransitModel(TransitModel):
         istart = iend - self.num_transits
         
         for n, p in enumerate(self.planets):
-            p.ephemeris.ttime += theta[istart[n]:iend[n]]
-            self.planets[n] = p.update_ephemeris(p.ephemeris)
+            p.transit_times += theta[istart[n]:iend[n]]
+            self.planets[n] = p.refit_period_and_epoch()
 
         return self.planets
 
@@ -654,7 +654,7 @@ class OptimizationTTVFitter(TransitModel):
         overlap = self.identify_overlapping_transits(rtol=1.0, atol=1/24)[planet_no]
         obsmode = self.transit_obsmode[planet_no]
 
-        ttime_old = self.planets[planet_no].ephemeris.ttime.copy()
+        ttime_old = self.planets[planet_no].transit_times.copy()
         ttime_new = np.zeros_like(ttime_old)
 
         for i, tc in enumerate(ttime_old):
@@ -670,7 +670,7 @@ class OptimizationTTVFitter(TransitModel):
             fix = np.zeros(self.npl, dtype=bool)
 
             for n, p in enumerate(self.planets):
-                theta[n] = p.ephemeris.ttime[np.argmin(np.abs(p.ephemeris.ttime - tc))]
+                theta[n] = p.transit_times[np.argmin(np.abs(p.transit_times - tc))]
                 
                 if np.abs(theta[n] - tc) > transit_window_size / 2:
                     fix[n] = True
@@ -814,13 +814,13 @@ class CrossCorrelationTTVFitter(TransitModel):
         lc = self.litecurve
         p = self.planets[planet_no]
 
-        ttime = np.nan * np.ones(len(p.ephemeris.ttime))
-        ttime_err = np.nan * np.ones(len(p.ephemeris.ttime))
+        ttime = np.nan * np.ones(len(p.transit_times))
+        ttime_err = np.nan * np.ones(len(p.transit_times))
         
         overlap = self.identify_overlapping_transits(rtol=1.0, atol=1.0)
        
-        assert len(p.ephemeris.ttime) == len(overlap[planet_no]), (
-            f"Mismatched sizes for ttime ({len(p.ephemeris.ttime)}) and overlap ({len(overlap[planet_no])})"
+        assert len(p.transit_times) == len(overlap[planet_no]), (
+            f"Mismatched sizes for ttime ({len(p.transit_times)}) and overlap ({len(overlap[planet_no])})"
         )
 
         transit_obsmode = self.transit_obsmode[planet_no]
@@ -836,8 +836,8 @@ class CrossCorrelationTTVFitter(TransitModel):
             time_template, flux_template = self._construct_template(planet_no, obsmode, transit_window_size)
 
             # primary loop for fitting transit times
-            for i, tc in enumerate(p.ephemeris.ttime):
-                if (not overlap[planet_no][i]) and (p.ephemeris.quality[i]) and (transit_obsmode[i] == obsmode):
+            for i, tc in enumerate(p.transit_times):
+                if (not overlap[planet_no][i]) and (p.transit_quality[i]) and (transit_obsmode[i] == obsmode):
                     # STEP 0: pull data near a single transit
                     in_transit = np.abs(self.litecurve.time - tc) < p.duration / 2
                     in_window = np.abs(self.litecurve.time - tc) < transit_window_size / 2

@@ -20,14 +20,14 @@ import warnings
 from alderaan.constants import pi
 
 class OMC:
-    def __init__(self, ephemeris):
+    def __init__(self, planet):
         # set initial O-C estimates
-        _ephemeris = deepcopy(ephemeris)
+        _planet = deepcopy(planet)
 
-        self.index = _ephemeris.index
-        self.xtime = _ephemeris.ttime
-        self.yobs = _ephemeris.ttime - _ephemeris.eval_linear_ephemeris()
-        self.yerr = _ephemeris.error
+        self.index = _planet.transit_index
+        self.xtime = _planet.transit_times
+        self.yobs = _planet.transit_times - _planet.eval_linear_ephemeris()
+        self.yerr = _planet.transit_errors
         self.ymod = None
 
         # flag outliers
@@ -35,16 +35,16 @@ class OMC:
         self.out_prob = None
 
         # set static reference period, epoch, and linear ephemeris
-        self._set_static_references(_ephemeris)
+        self._set_static_references(_planet)
 
         # set nominal peak frequency and false alarm probability
         self.peakfreq = None
         self.peakfap = None
 
 
-    def _set_static_references(self, ephemeris):
-        self._static_period = ephemeris._static_period.copy()
-        self._static_epoch = ephemeris._static_epoch.copy()
+    def _set_static_references(self, planet):
+        self._static_period = planet.reference_period.copy()
+        self._static_epoch = planet.reference_epoch.copy()
 
 
     def quick_flag_outliers(self, sigma_cut=5.0):
