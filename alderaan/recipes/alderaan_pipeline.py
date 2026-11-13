@@ -17,9 +17,9 @@ from timeit import default_timer as timer
 import warnings
 
 from alderaan.constants import *
-from alderaan.ephemeris import Ephemeris
-from alderaan.litecurve import LiteCurve
-from alderaan.planet import Planet
+from alderaan.data_models.ephemeris import Ephemeris
+from alderaan.data_models.litecurve import LiteCurve
+from alderaan.data_models.planet import Planet
 from alderaan.modules.detrend import GaussianProcessDetrender
 from alderaan.modules.omc import OMC
 from alderaan.modules.transit_model import ShapeTransitModel, TTimeTransitModel

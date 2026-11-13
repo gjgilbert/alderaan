@@ -4,8 +4,8 @@ import sys
 import numpy as np
 from pathlib import Path
 import warnings
-from alderaan.ephemeris import Ephemeris
-from alderaan.planet import Planet
+from alderaan.data_models.ephemeris import Ephemeris
+from alderaan.data_models.planet import Planet
 from alderaan.utils.io import parse_koi_catalog
 
 warnings.simplefilter('always', UserWarning)

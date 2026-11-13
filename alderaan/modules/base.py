@@ -3,8 +3,8 @@ __all__ = ['BaseAlg']
 from copy import deepcopy
 import numpy as np
 from alderaan.constants import kepler_lcit, kepler_scit
-from alderaan.litecurve import LiteCurve
-from alderaan.planet import Planet
+from alderaan.data_models.litecurve import LiteCurve
+from alderaan.data_models.planet import Planet
 
 
 class BaseAlg():

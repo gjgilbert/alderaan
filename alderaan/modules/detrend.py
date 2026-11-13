@@ -15,8 +15,8 @@ import pymc3_ext as pmx
 from scipy.signal import medfilt as median_filter
 from scipy.signal import savgol_filter
 
-from alderaan.planet import Planet
-from alderaan.litecurve import LiteCurve
+from alderaan.data_models.planet import Planet
+from alderaan.data_models.litecurve import LiteCurve
 from alderaan.modules.base import BaseAlg
 
 class SimpleDetrender(BaseAlg):

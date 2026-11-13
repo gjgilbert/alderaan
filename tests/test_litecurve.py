@@ -4,7 +4,7 @@ import sys
 from astropy.units import UnitsWarning
 from pathlib import Path
 import warnings
-from alderaan.litecurve import LiteCurve
+from alderaan.data_models.litecurve import LiteCurve
 
 
 warnings.simplefilter('always', UserWarning)

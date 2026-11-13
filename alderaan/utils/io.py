@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
-from alderaan.ephemeris import Ephemeris
+from alderaan.data_models.ephemeris import Ephemeris
 
 
 def resolve_config_path(path_str, base_path):

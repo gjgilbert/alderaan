@@ -3,7 +3,7 @@ import sys
 
 import numpy as np
 import warnings
-from alderaan.ephemeris import Ephemeris
+from alderaan.data_models.ephemeris import Ephemeris
 
 warnings.simplefilter('always', UserWarning)
 

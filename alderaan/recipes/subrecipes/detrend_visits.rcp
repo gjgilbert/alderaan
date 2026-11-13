@@ -7,7 +7,7 @@ from celerite2.backprop import LinAlgError
 import numpy as np
 
 from alderaan.constants import kepler_lcit, kepler_scit
-from alderaan.litecurve import LiteCurve
+from alderaan.data_models.litecurve import LiteCurve
 from alderaan.modules.detrend import GaussianProcessDetrender
 from alderaan.modules.quicklook import plot_litecurve
 

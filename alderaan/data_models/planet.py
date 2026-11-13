@@ -1,7 +1,7 @@
 __all__ = ['Planet']
 
 import numpy as np
-from alderaan.ephemeris import Ephemeris
+from alderaan.data_models.ephemeris import Ephemeris
 import warnings
 
 

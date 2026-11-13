@@ -5,9 +5,9 @@ import warnings
 from astropy.stats import mad_std
 import numpy as np
 
-from alderaan.ephemeris import Ephemeris
-from alderaan.litecurve import LiteCurve
-from alderaan.planet import Planet
+from alderaan.data_models.ephemeris import Ephemeris
+from alderaan.data_models.litecurve import LiteCurve
+from alderaan.data_models.planet import Planet
 from alderaan.modules.quicklook import plot_litecurve
 from alderaan.utils.io import parse_koi_catalog, parse_holczer16_catalog
 from alderaan.utils.pipeline import capture_locals

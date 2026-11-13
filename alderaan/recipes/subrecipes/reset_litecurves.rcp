@@ -4,7 +4,7 @@ import sys
 from copy import deepcopy
 import numpy as np
 
-from alderaan.litecurve import LiteCurve
+from alderaan.data_models.litecurve import LiteCurve
 from alderaan.modules.detrend import SimpleDetrender
 from alderaan.modules.transit import RBDTransitModel
 from alderaan.utils.stats import set_sigma_cutoff

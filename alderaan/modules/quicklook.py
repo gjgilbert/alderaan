@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 import numpy as np
 
-from alderaan.planet import Planet
-from alderaan.ephemeris import Ephemeris
+from alderaan.data_models.planet import Planet
+from alderaan.data_models.ephemeris import Ephemeris
 from alderaan.modules.omc import OMC
 
 
