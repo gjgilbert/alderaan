@@ -36,9 +36,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "black==25.1.0",
-  "pylint==3.3.4",
+  "pre-commit==4.3.0",
   "pytest==8.3.5",
+  "ruff==0.15.17",
   "line_profiler",
   "ipywidgets==8.1.3",
   "notebook==6.4.13",
@@ -52,3 +52,31 @@ find = {}
 
 [tool.setuptools.dynamic]
 version = {attr = "alderaan.__version__"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Quiet output; re-run a single failure with --tb=long for full frame context.
+# -rxX lists every known-bug xfail (and any XPASS) with its reason on every run.
+addopts = "-q --no-header --tb=short -rxX"
+# An xfail that passes means its bug is fixed: fail so the marker is removed.
+xfail_strict = true
+
+# Ruff is the unified formatter + linter; enforced via .pre-commit-config.yaml.
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+extend-exclude = ["legacy"]
+# .rcp recipes are Python source.
+extend-include = ["*.rcp"]
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I import-sorting, B bugbear, UP pyupgrade,
+# G logging-format, LOG logging.
+select = ["E", "F", "W", "I", "B", "UP", "G", "LOG"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["alderaan"]
+
+[tool.ruff.lint.per-file-ignores]
+# __init__.py re-exports names.
+"__init__.py" = ["F401"]
