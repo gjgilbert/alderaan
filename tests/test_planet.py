@@ -40,7 +40,7 @@ def record(result, koi_id, n, step, p):
 def omc_update(p, full):
     omc = OMC(p)
     omc.quick_fit_trend()
-    p.update_from_omc(omc).interpolate(full=full)
+    p.update_from_omc(omc, full=full)
 
 
 def replay_pipeline_bookkeeping(koi_id):
