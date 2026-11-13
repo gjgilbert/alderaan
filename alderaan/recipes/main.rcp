@@ -24,9 +24,9 @@ def main():
             invoke_subrecipe(context, "load_kepler_data.rcp")
             invoke_subrecipe(context, "omc_cleanup.rcp", full=True)
         elif context.mission == "K2":
-            raise NotImplementedError(f"K2 mission not yet implemented")
+            raise NotImplementedError("K2 mission not yet implemented")
         elif context.mission == "TESS":
-            raise NotImplementedError(f"TESS mission not yet implemented")
+            raise NotImplementedError("TESS mission not yet implemented")
         else:
             raise ValueError(f"Unsupported mission : {context.mission}")
 

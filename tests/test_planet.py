@@ -3,9 +3,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+
 from alderaan.data_models.planet import Planet
 from alderaan.modules.omc import OMC
-from alderaan.utils.io import parse_koi_catalog, parse_holczer16_catalog
+from alderaan.utils.io import parse_holczer16_catalog, parse_koi_catalog
 from alderaan.utils.stats import robust_polyfit
 
 base_path = Path(__file__).resolve().parents[0]
@@ -13,7 +14,8 @@ catalog_csv = os.path.join(base_path, "catalogs/kepler_dr25_gaia_dr2_crossmatch.
 holczer_txt = os.path.join(base_path, "catalogs/holczer_2016_kepler_ttvs.txt")
 golden_npz = os.path.join(base_path, "data/planet_golden.npz")
 
-# golden values lock in ephemeris bookkeeping; regenerate only for intentional changes to science output
+# golden values lock in ephemeris bookkeeping;
+# regenerate only for intentional changes to science output
 KOI_IDS = ["K00137", "K00070", "K00377", "K00001"]
 T_MIN = 131.51
 T_MAX = 1591.0

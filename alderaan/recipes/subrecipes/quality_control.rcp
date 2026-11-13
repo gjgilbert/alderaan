@@ -1,8 +1,7 @@
-import os
-import sys
 import warnings
 
 import numpy as np
+
 from alderaan.modules.quality_control import QualityControl
 
 
@@ -17,12 +16,12 @@ def run(context):
     qc = QualityControl(litecurve, planets)
 
     # check for transits with poor photometric coverage
-    with warnings.catch_warnings(record=True) as catch:
+    with warnings.catch_warnings(record=True):
         warnings.simplefilter("always", category=RuntimeWarning)
         coverage = qc.check_coverage()
 
     # check for transits with unusually high noise
-    with warnings.catch_warnings(record=True) as catch:
+    with warnings.catch_warnings(record=True):
         warnings.simplefilter("always", category=RuntimeWarning)
         good_rms = qc.check_rms(rel_size=3.0, abs_size=2 / 24, sigma_cut=5.0)
 
@@ -35,13 +34,15 @@ def run(context):
         _nbad = np.sum(~coverage[n])
         _ntot = len(coverage[n])
         print(
-            f"    {np.sum(_nbad)} of {_ntot} transits ({int(100 * _nbad / _ntot)}%) rejected for insufficient photometric coverage"
+            f"    {np.sum(_nbad)} of {_ntot} transits ({int(100 * _nbad / _ntot)}%) "
+            "rejected for insufficient photometric coverage"
         )
 
         _nbad = np.sum(~good_rms[n] & coverage[n])
         _ntot = len(good_rms[n])
         print(
-            f"    {np.sum(_nbad)} of {_ntot} transits ({int(100 * _nbad / _ntot)}%) rejected for high photometric noise"
+            f"    {np.sum(_nbad)} of {_ntot} transits ({int(100 * _nbad / _ntot)}%) "
+            "rejected for high photometric noise"
         )
 
         p.transit_quality = coverage[n] & good_rms[n]

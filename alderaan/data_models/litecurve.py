@@ -1,10 +1,10 @@
 __all__ = ["LiteCurve"]
 
-from astropy.io import fits
 import glob
+
 import lightkurve as lk
 import numpy as np
-from alderaan.constants import kepler_lcit, kepler_scit
+from astropy.io import fits
 
 
 class LiteCurve:
@@ -55,7 +55,7 @@ class LiteCurve:
         lc_instance = cls()
         lc_instance = lc_instance._set_empty_attribute_arrays()
 
-        for i, lc in enumerate(litecurve_list):
+        for lc in litecurve_list:
             for k in lc_instance.__dict__.keys():
                 if type(lc_instance.__dict__[k]) is np.ndarray:
                     lc_instance.__setattr__(
@@ -100,7 +100,7 @@ class LiteCurve:
         mast_files.sort()
 
         mast_data_list = []
-        for i, mf in enumerate(mast_files):
+        for mf in mast_files:
             with fits.open(mf) as hdu_list:
                 if hdu_list[0].header["OBSMODE"] == obsmode and np.isin(
                     hdu_list[0].header["QUARTER"],

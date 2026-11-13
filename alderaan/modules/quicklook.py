@@ -6,11 +6,11 @@ __all__ = [
     "dynesty_cornerplot",
 ]
 
+import matplotlib.pyplot as plt
+import numpy as np
 from astropy.stats import mad_std
 from dynesty import plotting as dyplot
-import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
-import numpy as np
 
 from alderaan.data_models.planet import Planet
 from alderaan.modules.omc import OMC
@@ -235,8 +235,8 @@ def _parameter_labels(npl, subscripts=True):
         for n in range(npl):
             labels = labels + f"$C0_{n}$ $C1_{n}$ $r_{n}$ $b_{n}$ $T14_{n}$".split()
     else:
-        for n in range(npl):
-            labels = labels + f"C0 C1 r b T14".split()
+        for _ in range(npl):
+            labels = labels + "C0 C1 r b T14".split()
 
     labels += "q1 q2".split()
 
@@ -298,8 +298,8 @@ def plot_quick_fit_ttvs(
     xticks = np.array([_ttj - 1.5 * _errj, _ttj, _ttj + 1.5 * _errj])
     ax[1].set_xticks(xticks, np.round(xticks - _ttj, 4))
     ax[1].set_ylim(-0.5, 2.5)
-    ax[1].set_xlabel("$\Delta t_c$", fontsize=14)
-    ax[1].set_ylabel("$\Delta \chi^2$", fontsize=14)
+    ax[1].set_xlabel(r"$\Delta t_c$", fontsize=14)
+    ax[1].set_ylabel(r"$\Delta \chi^2$", fontsize=14)
 
     plt.suptitle(f"{target} - Planet {planet_no}", fontsize=18)
     plt.tight_layout()

@@ -6,7 +6,6 @@ __all__ = [
 
 
 import numpy as np
-from alderaan.constants import pi
 
 
 def bin_data(time, data, binsize, bin_centers=None):
@@ -68,7 +67,7 @@ def estimate_transit_depth(p, b):
     k1 = np.arccos((1 - pg**2 + bg**2) / (2 * bg))
     s0 = np.sqrt((4 * bg**2 - (1 + bg**2 - pg**2) ** 2) / 4)
 
-    d[grazing] = (1 / pi) * (pg**2 * k0 + k1 - s0)
+    d[grazing] = (1 / np.pi) * (pg**2 * k0 + k1 - s0)
 
     # non-transiting (b >= 1+p)
     d[b >= 1 + p] = 0.0

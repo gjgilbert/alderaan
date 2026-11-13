@@ -2,18 +2,16 @@ __all__ = ["SimpleDetrender", "GaussianProcessDetrender", "AutoCorrelationDetren
 
 
 import aesara_theano_fallback.tensor as T
-from astropy.stats import sigma_clip, mad_std
-from astropy.timeseries import LombScargle
-from celerite2.theano import GaussianProcess
-from celerite2.theano import terms as GPterms
 import numpy as np
 import pymc3 as pm
 import pymc3_ext as pmx
+from astropy.stats import mad_std, sigma_clip
+from astropy.timeseries import LombScargle
+from celerite2.theano import GaussianProcess
+from celerite2.theano import terms as GPterms
 from scipy.signal import medfilt as median_filter
 from scipy.signal import savgol_filter
 
-from alderaan.data_models.planet import Planet
-from alderaan.data_models.litecurve import LiteCurve
 from alderaan.modules.base import BaseAlg
 
 
@@ -39,7 +37,8 @@ class SimpleDetrender(BaseAlg):
             sigma_lower : float
                 lower sigma clipping threshold
             mask : array-like, bool (optional)
-                do not reject cadences within masked regions; useful for protecting transits
+                do not reject cadences within masked regions;
+                useful for protecting transits
             trend : array-like, float (optional)
                 precomputed model for the trend, e.g. a Keplerian transit lightcurve
             kernel_size : int
@@ -237,7 +236,8 @@ class GaussianProcessDetrender(SimpleDetrender):
         # identify breaks (gaps in time, jumps in flux)
         # these will be used to identify contiguous "segments" of data
         # the model will fit all n_seg segments simultaneously
-        # mean function (flux baseline + exponential trend) is independent for each segment
+        # mean function (flux baseline + exponential trend) is independent
+        # for each segment
         # gp parameters are shared between all segments
 
         break_locs = self._identify_breaks(
@@ -289,7 +289,7 @@ class GaussianProcessDetrender(SimpleDetrender):
                 )
 
             elif gp_term == "SHOTerm":
-                kernel = GPterms.SHOTerm(sigma=sigma, w0=2 * pi / P, Q=0.5 + Q0)
+                kernel = GPterms.SHOTerm(sigma=sigma, w0=2 * np.pi / P, Q=0.5 + Q0)
 
             else:
                 raise ValueError(f"gp_term {gp_term} not recognized")
@@ -336,7 +336,7 @@ class GaussianProcessDetrender(SimpleDetrender):
                 start=map_soln, vars=[flux0, log_var], progress=progressbar
             )
 
-            for i in range(1 + correct_ramp):
+            for _ in range(1 + correct_ramp):
                 if gp_term == "RotationTerm":
                     map_soln = pmx.optimize(
                         start=map_soln,

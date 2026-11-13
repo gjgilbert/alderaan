@@ -11,10 +11,10 @@ repos:
       # Ruff scope: the pipeline package (including .rcp recipes), its tests, and tools/.
       - id: ruff-check
         args: [--fix]
-        types: [file]
+        types_or: [file]
         files: ^(alderaan|tests|tools)/.*\.(py|rcp)$
       - id: ruff-format
-        types: [file]
+        types_or: [file]
         files: ^(alderaan|tests|tools)/.*\.(py|rcp)$
 
   - repo: https://github.com/pre-commit/pre-commit-hooks

@@ -8,12 +8,11 @@ __all__ = [
 
 
 import os
-import sys
-from astropy.io import fits
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from astropy.io import fits
 from pandas.testing import assert_frame_equal
 
 
@@ -32,7 +31,8 @@ def parse_koi_catalog(filepath, koi_id):
         koi_id (str) : KOI identification number in the format, e.g., K01234
 
     Returns:
-        pd.DataFrame: catalog of target star/planet properties (depth as fraction, duration in days)
+        pd.DataFrame: catalog of target star/planet properties
+            (depth as fraction, duration in days)
     """
     # read catalog from csv file
     catalog = pd.read_csv(filepath, index_col=0)
@@ -72,7 +72,8 @@ def parse_koi_catalog(filepath, koi_id):
 
 
 def parse_holczer16_catalog(filepath, koi_id, num_planets):
-    """Reads transit time table from Holczer+2016 into a list of (index, ttime, error) tuples
+    """Reads transit time table from Holczer+2016 into a list of
+    (index, ttime, error) tuples
 
     Automatically corrects for zero-point offsets between catalogs
       - Holczer+2016 used BJD - 2454900
@@ -116,7 +117,8 @@ def copy_input_target_catalog(filepath_master, filepath_copy):
             assert_frame_equal(df_master, df_copy, check_like=True)
         except AssertionError:
             print(
-                f"AssertionError: existing file {filepath_copy} does not match active file {filepath_master}"
+                f"AssertionError: existing file {filepath_copy} "
+                f"does not match active file {filepath_master}"
             )
 
     else:
@@ -164,7 +166,7 @@ def dynesty_results_to_fits(results, context):
     samples_keys = []
 
     for n in range(npl):
-        samples_keys += "C0_{0} C1_{0} ROR_{0} IMPACT_{0} DUR14_{0}".format(n).split()
+        samples_keys += f"C0_{n} C1_{n} ROR_{n} IMPACT_{n} DUR14_{n}".split()
 
     samples_keys += ["LD_Q1", "LD_Q2"]
     samples_keys += ["LN_WT", "LN_LIKE", "LN_Z"]

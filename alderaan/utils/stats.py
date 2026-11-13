@@ -51,7 +51,8 @@ def norm_ppf(u, mu, sig, eps=1e-12):
         u (array-like) : samples from standard uniform distribution U(0,1)
         mu (float) : mean of transformed distribution N(mu,sig)
         sig (float) : standard deviation of transformed distribution N(mu,sig)
-        eps (float) : provides numerical stability in the inverse error function at edges
+        eps (float) : provides numerical stability in the inverse error function
+                      at edges
 
     Returns
     -------
@@ -62,7 +63,8 @@ def norm_ppf(u, mu, sig, eps=1e-12):
 
 def set_sigma_cutoff(npts, sigma_min=3.0):
     """
-    Set sigma cutoff such that not even one outlier is expected if distribution is normal
+    Set sigma cutoff such that not even one outlier is expected
+    if distribution is normal
 
     Args:
         npts (int) : number of points

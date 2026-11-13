@@ -1,23 +1,21 @@
 __all__ = ["OMC"]
 
-import aesara_theano_fallback.tensor as T
-from astropy.stats import mad_std
-from astropy.timeseries import LombScargle
-from celerite2.theano import terms as GPterms
-from celerite2.theano import GaussianProcess
+import warnings
 from copy import deepcopy
+
+import aesara_theano_fallback.tensor as T
 import numpy as np
 import pymc3 as pm
 import pymc3_ext as pmx
-from scipy import signal
-from scipy import stats
+from astropy.stats import mad_std
+from astropy.timeseries import LombScargle
+from celerite2.theano import GaussianProcess
+from celerite2.theano import terms as GPterms
+from scipy import signal, stats
 from scipy.interpolate import interp1d
-from scipy.ndimage import uniform_filter, median_filter
+from scipy.ndimage import median_filter, uniform_filter
 from scipy.signal import savgol_filter
 from sklearn.cluster import KMeans
-import warnings
-
-from alderaan.constants import pi
 
 
 class OMC:
@@ -118,7 +116,7 @@ class OMC:
             C = pm.Normal("C", mu=0, sd=10, shape=polyorder + 1)
 
             trend = pm.Deterministic("trend", pm.math.dot(Xt, C))
-            pred = pm.Deterministic("pred", pm.math.dot(Xp, C))
+            pm.Deterministic("pred", pm.math.dot(Xp, C))
 
             pm.Normal("obs", mu=trend, sd=self.yerr[q], observed=self.yobs[q])
 
@@ -160,7 +158,7 @@ class OMC:
 
         # convenience function
         def _sin_fxn(A, B, f, xt):
-            return A * T.sin(2 * pi * f * xt) + B * T.cos(2 * pi * f * xt)
+            return A * T.sin(2 * np.pi * f * xt) + B * T.cos(2 * np.pi * f * xt)
 
         # build pymc model
         with pm.Model() as model:
@@ -170,7 +168,7 @@ class OMC:
             Bk = pm.Normal("Bk", mu=0, sd=5 * np.std(self.yobs[q]))
 
             trend = pm.Deterministic("trend", _sin_fxn(Ah, Bk, f, self.xtime[q]))
-            pred = pm.Deterministic("pred", _sin_fxn(Ah, Bk, f, xt_predict))
+            pm.Deterministic("pred", _sin_fxn(Ah, Bk, f, xt_predict))
 
             pm.Normal("obs", mu=trend, sd=self.yerr[q], observed=self.yobs[q])
 
@@ -230,8 +228,8 @@ class OMC:
 
             trend = pm.Deterministic("trend", trend)
             cov = pm.Deterministic("cov", cov)
-            pred = pm.Deterministic("pred", gp.predict(self.yobs[q], xt_predict))
-            dof = pm.Deterministic("dof", pm.math.trace(cov / self.yerr[q] ** 2))
+            pm.Deterministic("pred", gp.predict(self.yobs[q], xt_predict))
+            pm.Deterministic("dof", pm.math.trace(cov / self.yerr[q] ** 2))
 
             # add marginal likelihood to model
             lnlike = gp.log_likelihood(self.yobs[q])
@@ -303,9 +301,11 @@ class OMC:
         y : array-like
             1D array of corresponding y data values, len(x)
         fsamp: float
-            nominal sampling frequency; if not provided it will be calculated from the data
+            nominal sampling frequency;
+            if not provided it will be calculated from the data
         fap : float
-            false alarm probability threshold to consider a frequency significant (default=0.1)
+            false alarm probability threshold to consider a frequency significant
+            (default=0.1)
 
         Returns
         -------
@@ -452,9 +452,9 @@ class OMC:
             tau_latent = pm.Gamma("tau_latent", 1.0, 1.0, shape=2)
             tau = pm.Deterministic("tau", T.sort(tau_latent))
 
-            obs = pm.NormalMixture("obs", w, mu=mu * T.ones(2), tau=tau, observed=res)
+            pm.NormalMixture("obs", w, mu=mu * T.ones(2), tau=tau, observed=res)
 
-        with warnings.catch_warnings(record=True) as catch:
+        with warnings.catch_warnings(record=True):
             warnings.simplefilter("always", category=RuntimeWarning)
             with model:
                 trace = self.sample(model)
@@ -481,7 +481,8 @@ class OMC:
             out = fg_prob < np.percentile(fg_prob, 0.3)
 
         print(
-            f"{np.sum(out)} of {len(out)} ({100 * np.sum(out) / len(out):.1f}%) of transit times flagged as outliers"
+            f"{np.sum(out)} of {len(out)} ({100 * np.sum(out) / len(out):.1f}%) "
+            "of transit times flagged as outliers"
         )
 
         self.out_prob = 1 - fg_prob

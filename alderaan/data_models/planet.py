@@ -62,12 +62,14 @@ class Planet:
     def _check_period_change(self, old_period):
         if not np.isclose(old_period, self.period, rtol=0.1):
             raise ValueError(
-                f"New period ({self.period:.6f}) differs from old period ({old_period:.6f}) by more than 10%"
+                f"New period ({self.period:.6f}) differs from old period "
+                f"({old_period:.6f}) by more than 10%"
             )
 
     def clip_range(self, t_min, t_max):
         """
-        Clip transit arrays to range (t_min, t_max), re-zero transit index, and put epoch in range (t_min, t_min + period)
+        Clip transit arrays to range (t_min, t_max), re-zero transit index, and put
+        epoch in range (t_min, t_min + period)
 
         Args:
             t_min (float) : minimum time

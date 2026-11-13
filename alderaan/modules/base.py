@@ -1,7 +1,9 @@
 __all__ = ["BaseAlg"]
 
 from copy import deepcopy
+
 import numpy as np
+
 from alderaan.constants import kepler_lcit, kepler_scit
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.planet import Planet
@@ -53,7 +55,8 @@ class BaseAlg:
         # sigma so binning error is < 0.1% of photometric uncertainty
         sigma = np.nanmean(lc.error / lc.flux) * 0.04
 
-        # supersample factor (forced odd) following Kipping 2010, and exposure time integration offsets
+        # supersample factor (forced odd) following Kipping 2010,
+        # and exposure time integration offsets
         self.supersample = {}
         self._exptime_offsets = {}
         for om in self.unique_obsmodes:
@@ -81,7 +84,8 @@ class BaseAlg:
             mask_type : type of transit mask to return (default = 'standard')
 
         Supported mask_type
-         * standard : bool, shape (n_planet, n_cadence), True near transits of each planet
+         * standard : bool, shape (n_planet, n_cadence),
+                      True near transits of each planet
          * condensed : bool, shape (n_cadence), True near transit of any planet
         """
         if (rel_size is None) & (abs_size is None):

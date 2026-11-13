@@ -1,14 +1,11 @@
 import os
-import sys
-import warnings
 
-import numpy as np
-from alderaan.modules.transit import RBDTransitModel
 from alderaan.modules.quicklook import (
     dynesty_cornerplot,
     dynesty_runplot,
     dynesty_traceplot,
 )
+from alderaan.modules.transit import RBDTransitModel
 from alderaan.utils.io import dynesty_results_to_fits
 
 

@@ -6,23 +6,22 @@ __all__ = [
     "CrossCorrelationTTVFitter",
 ]
 
+import io
 import os
 import sys
-
-from batman import _quadratic_ld
-from batman import _rsky
-from copy import deepcopy
-import dynesty
-from dynesty.utils import print_fn
-import io
-import numpy as np
-from scipy.optimize import least_squares
 import time
+from copy import deepcopy
+
+import dynesty
+import numpy as np
+from batman import _quadratic_ld, _rsky
+from dynesty.utils import print_fn
+from scipy.optimize import least_squares
 
 from alderaan.modules.base import BaseAlg
 from alderaan.modules.quicklook import plot_quick_fit_ttvs
 from alderaan.utils.astro import bin_data, estimate_transit_depth
-from alderaan.utils.stats import uniform_ppf, loguniform_ppf, norm_ppf, robust_polyfit
+from alderaan.utils.stats import loguniform_ppf, norm_ppf, robust_polyfit, uniform_ppf
 
 
 class TransitModel(BaseAlg):
@@ -182,7 +181,8 @@ class RBDTransitModel(TransitModel):
         transitmodel : TransitModel
             instance of TransitModel, typically self
 
-        Priors on planet parameters [C0, C1, rp, b, T14] are enforced outside this function
+        Priors on planet parameters [C0, C1, rp, b, T14] are enforced outside
+        this function
 
         Limb darkening is sampled in terms of [q1, q2] (see Kipping 2013)
         Limb darkening priors are enforced in terms of [u1, u2] inside this function
@@ -201,7 +201,7 @@ class RBDTransitModel(TransitModel):
             exptime_ioff = tm._exptime_offsets[obsmode]
             supersample = tm.supersample[obsmode]
 
-            for n, p in enumerate(tm.planets):
+            for n in range(tm.npl):
                 C0, C1, rp, b, T14 = np.array(theta[5 * n : 5 * (n + 1)])
 
                 _t = tm._warped_time[n][mask] + C0 + C1 * tm._warped_legx[n][mask]
@@ -379,7 +379,7 @@ class RBDTransitModel(TransitModel):
             num_planets * [C0, C1, rp, b, T14] + [q1, q2]
         """
         theta = []
-        for n, p in enumerate(self.planets):
+        for p in self.planets:
             theta.append(0.0)
             theta.append(0.0)
             theta.append(np.sqrt(p.depth))
@@ -397,7 +397,7 @@ class RBDTransitModel(TransitModel):
             num_planets * [C0, C1, rp, b, T14] + [q1, q2]
         """
         bounds = []
-        for n, p in enumerate(self.planets):
+        for p in self.planets:
             bounds.append([-np.inf, np.inf])
             bounds.append([-np.inf, np.inf])
             bounds.append([1e-5, 0.99])
@@ -821,7 +821,8 @@ class CrossCorrelationTTVFitter(TransitModel):
         overlap = self.identify_overlapping_transits(rtol=1.0, atol=1 / 24)
 
         assert len(p.transit_times) == len(overlap[planet_no]), (
-            f"Mismatched sizes for ttime ({len(p.transit_times)}) and overlap ({len(overlap[planet_no])})"
+            f"Mismatched sizes for ttime ({len(p.transit_times)}) "
+            f"and overlap ({len(overlap[planet_no])})"
         )
 
         transit_obsmode = self.transit_obsmode[planet_no]
@@ -882,7 +883,8 @@ class CrossCorrelationTTVFitter(TransitModel):
 
                             chisq[j] = np.sum(((_f_obs - _f_mod) / _f_err) ** 2)
 
-                        # STEP 2: isolate relevant portions of {tc_offset, chisq} vectors
+                        # STEP 2: isolate relevant portions of
+                        # {tc_offset, chisq} vectors
                         delta_chisq = 2.0
 
                         loop = True

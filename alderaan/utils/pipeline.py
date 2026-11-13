@@ -1,14 +1,15 @@
 __all__ = ["PipelineContext", "capture_locals", "invoke_subrecipe"]
 
-import os
-import sys
 import functools
 import gc
 import importlib.machinery
-import matplotlib.pyplot as plt
+import os
+import sys
+import types
 from pathlib import Path
 from timeit import default_timer as timer
-import types
+
+import matplotlib.pyplot as plt
 
 
 class PipelineContext:
@@ -30,7 +31,7 @@ def capture_locals(func):
             return tracer
 
         sys.setprofile(tracer)
-        result = func(*args, **kwargs)
+        func(*args, **kwargs)
         sys.setprofile(None)
 
         # drop function args and private names
@@ -70,5 +71,6 @@ def invoke_subrecipe(context, subrecipe, cleanup=True, progress=True, **kwargs):
 
     if progress:
         print(
-            f"\ncumulative runtime = {((timer() - context.pipeline_start_time) / 60):.1f} min"
+            "\ncumulative runtime = "
+            f"{((timer() - context.pipeline_start_time) / 60):.1f} min"
         )

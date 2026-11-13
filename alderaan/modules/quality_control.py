@@ -1,10 +1,10 @@
 __all__ = ["QualityControl"]
 
-from astropy.stats import mad_std
-import numpy as np
 import warnings
 
-from alderaan.constants import kepler_lcit, kepler_scit
+import numpy as np
+from astropy.stats import mad_std
+
 from alderaan.modules.base import BaseAlg
 
 
@@ -42,7 +42,9 @@ class QualityControl(BaseAlg):
 
             if f_quality < 0.8:
                 warnings.warn(
-                    f"WARNING: {int((1 - f_quality) * 100)}% of transits for Planet {n} have been flagged as low quality"
+                    f"WARNING: {int((1 - f_quality) * 100)}% of transits for "
+                    f"Planet {n} have been flagged as low quality",
+                    stacklevel=2,
                 )
 
         return quality

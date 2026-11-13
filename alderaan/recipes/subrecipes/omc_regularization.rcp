@@ -1,9 +1,8 @@
 import os
-import sys
 import warnings
 
-from astropy.stats import mad_std
 import numpy as np
+from astropy.stats import mad_std
 
 from alderaan.modules.omc import OMC
 from alderaan.modules.quicklook import plot_omc
@@ -71,7 +70,8 @@ def run(context, check_periodic=True):
         for n, p in enumerate(planets):
             if freq[n] is not None:
                 print(
-                    f"  Planet {n} : periodic signal found at P = {1 / freq[n]:.1f} days"
+                    f"  Planet {n} : periodic signal found at "
+                    f"P = {1 / freq[n]:.1f} days"
                 )
             else:
                 print(f"  Planet {n} : no significant periodic component found")
@@ -118,7 +118,8 @@ def run(context, check_periodic=True):
         # perform model selection routine and update objects
         omc.ymod, best_omc_model_name = omc.select_best_model(traces, dofs)
         print(
-            f"\nPlanet {n} : adopting {best_omc_model_name} as omc model and flagging outliers"
+            f"\nPlanet {n} : adopting {best_omc_model_name} as omc model "
+            "and flagging outliers"
         )
 
         omc.out_prob, omc.out_class = omc.calculate_outlier_probability(omc.ymod)

@@ -1,14 +1,15 @@
-import os
-
-import requests
-from bs4 import BeautifulSoup
+import datetime
 import logging
-import pandas as pd
+import os
 import re
 import subprocess
 import tempfile
-import urllib.request
-import datetime
+
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+
+logger = logging.getLogger(__name__)
 
 
 class KeplerCatalog:
@@ -43,8 +44,8 @@ class KeplerDataFetcher:
             format="%(asctime)s - %(levelname)s - %(message)s",
         )
 
-        logging.info("=" * 60)
-        logging.info(f"Starting processing for KIC {self.kic_id}")
+        logger.info("=" * 60)
+        logger.info("Starting processing for KIC %s", self.kic_id)
 
     def get_parent_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -58,10 +59,10 @@ class KeplerDataFetcher:
                 "wget",
             ]
             subprocess.run(command, cwd=tmpdir, check=True)
-            logging.info("Ran get_kepler_data.py successfully")
+            logger.info("Ran get_kepler_data.py successfully")
 
             sh_path = os.path.join(tmpdir, "get_kepler_data.sh")
-            with open(sh_path, "r") as f:
+            with open(sh_path) as f:
                 for line in f:
                     match = re.search(r"(http.*/)(kplr\d+-\d+_llc\.fits)", line)
                     if match:
@@ -85,17 +86,17 @@ class KeplerDataFetcher:
             fits_url = base_url + link
             local_path = os.path.join(self.output_dir, link)
             if os.path.exists(local_path):
-                logging.info(f"Already exists: {link}")
+                logger.info("Already exists: %s", link)
                 continue
 
-            logging.info(f"Downloading: {fits_url}")
+            logger.info("Downloading: %s", fits_url)
             try:
                 r = requests.get(fits_url)
                 r.raise_for_status()
                 with open(local_path, "wb") as f:
                     f.write(r.content)
             except Exception as e:
-                logging.error(f"Failed to download {fits_url}: {e}")
+                logger.error("Failed to download %s: %s", fits_url, e)
                 missing.append(fits_url)
         return missing
 
@@ -104,15 +105,16 @@ class KeplerDataFetcher:
         for attempt in range(max_retries):
             missing = self.download_llc_fits_from_directory(base_url)
             if not missing:
-                logging.info(
-                    f"All _llc.fits and _slc.fits files downloaded for KIC {self.kic_id}."
+                logger.info(
+                    "All _llc.fits and _slc.fits files downloaded for KIC %s.",
+                    self.kic_id,
                 )
                 return True
             else:
-                logging.warning(
-                    f"Retrying {len(missing)} files... (Attempt {attempt + 2})"
+                logger.warning(
+                    "Retrying %d files... (Attempt %d)", len(missing), attempt + 2
                 )
-        logging.error(f"Final missing files for KIC {self.kic_id}: {missing}")
+        logger.error("Final missing files for KIC %s: %s", self.kic_id, missing)
         return missing
 
 
@@ -148,5 +150,6 @@ class KeplerDownloader:
                 print(f"All files for {koi_id} downloaded successfully.\n")
             else:
                 print(
-                    f"Some files for {koi_id} could not be downloaded. See log for details.\n"
+                    f"Some files for {koi_id} could not be downloaded. "
+                    "See log for details.\n"
                 )

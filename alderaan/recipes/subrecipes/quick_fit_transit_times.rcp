@@ -1,9 +1,5 @@
-import os
-import sys
-import warnings
-
-from copy import deepcopy
 import numpy as np
+
 from alderaan.modules.transit import CrossCorrelationTTVFitter, OptimizationTTVFitter
 from alderaan.utils.astro import predict_tc_error
 
@@ -37,7 +33,8 @@ def run(context):
         _ntot = np.sum(p.transit_quality)
 
         print(
-            f"Planet {n} : {_nfit} of {_ntot} transit times ({_nfit / _ntot * 100:.1f}%) fit successfully"
+            f"Planet {n} : {_nfit} of {_ntot} transit times "
+            f"({_nfit / _ntot * 100:.1f}%) fit successfully"
         )
 
     # update ephemerides

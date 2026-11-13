@@ -1,11 +1,10 @@
 import os
-import sys
+import warnings
+from pathlib import Path
 
 from astropy.units import UnitsWarning
-from pathlib import Path
-import warnings
-from alderaan.data_models.litecurve import LiteCurve
 
+from alderaan.data_models.litecurve import LiteCurve
 
 warnings.simplefilter("always", UserWarning)
 warnings.filterwarnings(action="ignore", category=UnitsWarning, module="astropy")

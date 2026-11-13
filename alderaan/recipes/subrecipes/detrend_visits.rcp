@@ -1,10 +1,9 @@
 import os
-import sys
 import warnings
 
+import numpy as np
 from astropy.stats import mad_std
 from celerite2.backprop import LinAlgError
-import numpy as np
 
 from alderaan.constants import kepler_lcit, kepler_scit
 from alderaan.data_models.litecurve import LiteCurve
@@ -56,7 +55,8 @@ def run(context, tight_mask=False, clip_outliers=True):
             npts_final = len(detrender.litecurve.time)
 
             print(
-                f"  Quarter {detrender.litecurve.visit[0]} : {npts_initial - npts_final} outliers rejected"
+                f"  Quarter {detrender.litecurve.visit[0]} : "
+                f"{npts_initial - npts_final} outliers rejected"
             )
 
     # estimate oscillation periods
@@ -81,7 +81,8 @@ def run(context, tight_mask=False, clip_outliers=True):
     )
 
     print(
-        f"\nNominal stellar oscillation period = {osc_per_mu:.1f} +/- {osc_per_sd:.1f} days"
+        f"\nNominal stellar oscillation period = "
+        f"{osc_per_mu:.1f} +/- {osc_per_sd:.1f} days"
     )
 
     # Save stellar oscillation periods
@@ -138,7 +139,9 @@ def run(context, tight_mask=False, clip_outliers=True):
             )
         except LinAlgError:
             warnings.warn(
-                "Initial detrending failed...attempting to refit without exponential ramp component"
+                "Initial detrending failed..."
+                "attempting to refit without exponential ramp component",
+                stacklevel=1,
             )
 
             try:
@@ -155,7 +158,9 @@ def run(context, tight_mask=False, clip_outliers=True):
                 )
             except LinAlgError:
                 warnings.warn(
-                    "Detrending with RotationTerm failed...attempting to detrend with SHOTerm"
+                    "Detrending with RotationTerm failed..."
+                    "attempting to detrend with SHOTerm",
+                    stacklevel=1,
                 )
                 litecurves[j] = detrender.detrend(
                     "SHOTerm",
