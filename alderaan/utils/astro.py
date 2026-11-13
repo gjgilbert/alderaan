@@ -1,7 +1,8 @@
-__all__ = ['bin_data',
-           'estimate_transit_depth',
-           'predict_tc_error',
-           ]
+__all__ = [
+    "bin_data",
+    "estimate_transit_depth",
+    "predict_tc_error",
+]
 
 
 import numpy as np

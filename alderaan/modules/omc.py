@@ -1,4 +1,4 @@
-__all__ = ['OMC']
+__all__ = ["OMC"]
 
 import aesara_theano_fallback.tensor as T
 from astropy.stats import mad_std
@@ -18,6 +18,7 @@ from sklearn.cluster import KMeans
 import warnings
 
 from alderaan.constants import pi
+
 
 class OMC:
     def __init__(self, planet):
@@ -41,31 +42,34 @@ class OMC:
         self.peakfreq = None
         self.peakfap = None
 
-
     def _set_static_references(self, planet):
         self._static_period = planet.reference_period.copy()
         self._static_epoch = planet.reference_epoch.copy()
 
-
     def quick_flag_outliers(self, sigma_cut=5.0):
         if len(self.yobs) > 16:
-            ysmooth = uniform_filter(median_filter(self.yobs, size=5, mode='mirror'), size=5)
+            ysmooth = uniform_filter(
+                median_filter(self.yobs, size=5, mode="mirror"), size=5
+            )
         else:
             ysmooth = np.median(self.yobs)
 
         if len(self.yobs) > 4:
-            quality = np.abs(self.yobs - ysmooth)/mad_std(self.yobs - ysmooth) < sigma_cut
+            quality = (
+                np.abs(self.yobs - ysmooth) / mad_std(self.yobs - ysmooth) < sigma_cut
+            )
         else:
             quality = np.ones(len(self.yobs), dtype=bool)
 
         return quality
-    
 
     def quick_fit_trend(self):
         q = self.quality
         npts = len(q)
 
-        interpolator = interp1d(self.xtime[q], self.yobs[q], kind='linear', fill_value='extrapolate')
+        interpolator = interp1d(
+            self.xtime[q], self.yobs[q], kind="linear", fill_value="extrapolate"
+        )
         ysmooth = interpolator(self.xtime)
 
         if npts >= 8:
@@ -74,9 +78,8 @@ class OMC:
             ysmooth = savgol_filter(ysmooth, window_length, 2)
 
         self.ymod = ysmooth
-        
-        return self.ymod
 
+        return self.ymod
 
     def poly_model(self, polyorder, ignore_bad=True, xt_predict=None):
         """
@@ -107,20 +110,19 @@ class OMC:
             xt_predict = self.xtime
 
         # create Vandermonde matrices
-        Xt = np.vander(self.xtime[q], N=polyorder+1, increasing=True)
-        Xp = np.vander(xt_predict, N=polyorder+1, increasing=True)
-            
+        Xt = np.vander(self.xtime[q], N=polyorder + 1, increasing=True)
+        Xp = np.vander(xt_predict, N=polyorder + 1, increasing=True)
+
         # build pymc model
         with pm.Model() as model:
-            C = pm.Normal("C", mu=0, sd=10, shape=polyorder+1)
+            C = pm.Normal("C", mu=0, sd=10, shape=polyorder + 1)
 
-            trend = pm.Deterministic("trend", pm.math.dot(Xt,C))
-            pred = pm.Deterministic("pred", pm.math.dot(Xp,C))
+            trend = pm.Deterministic("trend", pm.math.dot(Xt, C))
+            pred = pm.Deterministic("pred", pm.math.dot(Xp, C))
 
             pm.Normal("obs", mu=trend, sd=self.yerr[q], observed=self.yobs[q])
 
         return model
-
 
     def sin_model(self, ttv_period=None, ignore_bad=True, xt_predict=None):
         """
@@ -155,10 +157,10 @@ class OMC:
             ttv_period = 2 * (self.xtime[q].max() - self.xtime[q].min())
         elif (ttv_period is None) & (self.peakfreq is not None):
             ttv_period = 1 / self.peakfreq
-        
+
         # convenience function
         def _sin_fxn(A, B, f, xt):
-                return A * T.sin(2 * pi * f * xt) + B * T.cos(2 * pi * f * xt)
+            return A * T.sin(2 * pi * f * xt) + B * T.cos(2 * pi * f * xt)
 
         # build pymc model
         with pm.Model() as model:
@@ -173,7 +175,6 @@ class OMC:
             pm.Normal("obs", mu=trend, sd=self.yerr[q], observed=self.yobs[q])
 
         return model
-
 
     def matern32_model(self, ignore_bad=True, xt_predict=None):
         """
@@ -214,10 +215,12 @@ class OMC:
                 "log_sigma", mu=np.log(ymax), sd=5
             )
 
-            rho = pm.Uniform("rho", lower=2 * dx, upper=self.xtime[q].max() - self.xtime[q].min())
+            rho = pm.Uniform(
+                "rho", lower=2 * dx, upper=self.xtime[q].max() - self.xtime[q].min()
+            )
             kernel = GPterms.Matern32Term(sigma=T.exp(log_sigma), rho=rho)
             mean = pm.Normal("mean", mu=np.mean(self.yobs[q]), sd=np.std(self.yobs[q]))
-            
+
             # define the GP and factorize the covariance matrix
             gp = GaussianProcess(kernel, t=self.xtime[q], yerr=self.yerr[q], mean=mean)
             gp.compute(self.xtime[q], yerr=self.yerr[q])
@@ -228,7 +231,7 @@ class OMC:
             trend = pm.Deterministic("trend", trend)
             cov = pm.Deterministic("cov", cov)
             pred = pm.Deterministic("pred", gp.predict(self.yobs[q], xt_predict))
-            dof = pm.Deterministic("dof", pm.math.trace(cov / self.yerr[q]**2))
+            dof = pm.Deterministic("dof", pm.math.trace(cov / self.yerr[q] ** 2))
 
             # add marginal likelihood to model
             lnlike = gp.log_likelihood(self.yobs[q])
@@ -236,26 +239,23 @@ class OMC:
 
         return model
 
-
     def sample(self, model, progressbar=False):
         """
         Docstring
         """
         with model:
-            map_soln = pmx.optimize(start=model.test_point, 
-                                    progress=progressbar
-                                    )
-            
-            trace = pmx.sample(tune=8000,
-                               draws=2000,
-                               chains=2,
-                               target_accept=0.95,
-                               start=map_soln,
-                               progressbar=progressbar,
-                               return_inferencedata=False
-                              )
-        return trace
+            map_soln = pmx.optimize(start=model.test_point, progress=progressbar)
 
+            trace = pmx.sample(
+                tune=8000,
+                draws=2000,
+                chains=2,
+                target_accept=0.95,
+                start=map_soln,
+                progressbar=progressbar,
+                return_inferencedata=False,
+            )
+        return trace
 
     def identify_significant_frequencies(self, critical_fap):
         """
@@ -274,7 +274,9 @@ class OMC:
 
         if npts >= 8:
             try:
-                xf, yf, freqs, faps = self.LS_estimator(self.xtime[q], self.yobs[q], fap=critical_fap)
+                xf, yf, freqs, faps = self.LS_estimator(
+                    self.xtime[q], self.yobs[q], fap=critical_fap
+                )
 
                 if len(freqs) > 0:
                     if freqs[0] > xf.min():
@@ -283,9 +285,8 @@ class OMC:
 
             except Exception:
                 pass
-        
+
         return peakfreq, peakfap
-    
 
     @staticmethod
     def LS_estimator(x, y, fsamp=None, fap=0.1, return_levels=False, max_peaks=2):
@@ -368,7 +369,6 @@ class OMC:
         else:
             return xf_out, yf_out, freqs, faps
 
-
     def select_best_model(self, traces, dofs, return_name=True, verbose=True):
         """
         Args:
@@ -386,8 +386,8 @@ class OMC:
         bic = {}
 
         for k in traces.keys():
-            trend = np.nanmedian(traces[k]['trend'], 0)
-            lnlike = -np.sum((self.yobs[q] - trend)**2 / self.yerr[q]**2)
+            trend = np.nanmedian(traces[k]["trend"], 0)
+            lnlike = -np.sum((self.yobs[q] - trend) ** 2 / self.yerr[q] ** 2)
 
             aic[k] = 2 * dofs[k] - 2 * lnlike
             bic[k] = dofs[k] * np.log(npts) - 2 * lnlike
@@ -400,12 +400,12 @@ class OMC:
             best_omc_model_name = preferred_by_aic
 
         # Case 2: Select parametric models over Matern-3/2 GP
-        elif np.any(np.array([preferred_by_aic, preferred_by_bic]) == 'matern32'):
-            if preferred_by_aic == 'matern32':
+        elif np.any(np.array([preferred_by_aic, preferred_by_bic]) == "matern32"):
+            if preferred_by_aic == "matern32":
                 best_omc_model_name = preferred_by_bic
-            elif preferred_by_bic == 'matern32':
+            elif preferred_by_bic == "matern32":
                 best_omc_model_name = preferred_by_aic
-        
+
         # Case 3: Select model with more degrees of freedom
         else:
             if dofs[preferred_by_aic] >= dofs[preferred_by_bic]:
@@ -420,12 +420,11 @@ class OMC:
             print(f"  returning: {best_omc_model_name}")
 
         # calculate best model prediction and return
-        self.ymod = np.nanmedian(traces[best_omc_model_name]['pred'], 0)
+        self.ymod = np.nanmedian(traces[best_omc_model_name]["pred"], 0)
 
         if return_name:
             return self.ymod, best_omc_model_name
         return self.ymod
-
 
     def calculate_outlier_probability(self, ymod):
         """
@@ -456,7 +455,7 @@ class OMC:
             obs = pm.NormalMixture("obs", w, mu=mu * T.ones(2), tau=tau, observed=res)
 
         with warnings.catch_warnings(record=True) as catch:
-            warnings.simplefilter('always', category=RuntimeWarning)
+            warnings.simplefilter("always", category=RuntimeWarning)
             with model:
                 trace = self.sample(model)
 
@@ -472,14 +471,18 @@ class OMC:
         # use KMeans clustering to assign each point to foreground/background
         km = KMeans(n_clusters=2)
         group = km.fit_predict(fg_prob.reshape(-1, 1))
-        centroids = np.array([np.mean(fg_prob[group == 0]), np.mean(fg_prob[group == 1])])
+        centroids = np.array(
+            [np.mean(fg_prob[group == 0]), np.mean(fg_prob[group == 1])]
+        )
         out = group == np.argmin(centroids)
 
         # reduce fg_prob threshold so that than 30% of points are flagged
         if np.sum(out) / len(out) > 0.3:
             out = fg_prob < np.percentile(fg_prob, 0.3)
 
-        print(f"{np.sum(out)} of {len(out)} ({100*np.sum(out)/len(out):.1f}%) of transit times flagged as outliers")
+        print(
+            f"{np.sum(out)} of {len(out)} ({100 * np.sum(out) / len(out):.1f}%) of transit times flagged as outliers"
+        )
 
         self.out_prob = 1 - fg_prob
         self.out_class = out

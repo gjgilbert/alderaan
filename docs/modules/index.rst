@@ -9,4 +9,3 @@ modules
    omc
    quality_control
    quicklook
-   

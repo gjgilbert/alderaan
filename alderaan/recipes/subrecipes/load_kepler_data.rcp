@@ -22,7 +22,9 @@ def run(context):
     # load KOI catalog
     catalog = parse_koi_catalog(context.catalog_filepath, target)
 
-    assert np.all(np.diff(catalog.period) > 0), "Planets should be ordered by ascending period"
+    assert np.all(np.diff(catalog.period) > 0), (
+        "Planets should be ordered by ascending period"
+    )
 
     NPL = int(catalog.npl[0])
     koi_id = catalog.koi_id[0]
@@ -30,12 +32,16 @@ def run(context):
     limbdark = [catalog.limbdark_1[0], catalog.limbdark_2[0]]
 
     # load lightcurves
-    litecurve_master = LiteCurve().from_kplr_pdcsap(context.data_dir, kic_id, 'long cadence', visits=[1,2,3])
+    litecurve_master = LiteCurve().from_kplr_pdcsap(
+        context.data_dir, kic_id, "long cadence", visits=[1, 2, 3]
+    )
 
     t_min = litecurve_master.time.min()
     t_max = litecurve_master.time.max()
     if t_min < 0:
-        raise ValueError("Lightcurve has negative timestamps...this will cause problems")
+        raise ValueError(
+            "Lightcurve has negative timestamps...this will cause problems"
+        )
 
     # split litecurves by quarter
     litecurves = litecurve_master.split_visits()
@@ -47,16 +53,23 @@ def run(context):
     print(f"{len(litecurves)} litecurves loaded for {target}")
 
     # initialize planets
-    planets = [None]*NPL
+    planets = [None] * NPL
     for n in range(NPL):
-        planets[n] = Planet(catalog.period[n], catalog.epoch[n], catalog.depth[n],
-                            catalog.duration[n], catalog.impact[n], t_min, t_max)
+        planets[n] = Planet(
+            catalog.period[n],
+            catalog.epoch[n],
+            catalog.depth[n],
+            catalog.duration[n],
+            catalog.impact[n],
+            t_min,
+            t_max,
+        )
 
     print(f"\n{NPL} planets loaded for {target}")
-    print([np.round(p.period,6) for p in planets])
+    print([np.round(p.period, 6) for p in planets])
 
     # load Holczer+2016 catalog
-    _filepath = os.path.join(context.catalog_dir, 'holczer_2016_kepler_ttvs.txt')
+    _filepath = os.path.join(context.catalog_dir, "holczer_2016_kepler_ttvs.txt")
     holczer_ephemerides = parse_holczer16_catalog(_filepath, koi_id, NPL)
 
     print(f"\n{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
@@ -88,8 +101,8 @@ def run(context):
         print(f"  Planet {n} : {len(p.transit_times)} transits")
 
     # track TTV scatter and TTV buffer
-    ttv_scatter = [None]*NPL
-    ttv_buffer = [None]*NPL
+    ttv_scatter = [None] * NPL
+    ttv_buffer = [None] * NPL
 
     for n, p in enumerate(planets):
         ttv_scatter[n] = mad_std(p.transit_times - p.eval_linear_ephemeris())

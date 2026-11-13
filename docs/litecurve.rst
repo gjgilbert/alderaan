@@ -5,4 +5,3 @@ Litecurve
 
 .. automodule:: alderaan.litecurve
    :members:
-   

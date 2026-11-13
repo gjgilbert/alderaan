@@ -5,4 +5,3 @@ Results
 
 .. automodule:: alderaan.results
    :members:
-   

@@ -1,9 +1,10 @@
-__all__ = ['resolve_config_path',
-           'parse_koi_catalog',
-           'parse_holczer16_catalog',
-           'copy_input_target_catalog',
-           'dynesty_results_to_fits'
-          ]
+__all__ = [
+    "resolve_config_path",
+    "parse_koi_catalog",
+    "parse_holczer16_catalog",
+    "copy_input_target_catalog",
+    "dynesty_results_to_fits",
+]
 
 
 import os
@@ -17,12 +18,12 @@ from pandas.testing import assert_frame_equal
 
 
 def resolve_config_path(path_str, base_path):
-    return os.path.join(str(Path(path_str.format(base_path=base_path)).resolve()),'')
+    return os.path.join(str(Path(path_str.format(base_path=base_path)).resolve()), "")
 
 
 def parse_koi_catalog(filepath, koi_id):
     """Reads a Kepler Object of Interest Catalog and performs consistency checks
-    
+
     Expected columns are:
         [kic_id, koi_id, npl, period, epoch, depth, duration, impact, ld_u1, ld_u2]
 
@@ -38,7 +39,7 @@ def parse_koi_catalog(filepath, koi_id):
     catalog = catalog.loc[catalog.koi_id == koi_id]
 
     # sort by ascending period
-    catalog = catalog.sort_values(by='period').reset_index(drop=True)
+    catalog = catalog.sort_values(by="period").reset_index(drop=True)
 
     # check for consistency in multi-planet systems
     if not all(kic_id == catalog.kic_id.to_numpy()[0] for kic_id in catalog.kic_id):
@@ -64,8 +65,8 @@ def parse_koi_catalog(filepath, koi_id):
         raise ValueError("NaN values found in input catalog")
 
     # convert units
-    catalog['depth'] = catalog['depth'] * 1e-6        # ppm --> fraction
-    catalog['duration'] = catalog['duration'] / 24.   # hrs --> days
+    catalog["depth"] = catalog["depth"] * 1e-6  # ppm --> fraction
+    catalog["duration"] = catalog["duration"] / 24.0  # hrs --> days
 
     return catalog
 
@@ -85,16 +86,20 @@ def parse_holczer16_catalog(filepath, koi_id, num_planets):
     Returns:
         list : list of (0,num_planets) (index, ttime, error) tuples
     """
-    data = np.loadtxt(filepath, usecols=[0,1,2,3,4], dtype=str)
+    data = np.loadtxt(filepath, usecols=[0, 1, 2, 3, 4], dtype=str)
     ephemerides = []
 
-    planet_id = data[:,0]
-    index = np.array(data[:,1], dtype=int)
-    ttime = np.array(data[:,2], dtype=float) + np.array(data[:,3],dtype=float)/24/60 + 67
-    error = np.array(data[:,4], dtype=float)/24/60
+    planet_id = data[:, 0]
+    index = np.array(data[:, 1], dtype=int)
+    ttime = (
+        np.array(data[:, 2], dtype=float)
+        + np.array(data[:, 3], dtype=float) / 24 / 60
+        + 67
+    )
+    error = np.array(data[:, 4], dtype=float) / 24 / 60
 
     for n in range(num_planets):
-        use = planet_id == f"{int(koi_id[1:])}.0{1+n}"
+        use = planet_id == f"{int(koi_id[1:])}.0{1 + n}"
         if np.sum(use) > 0:
             ephemerides.append((index[use], ttime[use], error[use]))
 
@@ -103,14 +108,16 @@ def parse_holczer16_catalog(filepath, koi_id, num_planets):
 
 def copy_input_target_catalog(filepath_master, filepath_copy):
     df_master = pd.read_csv(filepath_master, index_col=0)
-    
+
     if os.path.exists(filepath_copy):
         df_copy = pd.read_csv(filepath_copy, index_col=0)
 
         try:
             assert_frame_equal(df_master, df_copy, check_like=True)
         except AssertionError:
-            print(f"AssertionError: existing file {filepath_copy} does not match active file {filepath_master}")
+            print(
+                f"AssertionError: existing file {filepath_copy} does not match active file {filepath_master}"
+            )
 
     else:
         os.makedirs(os.path.dirname(filepath_copy), exist_ok=True)
@@ -126,13 +133,14 @@ def save_omc_ephemeris(filename, omc, verbose=True):
     _static_ephemeris = omc._static_epoch + omc._static_period * omc.index[q]
 
     data_out = np.vstack(
-        [omc.index[q],
+        [
+            omc.index[q],
             omc.yobs[q] + _static_ephemeris,
             omc.ymod[q] + _static_ephemeris,
             omc.out_prob[q],
             omc.out_class[q],
         ]
-    ).swapaxes(0,1)
+    ).swapaxes(0, 1)
 
     np.savetxt(
         filename,
@@ -143,6 +151,7 @@ def save_omc_ephemeris(filename, omc, verbose=True):
 
     if verbose:
         print(f"successfully wrote omc ephemeris to {filename}")
+
 
 def dynesty_results_to_fits(results, context):
     """

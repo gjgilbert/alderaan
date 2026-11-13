@@ -9,35 +9,44 @@ from alderaan.utils.io import parse_koi_catalog, parse_holczer16_catalog
 from alderaan.utils.stats import robust_polyfit
 
 base_path = Path(__file__).resolve().parents[0]
-catalog_csv = os.path.join(base_path, 'catalogs/kepler_dr25_gaia_dr2_crossmatch.csv')
-holczer_txt = os.path.join(base_path, 'catalogs/holczer_2016_kepler_ttvs.txt')
-golden_npz = os.path.join(base_path, 'data/planet_golden.npz')
+catalog_csv = os.path.join(base_path, "catalogs/kepler_dr25_gaia_dr2_crossmatch.csv")
+holczer_txt = os.path.join(base_path, "catalogs/holczer_2016_kepler_ttvs.txt")
+golden_npz = os.path.join(base_path, "data/planet_golden.npz")
 
 # golden values lock in ephemeris bookkeeping; regenerate only for intentional changes to science output
-KOI_IDS = ['K00137', 'K00070', 'K00377', 'K00001']
+KOI_IDS = ["K00137", "K00070", "K00377", "K00001"]
 T_MIN = 131.51
 T_MAX = 1591.0
 
 
 def make_planets(koi_id):
     catalog = parse_koi_catalog(catalog_csv, koi_id)
-    return [Planet(catalog.period[n], catalog.epoch[n], catalog.depth[n],
-                   catalog.duration[n], catalog.impact[n], T_MIN, T_MAX)
-            for n in range(int(catalog.npl[0]))]
+    return [
+        Planet(
+            catalog.period[n],
+            catalog.epoch[n],
+            catalog.depth[n],
+            catalog.duration[n],
+            catalog.impact[n],
+            T_MIN,
+            T_MAX,
+        )
+        for n in range(int(catalog.npl[0]))
+    ]
 
 
 def record(result, koi_id, n, step, p):
     fields = {
-        'index': p.transit_index,
-        'ttime': p.transit_times,
-        'error': p.transit_errors,
-        'quality': p.transit_quality,
-        'period': p.period,
-        'epoch': p.epoch,
-        'planet_period': p.period,
-        'planet_epoch': p.epoch,
-        'reference_period': p.reference_period,
-        'reference_epoch': p.reference_epoch,
+        "index": p.transit_index,
+        "ttime": p.transit_times,
+        "error": p.transit_errors,
+        "quality": p.transit_quality,
+        "period": p.period,
+        "epoch": p.epoch,
+        "planet_period": p.period,
+        "planet_epoch": p.epoch,
+        "reference_period": p.reference_period,
+        "reference_epoch": p.reference_epoch,
     }
     for k, v in fields.items():
         if v is not None:
@@ -60,9 +69,13 @@ def replay_pipeline_bookkeeping(koi_id):
         record(result, koi_id, n, 1, p)
 
     # step 2 : Holczer+2016 ephemerides
-    for index, ttime, error in parse_holczer16_catalog(holczer_txt, koi_id, len(planets)):
+    for index, ttime, error in parse_holczer16_catalog(
+        holczer_txt, koi_id, len(planets)
+    ):
         for n, p in enumerate(planets):
-            if np.isclose(robust_polyfit(index, ttime, 1)[0], p.period, rtol=0.01, atol=p.duration):
+            if np.isclose(
+                robust_polyfit(index, ttime, 1)[0], p.period, rtol=0.01, atol=p.duration
+            ):
                 planets[n] = p.set_transit_times(index, ttime, error)
     for n, p in enumerate(planets):
         record(result, koi_id, n, 2, p)
@@ -108,7 +121,7 @@ def replay_pipeline_bookkeeping(koi_id):
     return result
 
 
-@pytest.mark.parametrize('koi_id', KOI_IDS)
+@pytest.mark.parametrize("koi_id", KOI_IDS)
 def test_matches_golden(koi_id):
     golden = np.load(golden_npz)
     expected_keys = sorted(k for k in golden.files if k.startswith(f"{koi_id}_"))
@@ -122,16 +135,16 @@ def test_matches_golden(koi_id):
 
 
 def test_period_change_raises():
-    p = make_planets('K00137')[0]
+    p = make_planets("K00137")[0]
     index = np.arange(10)
-    ttime = 140. + 2 * p.period * index
+    ttime = 140.0 + 2 * p.period * index
 
     with pytest.raises(ValueError):
         p.set_transit_times(index, ttime, 1e-3 * np.ones(10))
 
 
 def test_reference_period_and_epoch_set_once():
-    p = make_planets('K00137')[0]
+    p = make_planets("K00137")[0]
     p.set_reference_period_and_epoch()
 
     with pytest.raises(AssertionError):

@@ -1,4 +1,3 @@
-
 import os
 
 import requests
@@ -13,7 +12,7 @@ import datetime
 
 
 class KeplerCatalog:
-    def __init__(self, project_root, catalog_dir): 
+    def __init__(self, project_root, catalog_dir):
         self.project_root = project_root
         self.catalog_dir = catalog_dir
         self.catalog = pd.read_csv(self.catalog_dir, index_col=0)
@@ -25,23 +24,23 @@ class KeplerCatalog:
         for koi in koi_ids:
             match = self.catalog[self.catalog.koi_id == koi]
             if not match.empty:
-                kic_ids.append(str(match['kic_id'].values[0]))
+                kic_ids.append(str(match["kic_id"].values[0]))
         return kic_ids
 
+
 class KeplerDataFetcher:
-    def __init__(self, kic_id, get_kepler_data_py_path, output_dir, log_file='kepler_fetcher.log'):
+    def __init__(
+        self, kic_id, get_kepler_data_py_path, output_dir, log_file="kepler_fetcher.log"
+    ):
         self.kic_id = kic_id
         self.script_path = get_kepler_data_py_path
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
 
         logging.basicConfig(
-            handlers=[
-                logging.FileHandler(log_file),
-                logging.StreamHandler()
-            ],
+            handlers=[logging.FileHandler(log_file), logging.StreamHandler()],
             level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s'
+            format="%(asctime)s - %(levelname)s - %(message)s",
         )
 
         logging.info("=" * 60)
@@ -50,10 +49,13 @@ class KeplerDataFetcher:
     def get_parent_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             command = [
-                "python", self.script_path,
+                "python",
+                self.script_path,
                 str(self.kic_id),
-                "-c", "long",
-                "--cmdtype", "wget"
+                "-c",
+                "long",
+                "--cmdtype",
+                "wget",
             ]
             subprocess.run(command, cwd=tmpdir, check=True)
             logging.info("Ran get_kepler_data.py successfully")
@@ -73,8 +75,9 @@ class KeplerDataFetcher:
         soup = BeautifulSoup(response.text, "html.parser")
 
         fits_links = [
-            a['href'] for a in soup.find_all('a', href=True)
-            if a['href'].endswith("_llc.fits") or a['href'].endswith("_slc.fits")
+            a["href"]
+            for a in soup.find_all("a", href=True)
+            if a["href"].endswith("_llc.fits") or a["href"].endswith("_slc.fits")
         ]
 
         missing = []
@@ -101,12 +104,17 @@ class KeplerDataFetcher:
         for attempt in range(max_retries):
             missing = self.download_llc_fits_from_directory(base_url)
             if not missing:
-                logging.info(f"All _llc.fits and _slc.fits files downloaded for KIC {self.kic_id}.")
+                logging.info(
+                    f"All _llc.fits and _slc.fits files downloaded for KIC {self.kic_id}."
+                )
                 return True
             else:
-                logging.warning(f"Retrying {len(missing)} files... (Attempt {attempt + 2})")
+                logging.warning(
+                    f"Retrying {len(missing)} files... (Attempt {attempt + 2})"
+                )
         logging.error(f"Final missing files for KIC {self.kic_id}: {missing}")
         return missing
+
 
 class KeplerDownloader:
     @staticmethod
@@ -131,7 +139,7 @@ class KeplerDownloader:
                 kic_id=kic_id,
                 get_kepler_data_py_path=script_path,
                 output_dir=output_dir,
-                log_file=log_file_path
+                log_file=log_file_path,
             )
 
             result = fetcher.run(max_retries=2)
@@ -139,4 +147,6 @@ class KeplerDownloader:
             if result is True:
                 print(f"All files for {koi_id} downloaded successfully.\n")
             else:
-                print(f"Some files for {koi_id} could not be downloaded. See log for details.\n")
+                print(
+                    f"Some files for {koi_id} could not be downloaded. See log for details.\n"
+                )

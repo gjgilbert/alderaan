@@ -5,4 +5,3 @@ Ephemeris
 
 .. automodule:: alderaan.ephemeris
    :members:
-   

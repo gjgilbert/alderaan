@@ -12,7 +12,7 @@ from alderaan.utils.stats import set_sigma_cutoff
 
 
 def run(context, check_periodic=True):
-    print('\n\nSUBRECIPE: OMC REGULARIZATION\n')
+    print("\n\nSUBRECIPE: OMC REGULARIZATION\n")
 
     # infer context
     NPL = context.NPL
@@ -20,10 +20,10 @@ def run(context, check_periodic=True):
     planets = context.planets
 
     # initialize OMC object and ttv_buffer tracker for each planet
-    omc_list = [None]*NPL
-    ttv_scatter = [None]*NPL
-    ttv_buffer = [None]*NPL
-    
+    omc_list = [None] * NPL
+    ttv_scatter = [None] * NPL
+    ttv_buffer = [None] * NPL
+
     for n, p in enumerate(planets):
         omc_list[n] = OMC(p)
 
@@ -35,8 +35,8 @@ def run(context, check_periodic=True):
         elif NPL > 1:
             critical_fap = 0.99
 
-        freq = [None]*NPL
-        fap = [None]*NPL
+        freq = [None] * NPL
+        fap = [None] * NPL
 
         for n, p in enumerate(planets):
             freq[n], fap[n] = omc_list[n].identify_significant_frequencies(critical_fap)
@@ -47,18 +47,20 @@ def run(context, check_periodic=True):
 
         # multiplanet systems : compare marginal frequencies to find close matches
         if NPL > 1:
-            close = np.zeros((NPL,NPL), dtype=bool)
+            close = np.zeros((NPL, NPL), dtype=bool)
 
             for i in range(NPL):
-                df_min = 1 / (planets[i].transit_times.max() - planets[i].transit_times.min())
-                
-                for j in range(i+1, NPL):
+                df_min = 1 / (
+                    planets[i].transit_times.max() - planets[i].transit_times.min()
+                )
+
+                for j in range(i + 1, NPL):
                     if freq[i] is not None and freq[j] is not None:
                         df_ij = np.abs(freq[i] - freq[j])
-                        
+
                         if df_ij < df_min:
-                            close[i,j] = True
-                            close[j,i] = True
+                            close[i, j] = True
+                            close[j, i] = True
 
             for i in range(NPL):
                 if fap[i] is not None:
@@ -68,10 +70,11 @@ def run(context, check_periodic=True):
 
         for n, p in enumerate(planets):
             if freq[n] is not None:
-                print(f"  Planet {n} : periodic signal found at P = {1/freq[n]:.1f} days")
+                print(
+                    f"  Planet {n} : periodic signal found at P = {1 / freq[n]:.1f} days"
+                )
             else:
                 print(f"  Planet {n} : no significant periodic component found")
-
 
     # fit a regularized model
     for n, p in enumerate(planets):
@@ -88,52 +91,56 @@ def run(context, check_periodic=True):
         if (npts >= 8) & (np.median(omc.yerr) <= 0.5 * mad_std(omc.yobs)):
             print("\nmatern-3/2 model")
             with warnings.catch_warnings(record=True) as catch:
-                warnings.simplefilter('always', category=RuntimeWarning)
-                traces['matern32'] = omc.sample(omc.matern32_model())
-                dofs['matern32'] = np.nanmedian(traces['matern32']['dof'])
+                warnings.simplefilter("always", category=RuntimeWarning)
+                traces["matern32"] = omc.sample(omc.matern32_model())
+                dofs["matern32"] = np.nanmedian(traces["matern32"]["dof"])
 
         # Polynomial model | require 2^N transits, at most do 3rd order
-        max_polyorder = np.max([1, np.min([3, int(np.log2(npts))-1])])
-        for polyorder in range(1, max_polyorder+1):
+        max_polyorder = np.max([1, np.min([3, int(np.log2(npts)) - 1])])
+        for polyorder in range(1, max_polyorder + 1):
             print(f"\npolynomial (degree {polyorder}) model")
             with warnings.catch_warnings(record=True) as catch:
-                warnings.simplefilter('always', category=RuntimeWarning)
-                traces[f'poly_{polyorder}'] = omc.sample(omc.poly_model(polyorder))
-                dofs[f'poly_{polyorder}'] = 1 + polyorder
+                warnings.simplefilter("always", category=RuntimeWarning)
+                traces[f"poly_{polyorder}"] = omc.sample(omc.poly_model(polyorder))
+                dofs[f"poly_{polyorder}"] = 1 + polyorder
 
-        # Sinusoidal model 
+        # Sinusoidal model
         if check_periodic and npts >= 8 and freq[n] is not None:
             print("\nsinusoid model")
             with warnings.catch_warnings(record=True) as catch:
-                warnings.simplefilter('always', category=RuntimeWarning)
-                traces['sinusoid'] = omc.sample(omc.sin_model(ttv_period=1/freq[n]))
-                dofs['sinusoid'] = 3
-        
+                warnings.simplefilter("always", category=RuntimeWarning)
+                traces["sinusoid"] = omc.sample(omc.sin_model(ttv_period=1 / freq[n]))
+                dofs["sinusoid"] = 3
+
         if len(catch) > 0:
             print(f"{len(catch)} RuntimeWarnings caught during sampling")
 
         # perform model selection routine and update objects
         omc.ymod, best_omc_model_name = omc.select_best_model(traces, dofs)
-        print(f"\nPlanet {n} : adopting {best_omc_model_name} as omc model and flagging outliers")
-        
+        print(
+            f"\nPlanet {n} : adopting {best_omc_model_name} as omc model and flagging outliers"
+        )
+
         omc.out_prob, omc.out_class = omc.calculate_outlier_probability(omc.ymod)
 
         # save transit times
-        _filename = os.path.join(context.results_dir, f'{target}_{n:02d}_quick.ttvs')
+        _filename = os.path.join(context.results_dir, f"{target}_{n:02d}_quick.ttvs")
         save_omc_ephemeris(_filename, omc)
 
-        planets[n] = p.update_ephemeris(omc.index, omc.ymod, omc.yerr, omc.quality, full=False)
+        planets[n] = p.update_ephemeris(
+            omc.index, omc.ymod, omc.yerr, omc.quality, full=False
+        )
         print(f"Planet {n} : {_old_period:.6f} --> {p.period:.6f}")
 
         ttv_scatter[n] = mad_std(omc.yobs - omc.ymod)
         ttv_buffer[n] = set_sigma_cutoff(len(omc.yobs)) * ttv_scatter[n]
 
-
     # make quicklook plot and return planets
     _filepath = os.path.join(context.quicklook_dir, f"{target}_omc.png")
     _ = plot_omc(omc_list, target, _filepath)
 
-    return {'planets': planets,
-            'ttv_scatter': ttv_scatter,
-            'ttv_buffer': ttv_buffer,
-            }
+    return {
+        "planets": planets,
+        "ttv_scatter": ttv_scatter,
+        "ttv_buffer": ttv_buffer,
+    }

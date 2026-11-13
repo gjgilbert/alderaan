@@ -1,4 +1,4 @@
-__all__ = ['Planet']
+__all__ = ["Planet"]
 
 import numpy as np
 from scipy.interpolate import interp1d
@@ -7,17 +7,9 @@ from alderaan.utils.stats import robust_polyfit
 
 
 class Planet:
-    """Planet
-    """
-    def __init__(self,
-                 period,
-                 epoch,
-                 depth,
-                 duration,
-                 impact,
-                 t_min,
-                 t_max
-                ):
+    """Planet"""
+
+    def __init__(self, period, epoch, depth, duration, impact, t_min, t_max):
         self.period = period
         self.epoch = epoch
         self.depth = depth
@@ -26,7 +18,9 @@ class Planet:
 
         # initialize transit times from linear ephemeris
         self.transit_times = np.arange(self.epoch, t_max, self.period)
-        self.transit_index = np.array(np.round((self.transit_times - self.epoch) / self.period), dtype=int)
+        self.transit_index = np.array(
+            np.round((self.transit_times - self.epoch) / self.period), dtype=int
+        )
         self.transit_errors = None
         self.transit_quality = None
 
@@ -35,7 +29,6 @@ class Planet:
 
         self.clip_range(t_min, t_max)
         self.refit_period_and_epoch()
-
 
     def set_transit_times(self, index, ttime, error):
         """
@@ -66,11 +59,11 @@ class Planet:
 
         return self
 
-
     def _check_period_change(self, old_period):
         if not np.isclose(old_period, self.period, rtol=0.1):
-            raise ValueError(f"New period ({self.period:.6f}) differs from old period ({old_period:.6f}) by more than 10%")
-
+            raise ValueError(
+                f"New period ({self.period:.6f}) differs from old period ({old_period:.6f}) by more than 10%"
+            )
 
     def clip_range(self, t_min, t_max):
         """
@@ -97,7 +90,6 @@ class Planet:
 
         return self
 
-
     def _keep_transits(self, keep):
         self.transit_index = self.transit_index[keep]
         self.transit_times = self.transit_times[keep]
@@ -105,7 +97,6 @@ class Planet:
             self.transit_errors = self.transit_errors[keep]
         if self.transit_quality is not None:
             self.transit_quality = self.transit_quality[keep]
-
 
     def set_reference_period_and_epoch(self):
         """
@@ -117,7 +108,6 @@ class Planet:
         assert self.reference_epoch is None, "reference_epoch already set"
         self.reference_epoch = self.epoch
 
-
     def eval_linear_ephemeris(self):
         """
         Calculate linear ephemeris from period and epoch
@@ -125,8 +115,7 @@ class Planet:
         Returns:
             ndarray : transit times according to linear ephemeris
         """
-        return self.epoch + self.period*self.transit_index
-
+        return self.epoch + self.period * self.transit_index
 
     def refit_period_and_epoch(self):
         """
@@ -140,10 +129,11 @@ class Planet:
         else:
             q = np.ones(len(self.transit_index), dtype=bool)
 
-        self.period, self.epoch = robust_polyfit(self.transit_index[q], self.transit_times[q], 1)
+        self.period, self.epoch = robust_polyfit(
+            self.transit_index[q], self.transit_times[q], 1
+        )
 
         return self
-
 
     def update_ephemeris(self, index, omc_model, error, quality, full=False):
         """
@@ -163,7 +153,11 @@ class Planet:
         old_period = self.period
 
         self.transit_index = np.copy(index)
-        self.transit_times = self.reference_epoch + self.reference_period*self.transit_index + omc_model
+        self.transit_times = (
+            self.reference_epoch
+            + self.reference_period * self.transit_index
+            + omc_model
+        )
         self.transit_errors = np.copy(error)
         self.transit_quality = np.copy(quality)
 
@@ -171,15 +165,22 @@ class Planet:
         self._check_period_change(old_period)
 
         # interpolate
-        assert self.transit_index[0] == 0, f"transit_index[0] = {self.transit_index[0]}, expected zero-indexing"
+        assert self.transit_index[0] == 0, (
+            f"transit_index[0] = {self.transit_index[0]}, expected zero-indexing"
+        )
 
         q = self.transit_quality
-        interpolator = interp1d(self.transit_index[q], self.transit_times[q], kind='linear', fill_value='extrapolate')
+        interpolator = interp1d(
+            self.transit_index[q],
+            self.transit_times[q],
+            kind="linear",
+            fill_value="extrapolate",
+        )
 
-        index_full = np.arange(0, self.transit_index.max()+1, dtype=int)
+        index_full = np.arange(0, self.transit_index.max() + 1, dtype=int)
         ttime_full = interpolator(index_full)
 
-        error_full = np.nanmedian(self.transit_errors)*np.ones_like(index_full)
+        error_full = np.nanmedian(self.transit_errors) * np.ones_like(index_full)
         error_full[np.isin(index_full, self.transit_index[q])] = self.transit_errors[q]
 
         quality_full = np.ones(len(index_full), dtype=bool)
@@ -195,7 +196,6 @@ class Planet:
         self.transit_quality = quality_full[keep]
 
         return self.refit_period_and_epoch()
-
 
     def remove_poor_quality_transits(self):
         """

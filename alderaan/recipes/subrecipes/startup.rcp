@@ -12,6 +12,7 @@ import shutil
 from alderaan.utils.io import resolve_config_path, copy_input_target_catalog
 from alderaan.utils.pipeline import capture_locals
 
+
 @capture_locals
 def run(context):
     # flush buffer
@@ -19,10 +20,8 @@ def run(context):
     sys.stderr.flush()
 
     # filter warnings
-    warnings.simplefilter('always', UserWarning)
-    warnings.filterwarnings(
-        action='ignore', category=UnitsWarning, module='astropy'
-    )
+    warnings.simplefilter("always", UserWarning)
+    warnings.filterwarnings(action="ignore", category=UnitsWarning, module="astropy")
 
     print("")
     print("+" * shutil.get_terminal_size().columns)
@@ -33,25 +32,31 @@ def run(context):
 
     # read inputs from config
     parser = argparse.ArgumentParser()
-    parser.add_argument('-m', '--mission', required=True, type=str, help='Observing mission')
-    parser.add_argument('-t', '--target', required=True, type=str, help='Target ID for star')
-    parser.add_argument('-c', '--config', required=True, type=str, help='Path to config file')
+    parser.add_argument(
+        "-m", "--mission", required=True, type=str, help="Observing mission"
+    )
+    parser.add_argument(
+        "-t", "--target", required=True, type=str, help="Target ID for star"
+    )
+    parser.add_argument(
+        "-c", "--config", required=True, type=str, help="Path to config file"
+    )
     args = parser.parse_args()
 
     config = ConfigParser()
     config.read(args.config)
 
     for k, v in config["PATHS"].items():
-        config['PATHS'][k] = resolve_config_path(config['PATHS'][k], context.BASE_PATH)
+        config["PATHS"][k] = resolve_config_path(config["PATHS"][k], context.BASE_PATH)
 
     mission = args.mission
     target = args.target
-    run_id = config['RUN']['run_id']
+    run_id = config["RUN"]["run_id"]
 
-    data_dir =  config['PATHS']['data_dir']
-    outputs_dir = config['PATHS']['outputs_dir']
-    catalog_dir = config['PATHS']['catalog_dir']
-    catalog_name = str(config['ARGS']['catalog_csv'])
+    data_dir = config["PATHS"]["data_dir"]
+    outputs_dir = config["PATHS"]["outputs_dir"]
+    catalog_dir = config["PATHS"]["catalog_dir"]
+    catalog_name = str(config["ARGS"]["catalog_csv"])
     catalog_filepath = os.path.join(catalog_dir, catalog_name)
 
     print("")
@@ -69,14 +74,16 @@ def run(context):
     # build directory structure
     os.makedirs(outputs_dir, exist_ok=True)
 
-    results_dir = os.path.join(outputs_dir, 'results', run_id, target)
+    results_dir = os.path.join(outputs_dir, "results", run_id, target)
     os.makedirs(results_dir, exist_ok=True)
 
-    quicklook_dir = os.path.join(outputs_dir, 'quicklook', run_id, target)
+    quicklook_dir = os.path.join(outputs_dir, "quicklook", run_id, target)
     os.makedirs(quicklook_dir, exist_ok=True)
 
     # copy input catalog into results directory
-    _copied_catalog_filepath = os.path.join(outputs_dir, 'results', run_id, f'{run_id}.csv')
+    _copied_catalog_filepath = os.path.join(
+        outputs_dir, "results", run_id, f"{run_id}.csv"
+    )
     copy_input_target_catalog(catalog_filepath, _copied_catalog_filepath)
 
     return

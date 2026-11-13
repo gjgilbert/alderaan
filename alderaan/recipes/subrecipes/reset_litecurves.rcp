@@ -9,8 +9,9 @@ from alderaan.modules.detrend import SimpleDetrender
 from alderaan.modules.transit import RBDTransitModel
 from alderaan.utils.stats import set_sigma_cutoff
 
+
 def run(context):
-    print('\n\nSUBRECIPE: RESET LITECURVES\n')
+    print("\n\nSUBRECIPE: RESET LITECURVES\n")
 
     # infer context
     planets = context.planets
@@ -31,7 +32,9 @@ def run(context):
         dt.clip_outliers(trend=f_mod, sigma_upper=sigma, sigma_lower=sigma)
         npts_final = len(dt.litecurve.time)
 
-        print(f"  Quarter {dt.litecurve.visit[0]} : {npts_initial-npts_final} outliers rejected")
+        print(
+            f"  Quarter {dt.litecurve.visit[0]} : {npts_initial - npts_final} outliers rejected"
+        )
 
         litecurves[j] = deepcopy(dt.litecurve)
 
@@ -47,4 +50,4 @@ def run(context):
 
     litecurve = LiteCurve().from_list(litecurves)
 
-    return {'litecurve': litecurve}
+    return {"litecurve": litecurve}

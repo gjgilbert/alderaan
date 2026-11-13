@@ -1,4 +1,4 @@
-__all__ = ['BaseAlg']
+__all__ = ["BaseAlg"]
 
 from copy import deepcopy
 import numpy as np
@@ -7,10 +7,11 @@ from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.planet import Planet
 
 
-class BaseAlg():
+class BaseAlg:
     """
     Base Algorithm class for modules which work on a litecurve + planets
     """
+
     def __init__(self, litecurve, planets):
         # check inputs
         if not isinstance(litecurve, LiteCurve):
@@ -28,17 +29,16 @@ class BaseAlg():
 
         self._init_obsmode_tracking()
 
-
     def _init_obsmode_tracking(self):
         lc = self.litecurve
 
         self.exptime = {
-            'long cadence': kepler_lcit,
-            'short cadence': kepler_scit,
+            "long cadence": kepler_lcit,
+            "short cadence": kepler_scit,
         }
 
         # observing mode at the cadence nearest each transit
-        self.transit_obsmode = [None]*self.npl
+        self.transit_obsmode = [None] * self.npl
         for n, p in enumerate(self.planets):
             nearest = [np.argmin(np.abs(lc.time - tc)) for tc in p.transit_times]
             self.transit_obsmode[n] = np.array([lc.obsmode[i] for i in nearest])
@@ -58,18 +58,22 @@ class BaseAlg():
         self._exptime_offsets = {}
         for om in self.unique_obsmodes:
             exptime = self.exptime[om]
-            supersample = np.array(np.ceil(np.sqrt((depth / tau12) * (exptime / 8 / sigma))), dtype=int)
+            supersample = np.array(
+                np.ceil(np.sqrt((depth / tau12) * (exptime / 8 / sigma))), dtype=int
+            )
             self.supersample[om] = np.max(supersample + (supersample % 2 + 1))
-            self._exptime_offsets[om] = np.linspace(-exptime/2, exptime/2, self.supersample[om])
+            self._exptime_offsets[om] = np.linspace(
+                -exptime / 2, exptime / 2, self.supersample[om]
+            )
 
         self._set_cadence_masks()
 
-
     def _set_cadence_masks(self):
-        self._cadence_mask = {om: self.litecurve.obsmode == om for om in self.unique_obsmodes}
+        self._cadence_mask = {
+            om: self.litecurve.obsmode == om for om in self.unique_obsmodes
+        }
 
-
-    def make_transit_mask(self, rel_size=None, abs_size=None, mask_type='standard'):
+    def make_transit_mask(self, rel_size=None, abs_size=None, mask_type="standard"):
         """
         Arguments
             rel_size : full width of masked region in units of transit duration
@@ -84,24 +88,23 @@ class BaseAlg():
             raise ValueError("either rel_size or abs_size must be provided")
 
         if rel_size is None:
-            rel_size = 0.
+            rel_size = 0.0
         if abs_size is None:
-            abs_size = 0.
+            abs_size = 0.0
 
-        mask = np.zeros((self.npl,len(self.litecurve.time)), dtype=int)
+        mask = np.zeros((self.npl, len(self.litecurve.time)), dtype=int)
 
         for n, p in enumerate(self.planets):
-            half_width = 0.5*np.max([rel_size*p.duration, abs_size])
+            half_width = 0.5 * np.max([rel_size * p.duration, abs_size])
             for tc in p.transit_times:
                 mask[n] += np.abs(self.litecurve.time - tc) < half_width
 
-        if mask_type == 'standard':
+        if mask_type == "standard":
             return mask.astype(bool)
-        elif mask_type == 'condensed':
+        elif mask_type == "condensed":
             return np.sum(mask, axis=0).astype(bool)
         else:
             raise ValueError(f"mask_type {mask_type} not supported")
-
 
     def identify_overlapping_transits(self, rtol=None, atol=None):
         """
@@ -114,16 +117,18 @@ class BaseAlg():
         if (rtol is None) and (atol is None):
             raise ValueError("at least one of rtol or atol must be provided")
 
-        overlap = [None]*self.npl
+        overlap = [None] * self.npl
 
         for i in range(self.npl):
             overlap[i] = np.zeros(len(self.planets[i].transit_times), dtype=bool)
             ttime_i = self.planets[i].transit_times
 
-            for j in range(i+1,self.npl):
+            for j in range(i + 1, self.npl):
                 for tc_j in self.planets[j].transit_times:
                     if rtol is not None:
-                        overlap[i] |= np.abs(ttime_i - tc_j) < rtol * 0.5 * (self.planets[i].duration + self.planets[j].duration)
+                        overlap[i] |= np.abs(ttime_i - tc_j) < rtol * 0.5 * (
+                            self.planets[i].duration + self.planets[j].duration
+                        )
                     if atol is not None:
                         overlap[i] |= np.abs(ttime_i - tc_j) < atol
 

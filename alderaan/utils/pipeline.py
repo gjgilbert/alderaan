@@ -1,7 +1,4 @@
-__all__ = ['PipelineContext',
-           'capture_locals',
-           'invoke_subrecipe'
-          ]
+__all__ = ["PipelineContext", "capture_locals", "invoke_subrecipe"]
 
 import os
 import sys
@@ -28,7 +25,7 @@ def capture_locals(func):
         captured_locals = {}
 
         def tracer(frame, event, arg):
-            if event == 'return' and frame.f_code == func.__code__:
+            if event == "return" and frame.f_code == func.__code__:
                 captured_locals.update(frame.f_locals)
             return tracer
 
@@ -37,10 +34,10 @@ def capture_locals(func):
         sys.setprofile(None)
 
         # drop function args and private names
-        exclude = ['context', 'config', 'parser', 'args', 'kwargs', 'catch']
+        exclude = ["context", "config", "parser", "args", "kwargs", "catch"]
         user_defined_locals = {}
         for k, v in captured_locals.items():
-            if (k not in exclude  and not k.startswith('_') and len(k) >= 3):
+            if k not in exclude and not k.startswith("_") and len(k) >= 3:
                 user_defined_locals[k] = v
 
         return user_defined_locals
@@ -49,14 +46,16 @@ def capture_locals(func):
 
 
 def invoke_subrecipe(context, subrecipe, cleanup=True, progress=True, **kwargs):
-    path = Path(os.path.join(context.BASE_PATH, 'alderaan/recipes/subrecipes', subrecipe))
+    path = Path(
+        os.path.join(context.BASE_PATH, "alderaan/recipes/subrecipes", subrecipe)
+    )
     name = path.stem
 
     loader = importlib.machinery.SourceFileLoader(name, str(path))
     module = types.ModuleType(name)
     loader.exec_module(module)
 
-    if not hasattr(module, 'run'):
+    if not hasattr(module, "run"):
         raise AttributeError(f"{name} has no function 'run'")
 
     vars_dict = module.run(context, **kwargs)
@@ -66,8 +65,10 @@ def invoke_subrecipe(context, subrecipe, cleanup=True, progress=True, **kwargs):
     if cleanup:
         sys.stdout.flush()
         sys.stderr.flush()
-        plt.close('all')
+        plt.close("all")
         gc.collect()
 
     if progress:
-        print(f"\ncumulative runtime = {((timer()-context.pipeline_start_time)/60):.1f} min")
+        print(
+            f"\ncumulative runtime = {((timer() - context.pipeline_start_time) / 60):.1f} min"
+        )

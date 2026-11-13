@@ -5,4 +5,3 @@ Planet
 
 .. automodule:: alderaan.planet
    :members:
-   

@@ -1,9 +1,10 @@
-__all__ = ['TransitModel',
-           'RBDTransitModel',
-           'TTVTransitModel',
-           'OptimizationTTVFitter',
-           'CrossCorrelationTTVFitter',
-          ]
+__all__ = [
+    "TransitModel",
+    "RBDTransitModel",
+    "TTVTransitModel",
+    "OptimizationTTVFitter",
+    "CrossCorrelationTTVFitter",
+]
 
 import os
 import sys
@@ -28,16 +29,18 @@ class TransitModel(BaseAlg):
     """
     Base transit model class, used for inheritance but not called directly
     """
+
     def __init__(self, litecurve, planets, limbdark):
         super().__init__(litecurve, planets)
-        
+
         self.limbdark = deepcopy(limbdark)
         self._init_time_warping()
 
-
     def trim_flux_arrays(self, rel_size=None, abs_size=None):
         lc = self.litecurve
-        mask = self.make_transit_mask(rel_size=rel_size, abs_size=abs_size, mask_type='condensed')
+        mask = self.make_transit_mask(
+            rel_size=rel_size, abs_size=abs_size, mask_type="condensed"
+        )
 
         for k in lc.__dict__.keys():
             if type(lc.__dict__[k]) is np.ndarray:
@@ -49,14 +52,13 @@ class TransitModel(BaseAlg):
 
         return self
 
-
     def _init_time_warping(self):
         """
         This function initializes warped time arrays
         * the litecurve.time vector is copied for each of the N planets
         * times are then "warped" to account for transit timing variations
         * the transit model assumes linear perturbations to a fixed ephemeris
-            
+
         IMPORTANT!!! The warp functions assume zero-indexing on transit indexes
         """
         # track static ephemerides
@@ -67,22 +69,22 @@ class TransitModel(BaseAlg):
         self._set_bins()
         self._set_warps()
 
-
-
     def _set_bins(self):
-        self._bin_edges = [None]*self.npl
-        self._bin_values = [None]*self.npl
+        self._bin_edges = [None] * self.npl
+        self._bin_values = [None] * self.npl
 
-        ttvs = [None]*self.npl
+        ttvs = [None] * self.npl
         for n, p in enumerate(self.planets):
             ttvs[n] = np.zeros_like(p.transit_times)
 
         self._update_bins(ttvs)
-        
-    
+
     def _update_bins(self, ttvs):
-        for n, p, in enumerate(self.planets):
-            index_full = np.arange(0, p.transit_index.max()+1, dtype=int)
+        for (
+            n,
+            p,
+        ) in enumerate(self.planets):
+            index_full = np.arange(0, p.transit_index.max() + 1, dtype=int)
             ttime_full = self._static_epoch[n] + self._static_period[n] * index_full
             ttime_full[p.transit_index] = p.transit_times + ttvs[n]
 
@@ -94,26 +96,25 @@ class TransitModel(BaseAlg):
                 ]
             )
 
-            self._bin_values[n] = np.concatenate([[ttime_full[0]], ttime_full, [ttime_full[-1]]])
+            self._bin_values[n] = np.concatenate(
+                [[ttime_full[0]], ttime_full, [ttime_full[-1]]]
+            )
 
-    
     def _set_warps(self):
-        self._warped_time = [None]*self.npl     # warp lc.time vector for each planet
-        self._warped_legx = [None]*self.npl     # legx is 1st-order Legendre polynomial
+        self._warped_time = [None] * self.npl  # warp lc.time vector for each planet
+        self._warped_legx = [None] * self.npl  # legx is 1st-order Legendre polynomial
 
         self._update_warps()
-
 
     def _update_warps(self):
         for n, p in enumerate(self.planets):
             index_midpoint = p.transit_index[-1] // 2
 
-            _t, _i = self._warp_times(self.litecurve.time, n, return_inds=True)            
-            _x = (_i -index_midpoint) / index_midpoint
+            _t, _i = self._warp_times(self.litecurve.time, n, return_inds=True)
+            _x = (_i - index_midpoint) / index_midpoint
 
-            self._warped_time[n] = _t.copy()    # len(self.litecurve.ttime)
-            self._warped_legx[n] = _x.copy()    # len(self.litecurve.ttime)
-
+            self._warped_time[n] = _t.copy()  # len(self.litecurve.ttime)
+            self._warped_legx[n] = _x.copy()  # len(self.litecurve.ttime)
 
     def _get_model_dt(self, t, planet_no, return_inds=False):
         _inds = np.searchsorted(self._bin_edges[planet_no], t)
@@ -123,7 +124,6 @@ class TransitModel(BaseAlg):
             return _vals, _inds
         return _vals
 
-
     def _warp_times(self, t, planet_no, return_inds=False):
         warps = self._get_model_dt(t, planet_no, return_inds=return_inds)
 
@@ -131,7 +131,6 @@ class TransitModel(BaseAlg):
             return t - warps[0], warps[1]
         else:
             return t - warps
-        
 
     @staticmethod
     def throttled_print_fn(interval=10):
@@ -141,7 +140,7 @@ class TransitModel(BaseAlg):
         def callback(results, niter, ncall, *args, **kwargs):
             now = time.time()
             if now - last[0] >= interval:
-                runtime = (now - start)/60
+                runtime = (now - start) / 60
 
                 buf = io.StringIO()
                 stdout = sys.stdout
@@ -171,9 +170,9 @@ class RBDTransitModel(TransitModel):
         optimize : applies least squares optimization
         sample : samples from the posterior using dynamic nested sampling
     """
+
     def __init__(self, litecurve, planets, limbdark):
         super().__init__(litecurve, planets, limbdark)
-        
 
     @staticmethod
     def model_flux(theta, transitmodel):
@@ -184,7 +183,7 @@ class RBDTransitModel(TransitModel):
             instance of TransitModel, typically self
 
         Priors on planet parameters [C0, C1, rp, b, T14] are enforced outside this function
-        
+
         Limb darkening is sampled in terms of [q1, q2] (see Kipping 2013)
         Limb darkening priors are enforced in terms of [u1, u2] inside this function
         """
@@ -220,19 +219,14 @@ class RBDTransitModel(TransitModel):
                     nthreads,
                 )
 
-                qld_flux = _quadratic_ld._quadratic_ld(
-                    ds, np.abs(rp), u1, u2, nthreads
-                )
+                qld_flux = _quadratic_ld._quadratic_ld(ds, np.abs(rp), u1, u2, nthreads)
 
-                qld_flux = np.mean(
-                    qld_flux.reshape(-1, supersample), axis=1
-                )
+                qld_flux = np.mean(qld_flux.reshape(-1, supersample), axis=1)
 
                 flux_mod[mask] += qld_flux - 1.0
-                
-        return flux_mod      
-                
-                
+
+        return flux_mod
+
     @staticmethod
     def model_residuals(theta, transitmodel):
         flux_mod = transitmodel.model_flux(theta, transitmodel)
@@ -241,13 +235,12 @@ class RBDTransitModel(TransitModel):
 
         return (flux_obs - flux_mod) / flux_err
 
-    
     @staticmethod
     def ln_likelihood(theta, transitmodel):
         # calculate likelihood
         tm = transitmodel
-        lnlike = -0.5 * np.sum(tm.model_residuals(theta, tm)**2)
-               
+        lnlike = -0.5 * np.sum(tm.model_residuals(theta, tm) ** 2)
+
         # enforce prior on limb darkening
         sig_ld_sq = 0.01
         lnlike -= 1.0 / (2 * sig_ld_sq) * (theta[-1] - tm.limbdark[0]) ** 2
@@ -255,10 +248,9 @@ class RBDTransitModel(TransitModel):
 
         if not np.isfinite(lnlike):
             return -1e300
-        
+
         return lnlike
-    
-    
+
     @staticmethod
     def prior_transform(uniform_hypercube, transitmodel):
         """
@@ -292,9 +284,9 @@ class RBDTransitModel(TransitModel):
                 transformed samples
         """
         tm = transitmodel
-        
+
         u = np.array(uniform_hypercube)  # U(0,1) priors
-        x = np.zeros_like(u)             # physical priors
+        x = np.zeros_like(u)  # physical priors
 
         # 5 * npl + 2 parameters: [C0, C1, r, b, T14]...[q1, q2]
         for n in range(tm.npl):
@@ -302,7 +294,9 @@ class RBDTransitModel(TransitModel):
             x[5 * n + 1] = norm_ppf(u[1 + n * 5], 0.0, 0.1)
             x[5 * n + 2] = loguniform_ppf(u[2 + n * 5], 1e-5, 0.99)
             x[5 * n + 3] = uniform_ppf(u[3 + n * 5], 0.0, 1 + x[5 * n + 2])
-            x[5 * n + 4] = loguniform_ppf(u[4 + n * 5], 0.01*tm.planets[n].duration, 3 * tm.planets[n].duration)
+            x[5 * n + 4] = loguniform_ppf(
+                u[4 + n * 5], 0.01 * tm.planets[n].duration, 3 * tm.planets[n].duration
+            )
 
         # limb darkening coefficients (see Kipping 2013)
         x[-2] = uniform_ppf(u[-2], 0, 1)
@@ -313,11 +307,11 @@ class RBDTransitModel(TransitModel):
     def sample(self, checkpoint_file=None, checkpoint_every=60, progress_every=10):
         ndim = 5 * self.npl + 2
         sampler = dynesty.DynamicNestedSampler(
-            self.ln_likelihood, 
+            self.ln_likelihood,
             self.prior_transform,
             ndim,
-            bound='multi',
-            sample='rwalk',
+            bound="multi",
+            sample="rwalk",
             logl_args=(self,),
             ptform_args=(self,),
         )
@@ -327,9 +321,8 @@ class RBDTransitModel(TransitModel):
             print_progress=True,
             print_func=self.throttled_print_fn(progress_every),
         )
-        
+
         return sampler.results
-    
 
     def optimize(self, fix_limbdark=True, niter=3):
         theta = self._theta_initial()
@@ -339,9 +332,9 @@ class RBDTransitModel(TransitModel):
             _x = x0.copy()
             _x[~fix] = x
             return self.model_residuals(_x, self)
-        
+
         i_fix = np.arange(len(theta), dtype=int)
-        var_names = np.array('C0 C1 r b T14'.split())
+        var_names = np.array("C0 C1 r b T14".split())
 
         # fix ephemeris, vary [r, b, T14]
         fix_C0_C1 = np.zeros(len(i_fix), dtype=bool)
@@ -366,9 +359,9 @@ class RBDTransitModel(TransitModel):
 
             result = least_squares(
                 _fxn,
-                theta[~fix], 
-                method='trf',
-                bounds=bounds[~fix,:].T,
+                theta[~fix],
+                method="trf",
+                bounds=bounds[~fix, :].T,
                 args=[theta, fix, self],
             )
 
@@ -379,7 +372,6 @@ class RBDTransitModel(TransitModel):
             print(f"message: {result['message']}")
 
         return theta
-
 
     def _theta_initial(self):
         """
@@ -398,7 +390,6 @@ class RBDTransitModel(TransitModel):
         theta.append(self.limbdark[1])
 
         return np.array(theta)
-    
 
     def _theta_bounds(self):
         """
@@ -407,18 +398,17 @@ class RBDTransitModel(TransitModel):
         """
         bounds = []
         for n, p in enumerate(self.planets):
-            bounds.append([-np.inf,np.inf])
-            bounds.append([-np.inf,np.inf])
-            bounds.append([1e-5,0.99])
-            bounds.append([0.0,1.0])
-            bounds.append([0.01*p.duration,3*p.duration])
+            bounds.append([-np.inf, np.inf])
+            bounds.append([-np.inf, np.inf])
+            bounds.append([1e-5, 0.99])
+            bounds.append([0.0, 1.0])
+            bounds.append([0.01 * p.duration, 3 * p.duration])
 
-        bounds.append([0.,1.])
-        bounds.append([0.,1.])
+        bounds.append([0.0, 1.0])
+        bounds.append([0.0, 1.0])
 
         return np.array(bounds)
 
-    
     def update_planet_parameters(self, theta):
         for n, p in enumerate(self.planets):
             self.planets[n].ror = theta[2 + n * 5]
@@ -427,13 +417,12 @@ class RBDTransitModel(TransitModel):
             self.planets[n].depth = estimate_transit_depth(p.ror, p.impact)
 
         return self.planets
-    
 
     def update_limbdark_parameters(self, theta):
         self.limbdark = theta[-2:]
 
         return self.limbdark
-    
+
 
 class TTVTransitModel(TransitModel):
     """
@@ -447,20 +436,17 @@ class TTVTransitModel(TransitModel):
         sample : samples from the posterior using dynamic nested sampling
     """
 
-
     def __init__(self, litecurve, planets, limbdark):
         super().__init__(litecurve, planets, limbdark)
 
         self.num_transits = self._count_transits()
 
-
     def _count_transits(self):
-        self.num_transits = np.zeros(self.npl,dtype=int)
+        self.num_transits = np.zeros(self.npl, dtype=int)
         for n, p in enumerate(self.planets):
             self.num_transits[n] = len(p.transit_times)
         return self.num_transits
 
-    
     @staticmethod
     def model_flux(theta, transitmodel):
         """
@@ -477,7 +463,7 @@ class TTVTransitModel(TransitModel):
 
         iend = np.cumsum(tm.num_transits)
         istart = iend - tm.num_transits
-        
+
         flux_mod = np.ones_like(lc.flux)
 
         for obsmode in tm.unique_obsmodes:
@@ -486,7 +472,7 @@ class TTVTransitModel(TransitModel):
             supersample = tm.supersample[obsmode]
 
             for n, p in enumerate(tm.planets):
-                ttvs = np.array(theta[istart[n]:iend[n]])
+                ttvs = np.array(theta[istart[n] : iend[n]])
 
                 tm._update_bins(ttvs)
                 tm._update_warps()
@@ -510,14 +496,11 @@ class TTVTransitModel(TransitModel):
                     ds, np.abs(p.ror), tm.limbdark[0], tm.limbdark[1], nthreads
                 )
 
-                qld_flux = np.mean(
-                    qld_flux.reshape(-1, supersample), axis=1
-                )
+                qld_flux = np.mean(qld_flux.reshape(-1, supersample), axis=1)
 
                 flux_mod[mask] += qld_flux - 1.0
-                
-        return flux_mod      
 
+        return flux_mod
 
     @staticmethod
     def model_residuals(theta, transitmodel):
@@ -527,17 +510,15 @@ class TTVTransitModel(TransitModel):
 
         return (flux_obs - flux_mod) / flux_err
 
-
     @staticmethod
     def ln_likelihood(theta, transitmodel):
         tm = transitmodel
-        lnlike = -0.5 * np.sum(tm.model_residuals(theta, tm)**2)
-               
+        lnlike = -0.5 * np.sum(tm.model_residuals(theta, tm) ** 2)
+
         if not np.isfinite(lnlike):
             return -1e300
-        
-        return lnlike
 
+        return lnlike
 
     @staticmethod
     def prior_transform(uniform_hypercube, transitmodel):
@@ -547,25 +528,26 @@ class TTVTransitModel(TransitModel):
         tm = transitmodel
 
         u = np.array(uniform_hypercube)  # U(0,1) priors
-        x = np.zeros_like(u)             # physical priors
+        x = np.zeros_like(u)  # physical priors
 
         iend = np.cumsum(tm.num_transits)
         istart = iend - tm.num_transits
 
         for n in range(tm.npl):
-            x[istart[n]:iend[n]] = uniform_ppf(u[istart[n]:iend[n]], -tm.planets[n].duration, tm.planets[n].duration)
+            x[istart[n] : iend[n]] = uniform_ppf(
+                u[istart[n] : iend[n]], -tm.planets[n].duration, tm.planets[n].duration
+            )
 
         return x
-
 
     def sample(self, checkpoint_file=None, checkpoint_every=60, progress_every=10):
         ndim = np.sum(self.num_transits)
         sampler = dynesty.DynamicNestedSampler(
-            self.ln_likelihood, 
+            self.ln_likelihood,
             self.prior_transform,
             ndim,
-            bound='multi',
-            sample='rwalk',
+            bound="multi",
+            sample="rwalk",
             logl_args=(self,),
             ptform_args=(self,),
         )
@@ -578,7 +560,6 @@ class TTVTransitModel(TransitModel):
 
         return sampler.results
 
-
     def optimize(self, niter=1):
         theta = self._theta_initial()
         bounds = self._theta_bounds()
@@ -587,7 +568,7 @@ class TTVTransitModel(TransitModel):
             _x = x0.copy()
             _x[~fix] = x
             return self.model_residuals(_x, self)
-        
+
         for i in range(np.sum(self.num_transits)):
             print(f"optimizing transit {i} of {len(theta)}")
 
@@ -602,8 +583,8 @@ class TTVTransitModel(TransitModel):
 
             result = least_squares(
                 _fxn,
-                _theta_free, 
-                method='trf',
+                _theta_free,
+                method="trf",
                 bounds=_theta_bounds,
                 args=(_theta_copy, fix, self),
             )
@@ -618,29 +599,29 @@ class TTVTransitModel(TransitModel):
 
         return theta
 
-
     def _theta_initial(self):
         return np.zeros(np.sum(self.num_transits), dtype=float)
-    
 
     def _theta_bounds(self):
-        bounds = np.zeros((np.sum(self.num_transits),2))
+        bounds = np.zeros((np.sum(self.num_transits), 2))
 
         iend = np.cumsum(self.num_transits)
         istart = iend - self.num_transits
 
         for n in range(self.npl):
-            bounds[istart[n]:iend[n]] = (-self.planets[n].duration, self.planets[n].duration)
+            bounds[istart[n] : iend[n]] = (
+                -self.planets[n].duration,
+                self.planets[n].duration,
+            )
 
         return bounds
-
 
     def update_transit_times(self, theta):
         iend = np.cumsum(self.num_transits)
         istart = iend - self.num_transits
-        
+
         for n, p in enumerate(self.planets):
-            p.transit_times += theta[istart[n]:iend[n]]
+            p.transit_times += theta[istart[n] : iend[n]]
             self.planets[n] = p.refit_period_and_epoch()
 
         return self.planets
@@ -650,82 +631,98 @@ class OptimizationTTVFitter(TransitModel):
     def __init__(self, litecurve, planets, limbdark):
         super().__init__(litecurve, planets, limbdark)
 
-
     def optimize(self, planet_no, relative_window_size=3.0):
         lc = self.litecurve
-        overlap = self.identify_overlapping_transits(rtol=1.0, atol=1/24)[planet_no]
+        overlap = self.identify_overlapping_transits(rtol=1.0, atol=1 / 24)[planet_no]
         obsmode = self.transit_obsmode[planet_no]
 
         ttime_old = self.planets[planet_no].transit_times.copy()
         ttime_new = np.zeros_like(ttime_old)
 
         for i, tc in enumerate(ttime_old):
-            print(f"  {i}, tc = {np.round(tc,1)}")
+            print(f"  {i}, tc = {np.round(tc, 1)}")
 
             if not overlap[i]:
-                transit_window_size = relative_window_size*self.planets[planet_no].duration
+                transit_window_size = (
+                    relative_window_size * self.planets[planet_no].duration
+                )
             else:
-                transit_window_size = relative_window_size*(self.planets[planet_no].duration + np.max([p.duration for p in self.planets]))
-                transit_window_size = np.min([transit_window_size, 0.5*self.planets[planet_no].period])
+                transit_window_size = relative_window_size * (
+                    self.planets[planet_no].duration
+                    + np.max([p.duration for p in self.planets])
+                )
+                transit_window_size = np.min(
+                    [transit_window_size, 0.5 * self.planets[planet_no].period]
+                )
 
             theta = np.zeros(self.npl, dtype=float)
             fix = np.zeros(self.npl, dtype=bool)
 
             for n, p in enumerate(self.planets):
                 theta[n] = p.transit_times[np.argmin(np.abs(p.transit_times - tc))]
-                
+
                 if np.abs(theta[n] - tc) > transit_window_size / 2:
                     fix[n] = True
 
-            
             use = np.abs(lc.time - tc) < transit_window_size / 2
             t_obs = lc.time[use]
             f_obs = lc.flux[use]
             f_err = lc.error[use]
 
-            print(f"optimizing logp for transit {i} (tc = {np.round(tc,1)})")
+            print(f"optimizing logp for transit {i} (tc = {np.round(tc, 1)})")
 
-            logp_initial = self.ln_likelihood(theta, self, obsmode[i], t_obs, f_obs, f_err).copy()
+            logp_initial = self.ln_likelihood(
+                theta, self, obsmode[i], t_obs, f_obs, f_err
+            ).copy()
 
             def _fxn(x, x0, fix, self, obsmode, t_obs, f_obs, f_err):
                 _x = x0.copy()
                 _x[~fix] = x
                 return self.model_residuals(_x, self, obsmode, t_obs, f_obs, f_err)
-            
+
             result = least_squares(
-                    _fxn,
-                    theta[~fix], 
-                    method='trf',
-                    args=(theta, fix, self, obsmode[i], t_obs, f_obs, f_err,),
-                )
+                _fxn,
+                theta[~fix],
+                method="trf",
+                args=(
+                    theta,
+                    fix,
+                    self,
+                    obsmode[i],
+                    t_obs,
+                    f_obs,
+                    f_err,
+                ),
+            )
 
             theta[~fix] = result.x.copy()
             ttime_new[i] = theta[planet_no].copy()
-            logp_final = self.ln_likelihood(theta, self, obsmode[i], t_obs, f_obs, f_err).copy()
+            logp_final = self.ln_likelihood(
+                theta, self, obsmode[i], t_obs, f_obs, f_err
+            ).copy()
 
             print(f"logp: {logp_initial} -> {logp_final}")
             print(f"message: {result['message']}")
 
         return ttime_new
 
-
     @staticmethod
     def ln_likelihood(theta, transitmodel, obsmode, t_obs, f_obs, f_err):
-        res = transitmodel.model_residuals(theta, transitmodel, obsmode, t_obs, f_obs, f_err)
+        res = transitmodel.model_residuals(
+            theta, transitmodel, obsmode, t_obs, f_obs, f_err
+        )
         lnlike = -0.5 * np.sum(res**2)
-               
+
         if not np.isfinite(lnlike):
             return -1e300
-        
+
         return lnlike
-    
-    
+
     @staticmethod
     def model_residuals(theta, transitmodel, obsmode, t_obs, f_obs, f_err):
         f_mod = transitmodel.model_flux(theta, transitmodel, obsmode, t_obs)
         return (f_obs - f_mod) / f_err
-    
-    
+
     @staticmethod
     def model_flux(theta, transitmodel, obsmode, t_obs):
         tm = transitmodel
@@ -738,7 +735,6 @@ class OptimizationTTVFitter(TransitModel):
         f_mod = np.ones_like(t_obs)
 
         for n, p in enumerate(tm.planets):
-            
             nthreads = 1
             ds = _rsky._rsky(
                 _t_supersample,
@@ -755,9 +751,7 @@ class OptimizationTTVFitter(TransitModel):
                 ds, np.abs(p.ror), tm.limbdark[0], tm.limbdark[1], nthreads
             )
 
-            qld_flux = np.mean(
-                qld_flux.reshape(-1, supersample), axis=1
-            )
+            qld_flux = np.mean(qld_flux.reshape(-1, supersample), axis=1)
 
             f_mod += qld_flux - 1.0
 
@@ -767,7 +761,6 @@ class OptimizationTTVFitter(TransitModel):
 class CrossCorrelationTTVFitter(TransitModel):
     def __init__(self, litecurve, planets, limbdark):
         super().__init__(litecurve, planets, limbdark)
-
 
     def _construct_template(self, planet_no, obsmode, transit_window_size):
         """
@@ -781,7 +774,9 @@ class CrossCorrelationTTVFitter(TransitModel):
         exptime = self.exptime[obsmode]
         supersample = self.supersample[obsmode]
 
-        time_template = np.arange(0, transit_window_size/2, exptime/supersample/2, dtype=float)
+        time_template = np.arange(
+            0, transit_window_size / 2, exptime / supersample / 2, dtype=float
+        )
         time_template = np.hstack([-time_template[:-1][::-1], time_template])
         flux_template = np.zeros_like(time_template)
 
@@ -804,11 +799,15 @@ class CrossCorrelationTTVFitter(TransitModel):
         flux_template += qld_flux
 
         return time_template, flux_template
-    
 
     def mazeh13_holczer16_method(
-            self, planet_no, rel_window_size=5.0, abs_window_size_buffer=1/24, quicklook_dir=None, target=None,
-        ):
+        self,
+        planet_no,
+        rel_window_size=5.0,
+        abs_window_size_buffer=1 / 24,
+        quicklook_dir=None,
+        target=None,
+    ):
         """
         Docstring
         """
@@ -818,9 +817,9 @@ class CrossCorrelationTTVFitter(TransitModel):
 
         ttime = np.nan * np.ones(len(p.transit_times))
         ttime_err = np.nan * np.ones(len(p.transit_times))
-        
-        overlap = self.identify_overlapping_transits(rtol=1.0, atol=1/24)
-       
+
+        overlap = self.identify_overlapping_transits(rtol=1.0, atol=1 / 24)
+
         assert len(p.transit_times) == len(overlap[planet_no]), (
             f"Mismatched sizes for ttime ({len(p.transit_times)}) and overlap ({len(overlap[planet_no])})"
         )
@@ -835,21 +834,31 @@ class CrossCorrelationTTVFitter(TransitModel):
             exptime_ioff = self._exptime_offsets[obsmode]
 
             transit_window_size = rel_window_size * p.duration + abs_window_size_buffer
-            time_template, flux_template = self._construct_template(planet_no, obsmode, transit_window_size)
+            time_template, flux_template = self._construct_template(
+                planet_no, obsmode, transit_window_size
+            )
 
             # primary loop for fitting transit times
             for i, tc in enumerate(p.transit_times):
-                if (not overlap[planet_no][i]) and (p.transit_quality[i]) and (transit_obsmode[i] == obsmode):
+                if (
+                    (not overlap[planet_no][i])
+                    and (p.transit_quality[i])
+                    and (transit_obsmode[i] == obsmode)
+                ):
                     # STEP 0: pull data near a single transit
                     in_transit = np.abs(self.litecurve.time - tc) < p.duration / 2
-                    in_window = np.abs(self.litecurve.time - tc) < transit_window_size / 2
-                    
+                    in_window = (
+                        np.abs(self.litecurve.time - tc) < transit_window_size / 2
+                    )
+
                     if np.sum(in_transit) > 0:
                         _t = lc.time[in_window]
                         _f_obs = lc.flux[in_window]
                         _f_err = lc.error[in_window]
 
-                        _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).flatten()
+                        _t_supersample = (
+                            exptime_ioff + _t.reshape(_t.size, 1)
+                        ).flatten()
 
                         # remove any residual out-of-transit trend
                         use = ~in_transit[in_window]
@@ -864,10 +873,14 @@ class CrossCorrelationTTVFitter(TransitModel):
                         chisq = np.zeros_like(tc_offset)
 
                         for j, tc_o in enumerate(tc_offset):
-                            _f_mod = np.interp(_t_supersample - tc_o, time_template, flux_template)
-                            _f_mod = bin_data(_t_supersample, _f_mod, exptime, bin_centers=_t)[1]
+                            _f_mod = np.interp(
+                                _t_supersample - tc_o, time_template, flux_template
+                            )
+                            _f_mod = bin_data(
+                                _t_supersample, _f_mod, exptime, bin_centers=_t
+                            )[1]
 
-                            chisq[j] = np.sum(((_f_obs - _f_mod) / _f_err)**2)
+                            chisq[j] = np.sum(((_f_obs - _f_mod) / _f_err) ** 2)
 
                         # STEP 2: isolate relevant portions of {tc_offset, chisq} vectors
                         delta_chisq = 2.0
@@ -879,7 +892,9 @@ class CrossCorrelationTTVFitter(TransitModel):
                             x2_fit = chisq[chisq < chisq.min() + delta_chisq]
 
                             # eliminate points far from the local minimum
-                            faraway = np.abs(tc_fit - np.median(tc_fit)) / np.median(np.diff(tc_fit)) > 1 + 0.5*len(tc_fit)
+                            faraway = np.abs(tc_fit - np.median(tc_fit)) / np.median(
+                                np.diff(tc_fit)
+                            ) > 1 + 0.5 * len(tc_fit)
 
                             tc_fit = tc_fit[~faraway]
                             x2_fit = x2_fit[~faraway]
@@ -907,7 +922,9 @@ class CrossCorrelationTTVFitter(TransitModel):
 
                             # check that the fit is well-conditioned
                             convex_local_min = quad_coeffs[0] > 0
-                            within_bounds = (_tti > tc_fit.min()) and (_tti < tc_fit.max())
+                            within_bounds = (_tti > tc_fit.min()) and (
+                                _tti < tc_fit.max()
+                            )
 
                             if convex_local_min and within_bounds:
                                 ttime[i] = _tti.copy()
@@ -915,28 +932,32 @@ class CrossCorrelationTTVFitter(TransitModel):
 
                         # STEP 4: make quicklook plot
                         if (quicklook_dir is not None) and (len(_f_obs) > 0):
-                            ttv_dir = os.path.join(quicklook_dir, 'ttvs')
+                            ttv_dir = os.path.join(quicklook_dir, "ttvs")
                             os.makedirs(ttv_dir, exist_ok=True)
-                            _filepath = os.path.join(ttv_dir, f'{target}_{planet_no}_ttv_{i}.png')
+                            _filepath = os.path.join(
+                                ttv_dir, f"{target}_{planet_no}_ttv_{i}.png"
+                            )
 
                             _t_obs = _t
                             _t_mod = _t_supersample
-                            _f_mod = np.interp(_t_supersample - _tti, time_template, flux_template)
+                            _f_mod = np.interp(
+                                _t_supersample - _tti, time_template, flux_template
+                            )
 
-                            _ = plot_quick_fit_ttvs(target, 
-                                                    planet_no, 
-                                                    _t_obs,
-                                                    _t_mod, 
-                                                    _f_obs, 
-                                                    _f_mod, 
-                                                    tc, 
-                                                    tc_offset, 
-                                                    tc_fit, 
-                                                    x2_fit, 
-                                                    chisq, 
-                                                    transit_window_size, 
-                                                    filepath=_filepath
-                                                    )
-        
+                            _ = plot_quick_fit_ttvs(
+                                target,
+                                planet_no,
+                                _t_obs,
+                                _t_mod,
+                                _f_obs,
+                                _f_mod,
+                                tc,
+                                tc_offset,
+                                tc_fit,
+                                x2_fit,
+                                chisq,
+                                transit_window_size,
+                                filepath=_filepath,
+                            )
+
         return ttime, ttime_err
-    

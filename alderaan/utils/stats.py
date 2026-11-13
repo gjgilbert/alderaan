@@ -1,9 +1,10 @@
-__all__ = ['uniform_ppf',
-           'loguniform_ppf',
-           'norm_ppf',
-           'set_sigma_cutoff',
-           'robust_polyfit',
-           ]
+__all__ = [
+    "uniform_ppf",
+    "loguniform_ppf",
+    "norm_ppf",
+    "set_sigma_cutoff",
+    "robust_polyfit",
+]
 
 
 import numpy as np
@@ -89,6 +90,6 @@ def robust_polyfit(x, y, deg):
     # convert() trims trailing zero coefficients; np.polyfit always returns deg + 1
     coeffs = np.zeros(deg + 1)
     converted = series.convert(kind=Polynomial).coef
-    coeffs[:converted.size] = converted
+    coeffs[: converted.size] = converted
 
     return coeffs[::-1]
