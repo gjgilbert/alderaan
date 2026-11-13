@@ -43,6 +43,7 @@ class TransitModel(BaseAlg):
             if type(lc.__dict__[k]) is np.ndarray:
                 lc.__setattr__(k, lc.__dict__[k][mask])
 
+        self._set_cadence_masks()
         self._set_bins()
         self._set_warps()
 
@@ -197,13 +198,14 @@ class RBDTransitModel(TransitModel):
         flux_mod = np.ones_like(lc.flux)
 
         for obsmode in tm.unique_obsmodes:
-            exptime_ioff = tm._exptime_integration_offset_lookup[obsmode]
-            supersample = tm._supersample_lookup[obsmode]
+            mask = tm._cadence_mask[obsmode]
+            exptime_ioff = tm._exptime_offsets[obsmode]
+            supersample = tm.supersample[obsmode]
 
             for n, p in enumerate(tm.planets):
                 C0, C1, rp, b, T14 = np.array(theta[5 * n : 5 * (n + 1)])
 
-                _t = tm._warped_time[n][lc.obsmode == obsmode] + C0 + C1 * tm._warped_legx[n][lc.obsmode == obsmode]
+                _t = tm._warped_time[n][mask] + C0 + C1 * tm._warped_legx[n][mask]
                 _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).flatten()
 
                 nthreads = 1
@@ -226,7 +228,7 @@ class RBDTransitModel(TransitModel):
                     qld_flux.reshape(-1, supersample), axis=1
                 )
 
-                flux_mod[lc.obsmode == obsmode] += qld_flux - 1.0
+                flux_mod[mask] += qld_flux - 1.0
                 
         return flux_mod      
                 
@@ -300,7 +302,7 @@ class RBDTransitModel(TransitModel):
             x[5 * n + 1] = norm_ppf(u[1 + n * 5], 0.0, 0.1)
             x[5 * n + 2] = loguniform_ppf(u[2 + n * 5], 1e-5, 0.99)
             x[5 * n + 3] = uniform_ppf(u[3 + n * 5], 0.0, 1 + x[5 * n + 2])
-            x[5 * n + 4] = loguniform_ppf(u[4 + n * 5], 0.01*tm.durs[n], 3 * tm.durs[n])
+            x[5 * n + 4] = loguniform_ppf(u[4 + n * 5], 0.01*tm.planets[n].duration, 3 * tm.planets[n].duration)
 
         # limb darkening coefficients (see Kipping 2013)
         x[-2] = uniform_ppf(u[-2], 0, 1)
@@ -479,8 +481,9 @@ class TTVTransitModel(TransitModel):
         flux_mod = np.ones_like(lc.flux)
 
         for obsmode in tm.unique_obsmodes:
-            exptime_ioff = tm._exptime_integration_offset_lookup[obsmode]
-            supersample = tm._supersample_lookup[obsmode]
+            mask = tm._cadence_mask[obsmode]
+            exptime_ioff = tm._exptime_offsets[obsmode]
+            supersample = tm.supersample[obsmode]
 
             for n, p in enumerate(tm.planets):
                 ttvs = np.array(theta[istart[n]:iend[n]])
@@ -488,7 +491,7 @@ class TTVTransitModel(TransitModel):
                 tm._update_bins(ttvs)
                 tm._update_warps()
 
-                _t = tm._warped_time[n][lc.obsmode == obsmode]
+                _t = tm._warped_time[n][mask]
                 _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).flatten()
 
                 nthreads = 1
@@ -511,7 +514,7 @@ class TTVTransitModel(TransitModel):
                     qld_flux.reshape(-1, supersample), axis=1
                 )
 
-                flux_mod[lc.obsmode == obsmode] += qld_flux - 1.0
+                flux_mod[mask] += qld_flux - 1.0
                 
         return flux_mod      
 
@@ -550,7 +553,7 @@ class TTVTransitModel(TransitModel):
         istart = iend - tm.num_transits
 
         for n in range(tm.npl):
-            x[istart[n]:iend[n]] = uniform_ppf(u[istart[n]:iend[n]], -tm.durs[n], tm.durs[n])
+            x[istart[n]:iend[n]] = uniform_ppf(u[istart[n]:iend[n]], -tm.planets[n].duration, tm.planets[n].duration)
 
         return x
 
@@ -627,7 +630,7 @@ class TTVTransitModel(TransitModel):
         istart = iend - self.num_transits
 
         for n in range(self.npl):
-            bounds[istart[n]:iend[n]] = (-self.durs[n],self.durs[n])
+            bounds[istart[n]:iend[n]] = (-self.planets[n].duration, self.planets[n].duration)
 
         return bounds
 
@@ -660,10 +663,10 @@ class OptimizationTTVFitter(TransitModel):
             print(f"  {i}, tc = {np.round(tc,1)}")
 
             if not overlap[i]:
-                transit_window_size = relative_window_size*self.durs[planet_no]
+                transit_window_size = relative_window_size*self.planets[planet_no].duration
             else:
-                transit_window_size = relative_window_size*(self.durs[planet_no] + np.max(self.durs))
-                transit_window_size = np.min([transit_window_size, 0.5*self.periods[planet_no]])
+                transit_window_size = relative_window_size*(self.planets[planet_no].duration + np.max([p.duration for p in self.planets]))
+                transit_window_size = np.min([transit_window_size, 0.5*self.planets[planet_no].period])
 
             theta = np.zeros(self.npl, dtype=float)
             fix = np.zeros(self.npl, dtype=bool)
@@ -727,8 +730,8 @@ class OptimizationTTVFitter(TransitModel):
     def model_flux(theta, transitmodel, obsmode, t_obs):
         tm = transitmodel
 
-        exptime_ioff = tm._exptime_integration_offset_lookup[obsmode]
-        supersample = tm._supersample_lookup[obsmode]
+        exptime_ioff = tm._exptime_offsets[obsmode]
+        supersample = tm.supersample[obsmode]
 
         _t_supersample = (exptime_ioff + t_obs.reshape(t_obs.size, 1)).flatten()
 
@@ -775,8 +778,8 @@ class CrossCorrelationTTVFitter(TransitModel):
         # shorthand
         p = self.planets[planet_no]
 
-        exptime = self._exptime_lookup[obsmode]
-        supersample = self._supersample_lookup[obsmode]
+        exptime = self.exptime[obsmode]
+        supersample = self.supersample[obsmode]
 
         time_template = np.arange(0, transit_window_size/2, exptime/supersample/2, dtype=float)
         time_template = np.hstack([-time_template[:-1][::-1], time_template])
@@ -816,7 +819,7 @@ class CrossCorrelationTTVFitter(TransitModel):
         ttime = np.nan * np.ones(len(p.transit_times))
         ttime_err = np.nan * np.ones(len(p.transit_times))
         
-        overlap = self.identify_overlapping_transits(rtol=1.0, atol=1.0)
+        overlap = self.identify_overlapping_transits(rtol=1.0, atol=1/24)
        
         assert len(p.transit_times) == len(overlap[planet_no]), (
             f"Mismatched sizes for ttime ({len(p.transit_times)}) and overlap ({len(overlap[planet_no])})"
@@ -827,9 +830,9 @@ class CrossCorrelationTTVFitter(TransitModel):
         for obsmode in self.unique_obsmodes:
             print(f"  Determining transit times using {obsmode} data")
 
-            exptime = self._exptime_lookup[obsmode]
-            supersample = self._supersample_lookup[obsmode]
-            exptime_ioff = self._exptime_integration_offset_lookup[obsmode]
+            exptime = self.exptime[obsmode]
+            supersample = self.supersample[obsmode]
+            exptime_ioff = self._exptime_offsets[obsmode]
 
             transit_window_size = rel_window_size * p.duration + abs_window_size_buffer
             time_template, flux_template = self._construct_template(planet_no, obsmode, transit_window_size)

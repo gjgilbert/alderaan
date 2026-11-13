@@ -176,7 +176,7 @@ class GaussianProcessDetrender(SimpleDetrender):
         lombscargle = LombScargle(lc.time, lc.flux)
 
         if min_period is None:
-            min_period = 3 * np.max(self.durs)
+            min_period = 3 * np.max([p.duration for p in self.planets])
 
         min_freq = 1 / (lc.time.max() - lc.time.min())
         max_freq = 1 / min_period

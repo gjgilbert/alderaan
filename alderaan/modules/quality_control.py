@@ -22,10 +22,10 @@ class QualityControl(BaseAlg):
         lc = self.litecurve
 
         quality = [None]*self.npl
-        obsmode = self.get_transit_obsmode()
+        obsmode = self.transit_obsmode
 
         for n, p in enumerate(self.planets):
-            exptime = np.array([self._obsmode_to_exptime(om) for om in obsmode[n]])
+            exptime = np.array([self.exptime[om] for om in obsmode[n]])
             count_expected = np.maximum(1, np.array(p.duration / exptime, dtype=int))
 
             quality[n] = np.zeros(len(p.transit_times), dtype='bool')
@@ -61,7 +61,7 @@ class QualityControl(BaseAlg):
 
         quality = [None]*self.npl
         overlap = self.identify_overlapping_transits(rtol=rel_size, atol=abs_size)
-        obsmode = self.get_transit_obsmode()
+        obsmode = self.transit_obsmode
 
         for n, p in enumerate(self.planets):
             rms = np.zeros(len(p.transit_times))

@@ -57,7 +57,7 @@ def run(context):
         error_exp = np.zeros_like(error_obs)
 
         for obsmode in ttvmodel.unique_obsmodes:
-            exptime = ttvmodel._exptime_lookup[obsmode]
+            exptime = ttvmodel.exptime[obsmode]
             sigma_f = np.nanmedian(litecurve.error[litecurve.obsmode==obsmode])
             error_exp[ttvmodel.transit_obsmode[n] == obsmode] = predict_tc_error(p.ror, p.impact, p.duration, exptime, sigma_f)
         
