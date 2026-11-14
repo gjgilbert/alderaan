@@ -1,4 +1,4 @@
-__all__ = ["QuickFitTransitShape"]
+"""Least-squares fit of a single transit shape per planet"""
 
 import numpy as np
 from scipy.optimize import least_squares
@@ -10,6 +10,18 @@ from alderaan.utils.rbd import ln_likelihood, model_residuals, theta_initial
 
 
 class QuickFitTransitShape(BaseAlg):
+    """
+    Fit radius ratio, impact parameter, duration, and limb darkening
+
+    Parameters
+    ----------
+    star : Star
+    planets : list of Planet
+    litecurve : LiteCurve
+    config : ConfigParser
+        pipeline configuration, including RUN and PATHS values set by main
+    """
+
     def __init__(self, star, planets, litecurve, config):
         super().__init__(star, planets, litecurve, config)
 
@@ -94,6 +106,13 @@ class QuickFitTransitShape(BaseAlg):
         self.star.u2 = np.sqrt(q1) * (1 - 2 * q2)
 
     def perform(self):
+        """
+        Returns
+        -------
+        star : Star
+        planets : list of Planet
+        litecurve : LiteCurve
+        """
         print("\n\nALGORITHM: QUICK FIT TRANSIT SHAPE\n")
 
         tm = TransitModel(self.star, self.planets, self.litecurve)

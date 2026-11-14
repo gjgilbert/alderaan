@@ -1,4 +1,4 @@
-__all__ = ["FlagBadTransits"]
+"""Flag transits with poor photometric coverage or high noise"""
 
 import warnings
 
@@ -9,6 +9,18 @@ from alderaan.algorithms.base import BaseAlg
 
 
 class FlagBadTransits(BaseAlg):
+    """
+    Set transit quality flags and remove low quality transits
+
+    Parameters
+    ----------
+    star : Star
+    planets : list of Planet
+    litecurve : LiteCurve
+    config : ConfigParser
+        pipeline configuration, including RUN and PATHS values set by main
+    """
+
     def __init__(self, star, planets, litecurve, config):
         super().__init__(star, planets, litecurve, config)
 
@@ -91,6 +103,13 @@ class FlagBadTransits(BaseAlg):
         return quality
 
     def perform(self):
+        """
+        Returns
+        -------
+        star : Star
+        planets : list of Planet
+        litecurve : LiteCurve
+        """
         print("\n\nALGORITHM: FLAG BAD TRANSITS\n")
 
         planets = self.planets

@@ -1,4 +1,4 @@
-__all__ = ["LoadKeplerData"]
+"""Load Kepler photometry, KOI catalog values, and Holczer+2016 transit times"""
 
 import os
 
@@ -14,10 +14,28 @@ from alderaan.utils.stats import robust_polyfit
 
 
 class LoadKeplerData:
+    """
+    Load the star, planets, and long cadence litecurve for one Kepler target
+
+    Parameters
+    ----------
+    config : ConfigParser
+        pipeline configuration, including RUN and PATHS values set by main
+    """
+
     def __init__(self, config):
         self.config = config
 
     def perform(self):
+        """
+        Returns
+        -------
+        star : Star
+        planets : list of Planet
+            ephemerides initialized from the KOI catalog and Holczer+2016
+        litecurve : LiteCurve
+            raw litecurve, all visits concatenated
+        """
         print("\n\nALGORITHM: LOAD KEPLER DATA\n")
 
         target = self.config["RUN"]["target"]

@@ -19,7 +19,6 @@ from alderaan.algorithms.load_kepler_data import LoadKeplerData
 from alderaan.algorithms.quick_fit_transit_shape import QuickFitTransitShape
 from alderaan.algorithms.quick_fit_transit_times import QuickFitTransitTimes
 from alderaan.algorithms.regularize_omc import RegularizeOMC
-from alderaan.algorithms.reset_litecurves import ResetLitecurves
 from alderaan.algorithms.sample_transit_model import SampleTransitModel
 from alderaan.utils.io import copy_input_target_catalog, resolve_config_path
 
@@ -102,7 +101,7 @@ def main():
 
     # data i/o
     if mission == "Kepler":
-        star, planets, litecurve_raw = LoadKeplerData(config).perform()
+        star, planets, litecurve = LoadKeplerData(config).perform()
     elif mission == "K2":
         raise NotImplementedError("K2 mission not yet implemented")
     elif mission == "TESS":
@@ -111,12 +110,12 @@ def main():
         raise ValueError(f"Unsupported mission : {mission}")
 
     star, planets, litecurve, _ = RegularizeOMC(
-        star, planets, litecurve_raw, config
+        star, planets, litecurve, config
     ).perform(method="smooth")
 
     # 1st pass
     star, planets, litecurve = DetrendVisits(star, planets, litecurve, config).perform(
-        tight_mask=False, clip_outliers=True
+        tight_mask=False, clip_outliers="local_trend"
     )
     star, planets, litecurve = FlagBadTransits(
         star, planets, litecurve, config
@@ -130,13 +129,10 @@ def main():
     star, planets, litecurve, ttv_buffer = RegularizeOMC(
         star, planets, litecurve, config
     ).perform(method="select")
-    star, planets, litecurve = ResetLitecurves(
-        star, planets, litecurve, config
-    ).perform(litecurve_raw)
 
     # 2nd pass
     star, planets, litecurve = DetrendVisits(star, planets, litecurve, config).perform(
-        tight_mask=True, clip_outliers=False, ttv_buffer=ttv_buffer
+        tight_mask=True, clip_outliers="transit_model", ttv_buffer=ttv_buffer
     )
     star, planets, litecurve = FlagBadTransits(
         star, planets, litecurve, config

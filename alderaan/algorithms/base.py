@@ -1,4 +1,4 @@
-__all__ = ["BaseAlg"]
+"""Base class for algorithms that operate on a star, planets, and litecurve"""
 
 from copy import deepcopy
 
@@ -13,7 +13,15 @@ from alderaan.utils.astro import transit_obsmode
 
 class BaseAlg:
     """
-    Base Algorithm class for modules which work on a litecurve + planets + star
+    Type-check and deepcopy inputs; provide shared transit bookkeeping
+
+    Parameters
+    ----------
+    star : Star
+    planets : list of Planet
+    litecurve : LiteCurve
+    config : ConfigParser
+        pipeline configuration, including RUN and PATHS values set by main
     """
 
     def __init__(self, star, planets, litecurve, config):

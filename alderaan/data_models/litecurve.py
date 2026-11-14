@@ -43,6 +43,8 @@ class LiteCurve:
         lc_instance.time = np.array([]).astype(float)
         lc_instance.flux = np.array([]).astype(float)
         lc_instance.error = np.array([]).astype(float)
+        lc_instance.flux_raw = np.array([]).astype(float)
+        lc_instance.error_raw = np.array([]).astype(float)
         lc_instance.cadno = np.array([]).astype(int)
         lc_instance.visit = np.array([]).astype(int)
         lc_instance.obsmode = np.array([]).astype(str)
@@ -147,6 +149,8 @@ class LiteCurve:
         lc_instance.time = np.array(lklc.time.value, dtype=float)
         lc_instance.flux = np.array(lklc.flux.value, dtype=float)
         lc_instance.error = np.array(lklc.flux_err.value, dtype=float)
+        lc_instance.flux_raw = lc_instance.flux.copy()
+        lc_instance.error_raw = lc_instance.error.copy()
         lc_instance.cadno = np.array(lklc.cadenceno.value, dtype=int)
         lc_instance.visit = np.array(lklc.quarter, dtype=int)  # hard coded for Kepler
         lc_instance.obsmode = np.array([obsmode] * len(lc_instance.cadno), dtype=str)
@@ -184,6 +188,14 @@ class LiteCurve:
             litecurve_list.append(litecurve)
 
         return litecurve_list
+
+    def reset(self):
+        """Restore raw flux and error; mark all cadences as good quality"""
+        self.flux = self.flux_raw.copy()
+        self.error = self.error_raw.copy()
+        self.quality = np.ones(len(self.time), dtype=bool)
+
+        return self
 
     def _remove_flagged_cadences(self, quality_flags, bitmask="default"):
         qmask = lk.KeplerQualityFlags.create_quality_mask(

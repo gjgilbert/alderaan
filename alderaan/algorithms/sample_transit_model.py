@@ -1,4 +1,4 @@
-__all__ = ["SampleTransitModel"]
+"""Sample the transit model posterior with dynesty"""
 
 import io
 import os
@@ -23,6 +23,18 @@ from alderaan.utils.stats import loguniform_ppf, norm_ppf, uniform_ppf
 
 
 class SampleTransitModel(BaseAlg):
+    """
+    Sample transit shape posteriors and write results and quicklook plots
+
+    Parameters
+    ----------
+    star : Star
+    planets : list of Planet
+    litecurve : LiteCurve
+    config : ConfigParser
+        pipeline configuration, including RUN and PATHS values set by main
+    """
+
     def __init__(self, star, planets, litecurve, config):
         super().__init__(star, planets, litecurve, config)
 
@@ -120,6 +132,11 @@ class SampleTransitModel(BaseAlg):
         return sampler.results
 
     def perform(self):
+        """
+        Returns
+        -------
+        results : dynesty.results.Results
+        """
         print("\n\nALGORITHM: SAMPLE TRANSIT MODEL\n")
 
         mission = self.config["RUN"]["mission"]

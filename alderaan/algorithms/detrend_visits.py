@@ -1,4 +1,4 @@
-__all__ = ["DetrendVisits"]
+"""Detrend each visit of a litecurve with a GP, masking transits"""
 
 import os
 import warnings
@@ -19,10 +19,25 @@ from scipy.signal import savgol_filter
 from alderaan.algorithms.base import BaseAlg
 from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.data_models.litecurve import LiteCurve
+from alderaan.data_models.transit import TransitModel
 from alderaan.utils.plotting import plot_litecurve
+from alderaan.utils.rbd import theta_initial
+from alderaan.utils.stats import set_sigma_cutoff
 
 
 class DetrendVisits(BaseAlg):
+    """
+    Detrend a litecurve visit-by-visit
+
+    Parameters
+    ----------
+    star : Star
+    planets : list of Planet
+    litecurve : LiteCurve
+    config : ConfigParser
+        pipeline configuration, including RUN and PATHS values set by main
+    """
+
     def __init__(self, star, planets, litecurve, config):
         super().__init__(star, planets, litecurve, config)
 
@@ -116,6 +131,38 @@ class DetrendVisits(BaseAlg):
 
             if count >= 3:
                 loop = False
+
+        return lc
+
+    def _transit_theta(self):
+        """Transit model parameters using the shape from QuickFitTransitShape"""
+        theta = theta_initial(self.star, self.planets)
+        for n, p in enumerate(self.planets):
+            theta[5 * n + 2] = p.ror
+            theta[5 * n + 3] = p.impact
+
+        return theta
+
+    def _clip_transit_outliers(self, lc, theta):
+        """
+        Sigma-clip outliers from residuals about a transit model
+
+        Arguments:
+            theta : array-like
+                transit model parameters, num_planets * [C0, C1, rp, b, T14] + [q1, q2]
+        """
+        tm = TransitModel(self.star, self.planets, lc)
+
+        f_mod = tm.model_flux(theta)
+        sigma = set_sigma_cutoff(len(lc.flux), sigma_min=5.0)
+
+        bad = sigma_clip(
+            lc.flux - f_mod, sigma_upper=sigma, sigma_lower=sigma, stdfunc=mad_std
+        ).mask
+
+        for k in lc.__dict__.keys():
+            if type(lc.__dict__[k]) is np.ndarray:
+                lc.__setattr__(k, lc.__dict__[k][~bad])
 
         return lc
 
@@ -421,18 +468,48 @@ class DetrendVisits(BaseAlg):
         )
 
     def perform(self, tight_mask, clip_outliers, ttv_buffer=None):
+        """
+        Parameters
+        ----------
+        tight_mask : bool
+            True to mask 1 x T14 plus ttv_buffer; False to mask 3 x T14 plus 1 hour
+        clip_outliers : str
+            'local_trend' : clip incoming flux about a smoothed trend, sparing transits
+            'transit_model' : clip incoming (detrended) flux about the transit model
+        ttv_buffer : list of float
+            per-planet transit time uncertainty buffer; required if tight_mask
+
+        Outliers are clipped from the incoming flux; the surviving cadences are
+        then reset to raw photometry (LiteCurve.reset) before detrending
+
+        Returns
+        -------
+        star : Star
+        planets : list of Planet
+        litecurve : LiteCurve
+            detrended litecurve; flux_raw and error_raw are retained
+        """
         print("\n\nALGORITHM: DETREND VISITS\n")
 
         target = self.config["RUN"]["target"]
         results_dir = self.config["PATHS"]["results_dir"]
         quicklook_dir = self.config["PATHS"]["quicklook_dir"]
 
+        if clip_outliers not in ("local_trend", "transit_model"):
+            raise ValueError(
+                "clip_outliers must be 'local_trend' or 'transit_model', "
+                f"got {clip_outliers!r}"
+            )
+
         litecurves = self.litecurve.split_visits()
 
-        if clip_outliers:
-            for j, lc in enumerate(litecurves):
-                npts_initial = len(lc.time)
+        if clip_outliers == "transit_model":
+            theta = self._transit_theta()
 
+        for j, lc in enumerate(litecurves):
+            npts_initial = len(lc.time)
+
+            if clip_outliers == "local_trend":
                 lc = self._clip_outliers(
                     lc,
                     sigma_upper=5,
@@ -443,12 +520,15 @@ class DetrendVisits(BaseAlg):
                 lc = self._clip_outliers(
                     lc, sigma_upper=5, sigma_lower=1000, kernel_size=13
                 )
-                litecurves[j] = lc
+            elif clip_outliers == "transit_model":
+                lc = self._clip_transit_outliers(lc, theta)
 
-                print(
-                    f"  Quarter {lc.visit[0]} : "
-                    f"{npts_initial - len(lc.time)} outliers rejected"
-                )
+            litecurves[j] = lc.reset()
+
+            print(
+                f"  Quarter {lc.visit[0]} : "
+                f"{npts_initial - len(lc.time)} outliers rejected"
+            )
 
         oscillation_periods = self._estimate_oscillation_periods(litecurves)
 

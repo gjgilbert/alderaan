@@ -1,4 +1,4 @@
-__all__ = ["QuickFitTransitTimes"]
+"""Fit individual transit times by cross-correlation and optimization"""
 
 import os
 
@@ -14,6 +14,18 @@ from alderaan.utils.stats import robust_polyfit
 
 
 class QuickFitTransitTimes(BaseAlg):
+    """
+    Measure individual transit times for each planet
+
+    Parameters
+    ----------
+    star : Star
+    planets : list of Planet
+    litecurve : LiteCurve
+    config : ConfigParser
+        pipeline configuration, including RUN and PATHS values set by main
+    """
+
     def __init__(self, star, planets, litecurve, config):
         super().__init__(star, planets, litecurve, config)
 
@@ -323,6 +335,13 @@ class QuickFitTransitTimes(BaseAlg):
         return ttime_new
 
     def perform(self):
+        """
+        Returns
+        -------
+        star : Star
+        planets : list of Planet
+        litecurve : LiteCurve
+        """
         print("\n\nALGORITHM: QUICK FIT TRANSIT TIMES\n")
 
         target = self.config["RUN"]["target"]
