@@ -14,7 +14,6 @@ from aesara_theano_fallback import aesara as theano
 from astropy.units import UnitsWarning
 
 from alderaan.data_models.shire import Shire
-from alderaan.modules.cleanup_omc import CleanupOMC
 from alderaan.modules.detrend_visits import DetrendVisits
 from alderaan.modules.flag_bad_transits import FlagBadTransits
 from alderaan.modules.load_kepler_data import LoadKeplerData
@@ -109,7 +108,7 @@ def main():
         raise ValueError(f"Unsupported mission : {mission}")
 
     shire = Shire(star, planets, litecurve_raw)
-    shire = CleanupOMC(shire, target, quicklook_dir, full=True).perform()
+    shire, _ = RegularizeOMC(shire, target, quicklook_dir, method="smooth").perform()
 
     # 1st pass
     shire = DetrendVisits(
@@ -124,7 +123,7 @@ def main():
     shire = QuickFitTransitShape(shire).perform()
     shire = QuickFitTransitTimes(shire, target, quicklook_dir).perform()
     shire, ttv_buffer = RegularizeOMC(
-        shire, target, results_dir, quicklook_dir
+        shire, target, quicklook_dir, method="select", results_dir=results_dir
     ).perform()
     shire = ResetLitecurves(shire, litecurve_raw).perform()
 

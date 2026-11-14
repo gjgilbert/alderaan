@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from alderaan.data_models.planet import Planet
-from alderaan.modules.omc import OMC
+from alderaan.modules.regularize_omc import flag_outliers, smooth
 from alderaan.utils.io import parse_holczer16_catalog, parse_koi_catalog
 from alderaan.utils.stats import robust_polyfit
 
@@ -56,9 +56,10 @@ def record(result, koi_id, n, step, p):
 
 
 def omc_update(p, full):
-    omc = OMC(p)
-    omc.quick_fit_trend()
-    p.update_ephemeris(omc.index, omc.ymod, omc.yerr, omc.quality, full=full)
+    yobs = p.transit_times - p.eval_linear_ephemeris()
+    quality = flag_outliers(yobs)
+    ymod = smooth(p.transit_times, yobs, quality)
+    p.update_ephemeris(p.transit_index, ymod, p.transit_errors, quality, full=full)
 
 
 def replay_pipeline_bookkeeping(koi_id):
