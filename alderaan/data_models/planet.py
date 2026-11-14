@@ -45,9 +45,9 @@ class Planet:
         """
         old_period = self.period
 
-        self.transit_index = np.copy(index)
-        self.transit_times = np.copy(ttime)
-        self.transit_errors = np.copy(error)
+        self.transit_index = index
+        self.transit_times = ttime
+        self.transit_errors = error
         self.transit_quality = None
 
         self.refit_period_and_epoch()
@@ -155,14 +155,14 @@ class Planet:
         """
         old_period = self.period
 
-        self.transit_index = np.copy(index)
+        self.transit_index = index
         self.transit_times = (
             self.reference_epoch
             + self.reference_period * self.transit_index
             + omc_model
         )
-        self.transit_errors = np.copy(error)
-        self.transit_quality = np.copy(quality)
+        self.transit_errors = error
+        self.transit_quality = quality
 
         self.refit_period_and_epoch()
         self._check_period_change(old_period)
@@ -207,6 +207,6 @@ class Planet:
         Returns:
             Planet : self
         """
-        self._keep_transits(np.copy(self.transit_quality))
+        self._keep_transits(self.transit_quality)
 
         return self

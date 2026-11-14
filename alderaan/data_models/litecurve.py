@@ -166,8 +166,8 @@ class LiteCurve:
         lc_instance.time = np.array(lklc.time.value, dtype=float)
         lc_instance.flux = np.array(lklc.flux.value, dtype=float)
         lc_instance.error = np.array(lklc.flux_err.value, dtype=float)
-        lc_instance.flux_raw = lc_instance.flux.copy()
-        lc_instance.error_raw = lc_instance.error.copy()
+        lc_instance.flux_raw = lc_instance.flux
+        lc_instance.error_raw = lc_instance.error
         lc_instance.cadno = np.array(lklc.cadenceno.value, dtype=int)
         lc_instance.visit = np.array(lklc.quarter, dtype=int)  # hard coded for Kepler
         lc_instance.obsmode = np.array([obsmode] * len(lc_instance.cadno), dtype=str)

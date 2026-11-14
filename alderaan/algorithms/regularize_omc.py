@@ -6,6 +6,7 @@ import warnings
 import aesara_theano_fallback.tensor as T
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import pymc3 as pm
 import pymc3_ext as pmx
 from astropy.stats import mad_std
@@ -19,7 +20,6 @@ from scipy.signal import savgol_filter
 from sklearn.cluster import KMeans
 
 from alderaan.algorithms.base import BaseAlg
-from alderaan.utils.io import save_omc_ephemeris
 from alderaan.utils.plotting import plot_omc
 from alderaan.utils.stats import set_sigma_cutoff
 
@@ -222,7 +222,6 @@ class RegularizeOMC(BaseAlg):
             trend, cov = gp.predict(yobs[q], xtime[q], return_cov=True)
 
             trend = pm.Deterministic("trend", trend)
-            cov = pm.Deterministic("cov", cov)
             pm.Deterministic("pred", gp.predict(yobs[q], xt_predict))
             pm.Deterministic("dof", pm.math.trace(cov / yerr[q] ** 2))
 
@@ -342,8 +341,8 @@ class RegularizeOMC(BaseAlg):
 
             # output first iteration of LS periodogram
             if len(freqs) == 0:
-                xf_out = xf.copy()
-                yf_out = yf.copy()
+                xf_out = xf
+                yf_out = yf
                 levels = lombscargle.false_alarm_level([0.1, 0.01, 0.001])
 
             if peak_fap < fap:
@@ -599,6 +598,8 @@ class RegularizeOMC(BaseAlg):
         litecurve : LiteCurve
         ttv_buffer : list of float
             per-planet scatter of OMC residuals about the model
+        transit_times : list of pd.DataFrame or None
+            'select' only; per-planet [index, ttime, model, out_prob, out_flag]
         """
         if method not in ("smooth", "select"):
             raise ValueError(f"method must be 'smooth' or 'select', got {method!r}")
@@ -606,7 +607,6 @@ class RegularizeOMC(BaseAlg):
         print(f"\n\nALGORITHM: REGULARIZE OMC ({method})\n")
 
         target = self.config["RUN"]["target"]
-        results_dir = self.config["PATHS"]["results_dir"]
         quicklook_dir = self.config["PATHS"]["quicklook_dir"]
 
         planets = self.planets
@@ -621,6 +621,7 @@ class RegularizeOMC(BaseAlg):
         ymod = [None] * npl
         out_prob = [None] * npl
         ttv_buffer = [None] * npl
+        transit_times = [None] * npl if method == "select" else None
 
         if method == "select" and check_periodic:
             freq = self._identify_periodic_signals(xtime, yobs, quality)
@@ -650,18 +651,18 @@ class RegularizeOMC(BaseAlg):
                     yobs[n], ymod[n]
                 )
 
-                # save transit times
+                # transit times for the final results file
                 q = quality[n]
                 index = p.transit_index[q]
                 static_ephemeris = p.reference_epoch + p.reference_period * index
-                filename = os.path.join(results_dir, f"{target}_{n:02d}_quick.ttvs")
-                save_omc_ephemeris(
-                    filename,
-                    index,
-                    yobs[n][q] + static_ephemeris,
-                    ymod[n][q] + static_ephemeris,
-                    out_prob[n][q],
-                    out_class[q],
+                transit_times[n] = pd.DataFrame(
+                    {
+                        "index": index,
+                        "ttime": yobs[n][q] + static_ephemeris,
+                        "model": ymod[n][q] + static_ephemeris,
+                        "out_prob": out_prob[n][q],
+                        "out_flag": out_class[q],
+                    }
                 )
 
             planets[n] = p.update_ephemeris(
@@ -693,4 +694,4 @@ class RegularizeOMC(BaseAlg):
         )
         plt.close("all")
 
-        return self.star, self.planets, self.litecurve, ttv_buffer
+        return self.star, self.planets, self.litecurve, ttv_buffer, transit_times

@@ -1,12 +1,11 @@
 __all__ = ["TransitModel"]
 
-from copy import deepcopy
+from copy import copy
 
 import numpy as np
-from batman import _quadratic_ld, _rsky
 
 from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
-from alderaan.utils.astro import transit_obsmode
+from alderaan.utils.astro import transit_flux, transit_obsmode
 
 
 class TransitModel:
@@ -21,9 +20,10 @@ class TransitModel:
     """
 
     def __init__(self, star, planets, litecurve):
-        self.star = deepcopy(star)
-        self.planets = deepcopy(planets)
-        self.litecurve = deepcopy(litecurve)
+        # trim() rebinds litecurve arrays, so a shallow copy protects the caller
+        self.star = star
+        self.planets = list(planets)
+        self.litecurve = copy(litecurve)
         self.npl = len(planets)
 
         self.exptime = {
@@ -152,8 +152,8 @@ class TransitModel:
             _t, _i = self._warp_times(self.litecurve.time, n, return_inds=True)
             _x = (_i - index_midpoint) / (p.transit_index[-1] / 2)
 
-            self.warped_time[n] = _t.copy()  # len(self.litecurve.ttime)
-            self.warped_legx[n] = _x.copy()  # len(self.litecurve.ttime)
+            self.warped_time[n] = _t  # len(self.litecurve.ttime)
+            self.warped_legx[n] = _x  # len(self.litecurve.ttime)
 
         self._set_obsmode_slices()
 
@@ -181,28 +181,6 @@ class TransitModel:
             return t - warps[0], warps[1]
         else:
             return t - warps
-
-    @staticmethod
-    def transit_flux(
-        t, t0, period, ror, impact, duration, u1, u2, exptime_offsets=None
-    ):
-        """
-        Quadratic limb darkened transit flux for a single planet
-
-        If exptime_offsets is provided, flux is supersampled over each exposure
-        and averaged back to the cadence times t
-        """
-        if exptime_offsets is not None:
-            t = (exptime_offsets + t.reshape(t.size, 1)).flatten()
-
-        nthreads = 1
-        ds = _rsky._rsky(t, t0, period, ror, impact, duration, 1, nthreads)
-        flux = _quadratic_ld._quadratic_ld(ds, np.abs(ror), u1, u2, nthreads)
-
-        if exptime_offsets is not None:
-            flux = np.mean(flux.reshape(-1, len(exptime_offsets)), axis=1)
-
-        return flux
 
     def model_flux(self, theta):
         """
@@ -240,7 +218,7 @@ class TransitModel:
 
             _t = warped_time[n] + C0 + C1 * warped_legx[n]
 
-            qld_flux = self.transit_flux(
+            qld_flux = transit_flux(
                 _t,
                 0.0,
                 self.static_period[n],

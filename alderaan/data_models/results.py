@@ -70,7 +70,7 @@ class Results:
         return len(self.transit_times)
 
     @classmethod
-    def from_dynesty(cls, results, mission, target, run_id, ttv_filepaths):
+    def from_dynesty(cls, results, mission, target, run_id, transit_times):
         """
         Package dynesty results with per-planet transit time tables
 
@@ -78,14 +78,14 @@ class Results:
         ----------
         results : dynesty.results.Results
         mission, target, run_id : str
-        ttv_filepaths : list of str
-            one {target}_nn_quick.ttvs file per planet, in planet order
+        transit_times : list of pd.DataFrame
+            one per planet, in planet order; columns as in TTIMES_COLUMNS
         """
         npl = (results.samples.shape[1] - 2) // 5
 
-        if len(ttv_filepaths) != npl:
+        if len(transit_times) != npl:
             raise ValueError(
-                f"{len(ttv_filepaths)} transit time files for {npl} planets"
+                f"{len(transit_times)} transit time tables for {npl} planets"
             )
 
         labels = []
@@ -94,8 +94,6 @@ class Results:
         labels += ["LD_Q1", "LD_Q2"]
 
         samples = pd.DataFrame(results.samples, columns=labels)
-
-        transit_times = [_ttimes_dataframe(np.loadtxt(f)) for f in ttv_filepaths]
 
         sampler_info = {"NITER": results.niter, "NBATCH": len(results.batch_nlive)}
         for i, nlive in enumerate(results.batch_nlive):

@@ -2,11 +2,33 @@ __all__ = [
     "bin_data",
     "estimate_transit_depth",
     "predict_tc_error",
+    "transit_flux",
     "transit_obsmode",
 ]
 
 
 import numpy as np
+from batman import _quadratic_ld, _rsky
+
+
+def transit_flux(t, t0, period, ror, impact, duration, u1, u2, exptime_offsets=None):
+    """
+    Quadratic limb darkened transit flux for a single planet
+
+    If exptime_offsets is provided, flux is supersampled over each exposure
+    and averaged back to the cadence times t
+    """
+    if exptime_offsets is not None:
+        t = (exptime_offsets + t.reshape(t.size, 1)).ravel()
+
+    nthreads = 1
+    ds = _rsky._rsky(t, t0, period, ror, impact, duration, 1, nthreads)
+    flux = _quadratic_ld._quadratic_ld(ds, np.abs(ror), u1, u2, nthreads)
+
+    if exptime_offsets is not None:
+        flux = np.mean(flux.reshape(-1, len(exptime_offsets)), axis=1)
+
+    return flux
 
 
 def transit_obsmode(planets, litecurve):
@@ -17,10 +39,16 @@ def transit_obsmode(planets, litecurve):
         transit_obsmode (list) : one array of obsmodes per planet
         unique_obsmodes (ndarray) : unique obsmodes across all transits
     """
+    time = litecurve.time
+    if np.any(np.diff(time) < 0):
+        raise ValueError("litecurve.time must be sorted")
+
     obsmode = [None] * len(planets)
     for n, p in enumerate(planets):
-        nearest = [np.argmin(np.abs(litecurve.time - tc)) for tc in p.transit_times]
-        obsmode[n] = np.array([litecurve.obsmode[i] for i in nearest])
+        # nearest cadence; ties go to the earlier cadence
+        i = np.clip(np.searchsorted(time, p.transit_times), 1, len(time) - 1)
+        earlier = (p.transit_times - time[i - 1]) <= (time[i] - p.transit_times)
+        obsmode[n] = litecurve.obsmode[i - earlier]
 
     return obsmode, np.unique(np.hstack(obsmode))
 

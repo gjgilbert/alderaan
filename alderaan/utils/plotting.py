@@ -15,9 +15,7 @@ from dynesty import plotting as dyplot
 from matplotlib.ticker import FormatStrFormatter
 
 from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
-from alderaan.data_models.planet import Planet
-from alderaan.models.transit_model import TransitModel
-from alderaan.utils.astro import bin_data
+from alderaan.utils.astro import bin_data, transit_flux
 from alderaan.utils.stats import robust_polyfit
 
 
@@ -127,10 +125,6 @@ def plot_omc(
 def plot_litecurve(litecurve, target, planets=None, filepath=None, interactive=False):
     # shorthand
     lc = litecurve
-
-    if planets is not None:
-        if isinstance(planets, Planet):
-            planets = [planets]
 
     fig, ax = plt.subplots(1, 1, figsize=(20, 4))
     ax.plot(lc.time, lc.flux, "k.", ms=0.5)
@@ -367,11 +361,9 @@ def plot_results_transit(
     lc_offsets = np.linspace(-KEPLER_LCIT / 2, KEPLER_LCIT / 2, 29)
     t_mod = np.arange(t_folded.min(), t_folded.max(), KEPLER_SCIT)
 
-    f_mod = TransitModel.transit_flux(t_mod, *params)
-    f_mod_lc = TransitModel.transit_flux(t_mod, *params, exptime_offsets=lc_offsets)
-    residuals = f_folded - TransitModel.transit_flux(
-        t_folded, *params, exptime_offsets=lc_offsets
-    )
+    f_mod = transit_flux(t_mod, *params)
+    f_mod_lc = transit_flux(t_mod, *params, exptime_offsets=lc_offsets)
+    residuals = f_folded - transit_flux(t_folded, *params, exptime_offsets=lc_offsets)
 
     t_binned, f_binned = bin_data(t_folded, f_folded, T14 / 11)
     _, r_binned = bin_data(t_folded, residuals, T14 / 11)

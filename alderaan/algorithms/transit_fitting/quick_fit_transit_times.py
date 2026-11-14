@@ -8,7 +8,7 @@ from scipy.optimize import least_squares
 
 from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
 from alderaan.models.transit_model import TransitModel
-from alderaan.utils.astro import bin_data, predict_tc_error
+from alderaan.utils.astro import bin_data, predict_tc_error, transit_flux
 from alderaan.utils.plotting import plot_quick_fit_ttvs
 from alderaan.utils.stats import robust_polyfit
 
@@ -47,7 +47,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
         )
         time_template = np.hstack([-time_template[:-1][::-1], time_template])
 
-        flux_template = tm.transit_flux(
+        flux_template = transit_flux(
             time_template,
             0.0,
             p.period,
@@ -115,9 +115,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
                         _f_obs = lc.flux[in_window]
                         _f_err = lc.error[in_window]
 
-                        _t_supersample = (
-                            exptime_ioff + _t.reshape(_t.size, 1)
-                        ).flatten()
+                        _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).ravel()
 
                         # remove any residual out-of-transit trend
                         use = ~in_transit[in_window]
@@ -187,8 +185,8 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
                             )
 
                             if convex_local_min and within_bounds:
-                                ttime[i] = _tti.copy()
-                                ttime_err[i] = _erri.copy()
+                                ttime[i] = _tti
+                                ttime_err[i] = _erri
 
                         # STEP 4: make quicklook plot
                         if (quicklook_dir is not None) and (len(_f_obs) > 0):
@@ -227,7 +225,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
         f_mod = np.ones_like(t_obs)
 
         for n, p in enumerate(tm.planets):
-            qld_flux = tm.transit_flux(
+            qld_flux = transit_flux(
                 t_obs,
                 theta[n],
                 p.period,
@@ -264,7 +262,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
         overlap = overlap[planet_no]
         obsmode = tm.transit_obsmode[planet_no]
 
-        ttime_old = tm.planets[planet_no].transit_times.copy()
+        ttime_old = tm.planets[planet_no].transit_times
         ttime_new = np.zeros_like(ttime_old)
 
         for i, tc in enumerate(ttime_old):
@@ -301,7 +299,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
 
             logp_initial = self._window_ln_likelihood(
                 theta, tm, obsmode[i], t_obs, f_obs, f_err
-            ).copy()
+            )
 
             def _fxn(x, x0, fix, tm, obsmode, t_obs, f_obs, f_err):
                 _x = x0.copy()
@@ -323,11 +321,11 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
                 ),
             )
 
-            theta[~fix] = result.x.copy()
-            ttime_new[i] = theta[planet_no].copy()
+            theta[~fix] = result.x
+            ttime_new[i] = theta[planet_no]
             logp_final = self._window_ln_likelihood(
                 theta, tm, obsmode[i], t_obs, f_obs, f_err
-            ).copy()
+            )
 
             print(f"logp: {logp_initial} -> {logp_final}")
             print(f"message: {result['message']}")
@@ -396,7 +394,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
 
         # update ephemerides, prioritizing cross-correlation transit times
         for n, p in enumerate(planets):
-            error_obs = np.copy(error_cc[n])
+            error_obs = error_cc[n]
             error_exp = np.zeros_like(error_obs)
 
             for obsmode in tm.unique_obsmodes:
@@ -407,8 +405,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
                 )
 
             q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
-            ttime_new = np.copy(ttime_cc[n])
-            ttime_new[~q] = ttime_opt[n][~q]
+            ttime_new = np.where(q, ttime_cc[n], ttime_opt[n])
             error_new = np.sqrt(error_obs**2 + error_exp**2)
             error_new[~q] = np.nanpercentile(error_new, 90)
 

@@ -17,7 +17,6 @@ from alderaan.algorithms.transit_fitting import (
     SampleTransitModel,
 )
 from alderaan.data_models.results import Results
-from alderaan.utils.io import copy_input_target_catalog
 from alderaan.utils.kepler import load_kepler_data
 
 
@@ -51,9 +50,7 @@ def main(config):
 
     input_dir = config["PATHS"]["input_dir"]
     output_dir = config["PATHS"]["output_dir"]
-    catalog_dir = config["PATHS"]["catalog_dir"]
     catalog_name = config["CATALOGS"]["koi_catalog"]
-    catalog_filepath = os.path.join(catalog_dir, catalog_name)
 
     print("")
     print(f"   MISSION : {mission}")
@@ -78,10 +75,6 @@ def main(config):
     config["PATHS"]["results_dir"] = results_dir
     config["PATHS"]["quicklook_dir"] = quicklook_dir
 
-    copy_input_target_catalog(
-        catalog_filepath, os.path.join(output_dir, "results", run_id, f"{run_id}.csv")
-    )
-
     # data i/o
     if mission == "Kepler":
         star, planets, litecurve = load_kepler_data(config)
@@ -92,7 +85,7 @@ def main(config):
     else:
         raise ValueError(f"Unsupported mission : {mission}")
 
-    star, planets, litecurve, _ = RegularizeOMC(
+    star, planets, litecurve, _, _ = RegularizeOMC(
         star, planets, litecurve, config
     ).perform(method="smooth")
 
@@ -109,7 +102,7 @@ def main(config):
     star, planets, litecurve = QuickFitTransitTimes(
         star, planets, litecurve, config
     ).perform()
-    star, planets, litecurve, ttv_buffer = RegularizeOMC(
+    star, planets, litecurve, ttv_buffer, transit_times = RegularizeOMC(
         star, planets, litecurve, config
     ).perform(method="select")
 
@@ -123,12 +116,8 @@ def main(config):
     dynesty_results = SampleTransitModel(star, planets, litecurve, config).perform()
 
     # package and save results
-    ttv_filepaths = [
-        os.path.join(results_dir, f"{target}_{n:02d}_quick.ttvs")
-        for n in range(len(planets))
-    ]
     results = Results.from_dynesty(
-        dynesty_results, mission, target, run_id, ttv_filepaths
+        dynesty_results, mission, target, run_id, transit_times
     )
     results.to_fits(os.path.join(results_dir, f"{target}-results.fits"))
 

@@ -73,7 +73,7 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
         for fix in [fix_r_b_T14, fix_C0_C1] * niter:
             print(f"optimizing logp for variables: [{', '.join(var_names[~fix[:5]])}]")
 
-            logp_initial = self._ln_likelihood(theta, tm).copy()
+            logp_initial = self._ln_likelihood(theta, tm)
 
             result = least_squares(
                 _fxn,
@@ -83,8 +83,8 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
                 args=[theta, fix, tm],
             )
 
-            theta[~fix] = result.x.copy()
-            logp_final = self._ln_likelihood(theta, tm).copy()
+            theta[~fix] = result.x
+            logp_final = self._ln_likelihood(theta, tm)
 
             print(f"logp: {logp_initial} -> {logp_final}")
             print(f"message: {result['message']}")

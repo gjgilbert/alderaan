@@ -68,7 +68,7 @@ class SampleTransitModel(BaseTransitFittingAlg):
             transformed_hypercube : array_like, length 5 * N + 2
                 transformed samples
         """
-        u = np.array(uniform_hypercube)  # U(0,1) priors
+        u = np.asarray(uniform_hypercube)  # U(0,1) priors
         x = np.zeros_like(u)  # physical priors
 
         # 5 * npl + 2 parameters: [C0, C1, r, b, T14]...[q1, q2]

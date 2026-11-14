@@ -5,6 +5,5 @@ utils
    :maxdepth: 1
 
    astro
-   io
    kepler
    plotting
