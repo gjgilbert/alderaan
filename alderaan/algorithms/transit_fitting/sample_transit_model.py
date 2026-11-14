@@ -146,8 +146,16 @@ class SampleTransitModel(BaseTransitFittingAlg):
 
         koi_id = self.star.koi_id
 
-        print("Fitting for Rp/Rs, b, and T14")
         tm = TransitModel(self.star, self.planets, self.litecurve)
+        tm.trim(
+            self.make_transit_mask(rel_size=3.0, abs_size=2 / 24, mask_type="condensed")
+        )
+
+        print("Supersample factor")
+        for obsmode in tm.unique_obsmodes:
+            print(f"  {obsmode} : {tm.supersample[obsmode]}")
+
+        print("\nFitting for Rp/Rs, b, and T14")
         results = self._sample(tm, progress_every=10)
 
         # save sampling results

@@ -49,16 +49,23 @@ class TransitModel:
         # sigma so binning error is < 0.1% of photometric uncertainty
         sigma = np.nanmean(lc.error / lc.flux) * 0.04
 
-        # supersample factor (forced odd) following Kipping 2010,
-        # and exposure time integration offsets
+        # supersample factor (forced odd, minimum 7) following Kipping 2010,
+        # and exposure time integration offsets; short cadence is not supersampled
         self.supersample = {}
         self.exptime_offsets = {}
         for om in self.unique_obsmodes:
+            if om == "short cadence":
+                self.supersample[om] = 1
+                self.exptime_offsets[om] = np.array([0.0])
+                continue
+
             exptime = self.exptime[om]
             supersample = np.array(
                 np.ceil(np.sqrt((depth / tau12) * (exptime / 8 / sigma))), dtype=int
             )
-            self.supersample[om] = np.max(supersample + (supersample % 2 + 1))
+            self.supersample[om] = np.max(
+                np.hstack([supersample + (supersample % 2 + 1), 7])
+            )
             self.exptime_offsets[om] = np.linspace(
                 -exptime / 2, exptime / 2, self.supersample[om]
             )
@@ -143,10 +150,21 @@ class TransitModel:
             index_midpoint = p.transit_index[-1] // 2
 
             _t, _i = self._warp_times(self.litecurve.time, n, return_inds=True)
-            _x = (_i - index_midpoint) / index_midpoint
+            _x = (_i - index_midpoint) / (p.transit_index[-1] / 2)
 
             self.warped_time[n] = _t.copy()  # len(self.litecurve.ttime)
             self.warped_legx[n] = _x.copy()  # len(self.litecurve.ttime)
+
+        self._set_obsmode_slices()
+
+    def _set_obsmode_slices(self):
+        # precomputed so model_flux avoids boolean-mask copies on every call
+        self._warped_time_om = {}
+        self._warped_legx_om = {}
+        for om in self.unique_obsmodes:
+            mask = self.cadence_mask[om]
+            self._warped_time_om[om] = [wt[mask] for wt in self.warped_time]
+            self._warped_legx_om[om] = [wx[mask] for wx in self.warped_legx]
 
     def _get_model_dt(self, t, planet_no, return_inds=False):
         _inds = np.searchsorted(self._bin_edges[planet_no], t)
@@ -197,28 +215,43 @@ class TransitModel:
         u1 = 2 * np.sqrt(q1) * q2
         u2 = np.sqrt(q1) * (1 - 2 * q2)
 
-        flux_mod = np.ones_like(self.litecurve.flux)
-
+        flux_mod = None
         for obsmode in self.unique_obsmodes:
             mask = self.cadence_mask[obsmode]
+            flux_om = self._model_flux_obsmode(theta, obsmode, u1, u2)
 
-            for n in range(self.npl):
-                C0, C1, rp, b, T14 = np.array(theta[5 * n : 5 * (n + 1)])
+            if mask.all():
+                return flux_om
 
-                _t = self.warped_time[n][mask] + C0 + C1 * self.warped_legx[n][mask]
+            if flux_mod is None:
+                flux_mod = np.ones_like(self.litecurve.flux)
+            flux_mod[mask] = flux_om
 
-                qld_flux = self.transit_flux(
-                    _t,
-                    0.0,
-                    self.static_period[n],
-                    rp,
-                    b,
-                    T14,
-                    u1,
-                    u2,
-                    exptime_offsets=self.exptime_offsets[obsmode],
-                )
+        return flux_mod
 
-                flux_mod[mask] += qld_flux - 1.0
+    def _model_flux_obsmode(self, theta, obsmode, u1, u2):
+        warped_time = self._warped_time_om[obsmode]
+        warped_legx = self._warped_legx_om[obsmode]
+
+        flux_mod = np.ones(len(warped_time[0]))
+
+        for n in range(self.npl):
+            C0, C1, rp, b, T14 = np.array(theta[5 * n : 5 * (n + 1)])
+
+            _t = warped_time[n] + C0 + C1 * warped_legx[n]
+
+            qld_flux = self.transit_flux(
+                _t,
+                0.0,
+                self.static_period[n],
+                rp,
+                b,
+                T14,
+                u1,
+                u2,
+                exptime_offsets=self.exptime_offsets[obsmode],
+            )
+
+            flux_mod += qld_flux - 1.0
 
         return flux_mod
