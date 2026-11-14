@@ -4,6 +4,8 @@ __all__ = [
     "dynesty_runplot",
     "dynesty_traceplot",
     "dynesty_cornerplot",
+    "plot_results_omc",
+    "plot_results_transit",
 ]
 
 import matplotlib.pyplot as plt
@@ -12,7 +14,10 @@ from astropy.stats import mad_std
 from dynesty import plotting as dyplot
 from matplotlib.ticker import FormatStrFormatter
 
+from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.data_models.planet import Planet
+from alderaan.models.transit_model import TransitModel
+from alderaan.utils.astro import bin_data
 from alderaan.utils.stats import robust_polyfit
 
 
@@ -41,7 +46,7 @@ def plot_omc(
         cmap = None
     else:
         marker_color = [1 - op for op in out_prob]
-        line_color = ["k" for n in range(npl)]
+        line_color = ["k"] * npl
         cmap = "viridis"
 
     # make plot
@@ -114,10 +119,7 @@ def plot_omc(
 
     plt.tight_layout()
 
-    if filepath is not None:
-        plt.savefig(filepath)
-    if not interactive:
-        plt.close(fig)
+    _save_or_close(fig, filepath, interactive)
 
     return fig
 
@@ -159,10 +161,7 @@ def plot_litecurve(litecurve, target, planets=None, filepath=None, interactive=F
 
     plt.tight_layout()
 
-    if filepath is not None:
-        plt.savefig(filepath)
-    if not interactive:
-        plt.close(fig)
+    _save_or_close(fig, filepath, interactive)
 
     return fig, ax
 
@@ -175,10 +174,7 @@ def dynesty_runplot(results, target, filepath=None, interactive=False):
     ax[0].set_title(target, fontsize=24)
     fig.tight_layout()
 
-    if filepath is not None:
-        plt.savefig(filepath, bbox_inches="tight", dpi=96)
-    if not interactive:
-        plt.close(fig)
+    _save_or_close(fig, filepath, interactive, bbox_inches="tight", dpi=96)
 
     return fig, ax
 
@@ -186,7 +182,7 @@ def dynesty_runplot(results, target, filepath=None, interactive=False):
 def dynesty_traceplot(results, target, planet_no, filepath=None, interactive=False):
     fig, ax = dyplot.traceplot(
         results,
-        labels=_parameter_labels(1, subscripts=False),
+        labels="C0 C1 r b T14 q1 q2".split(),
         dims=np.arange(5 * planet_no, 5 * (planet_no + 1)),
         label_kwargs={"fontsize": 14},
     )
@@ -196,10 +192,7 @@ def dynesty_traceplot(results, target, planet_no, filepath=None, interactive=Fal
         f"{target} - Planet {planet_no}", fontsize=18, y=fig.subplotpars.top + 0.02
     )
 
-    if filepath is not None:
-        plt.savefig(filepath, bbox_inches="tight", dpi=96)
-    if not interactive:
-        plt.close(fig)
+    _save_or_close(fig, filepath, interactive, bbox_inches="tight", dpi=96)
 
     return fig, ax
 
@@ -207,7 +200,7 @@ def dynesty_traceplot(results, target, planet_no, filepath=None, interactive=Fal
 def dynesty_cornerplot(results, target, planet_no, filepath=None, interactive=False):
     fig, ax = dyplot.cornerplot(
         results,
-        labels=_parameter_labels(1, subscripts=False),
+        labels="C0 C1 r b T14 q1 q2".split(),
         dims=np.arange(5 * planet_no, 5 * (planet_no + 1)),
         label_kwargs={"fontsize": 14},
         color=f"C{planet_no}",
@@ -218,27 +211,9 @@ def dynesty_cornerplot(results, target, planet_no, filepath=None, interactive=Fa
         f"{target} - Planet {planet_no}", fontsize=18, y=fig.subplotpars.top + 0.02
     )
 
-    if filepath is not None:
-        plt.savefig(filepath, bbox_inches="tight", dpi=96)
-    if not interactive:
-        plt.close(fig)
+    _save_or_close(fig, filepath, interactive, bbox_inches="tight", dpi=96)
 
     return fig, ax
-
-
-def _parameter_labels(npl, subscripts=True):
-    labels = []
-
-    if subscripts:
-        for n in range(npl):
-            labels = labels + f"$C0_{n}$ $C1_{n}$ $r_{n}$ $b_{n}$ $T14_{n}$".split()
-    else:
-        for _ in range(npl):
-            labels = labels + "C0 C1 r b T14".split()
-
-    labels += "q1 q2".split()
-
-    return labels
 
 
 def plot_quick_fit_ttvs(
@@ -302,9 +277,133 @@ def plot_quick_fit_ttvs(
     plt.suptitle(f"{target} - Planet {planet_no}", fontsize=18)
     plt.tight_layout()
 
+    _save_or_close(fig, filepath, interactive)
+
+    return fig, ax
+
+
+def _save_or_close(fig, filepath, interactive, **savefig_kwargs):
     if filepath is not None:
-        plt.savefig(filepath)
+        fig.savefig(filepath, **savefig_kwargs)
     if not interactive:
         plt.close(fig)
+
+
+def plot_results_omc(results, filepath=None, interactive=False):
+    """
+    Plot observed-minus-calculated transit times from a Results (wraps plot_omc)
+    """
+    xtime, yobs, ymod, quality, out_prob, period = [], [], [], [], [], []
+    for n, tt in enumerate(results.transit_times):
+        epoch, P = results.linear_ephemeris(n)
+        linear = epoch + P * tt["index"].to_numpy()
+
+        xtime.append(tt["ttime"].to_numpy())
+        yobs.append(xtime[-1] - linear)
+        ymod.append(tt["model"].to_numpy() - linear)
+        quality.append(~tt["out_flag"].to_numpy())
+        out_prob.append(tt["out_prob"].to_numpy())
+        period.append(P)
+
+    yerr = [None] * results.npl
+    return plot_omc(
+        xtime,
+        yobs,
+        yerr,
+        ymod,
+        quality,
+        out_prob,
+        period,
+        results.target,
+        filepath=filepath,
+        interactive=interactive,
+    )
+
+
+def plot_results_transit(
+    results, n, index=None, max_pts=1000, filepath=None, interactive=False
+):
+    """
+    Plot long cadence photometry of planet n folded on the model transit times,
+    with the median posterior model and residuals
+
+    index : int, optional
+        plot a single transit; default folds all transits
+    """
+    if results.litecurve is None:
+        raise ValueError("Results.litecurve is required to plot transits")
+
+    time = results.litecurve.time
+    flux = results.litecurve.flux
+
+    # median posterior transit parameters
+    median = results.summary()["median"]
+    q1, q2 = median["LD_Q1"], median["LD_Q2"]
+    T14 = median[f"DUR14_{n}"]
+    params = (
+        0.0,
+        results.linear_ephemeris(n)[1],
+        median[f"ROR_{n}"],
+        median[f"IMPACT_{n}"],
+        T14,
+        2 * np.sqrt(q1) * q2,
+        np.sqrt(q1) * (1 - 2 * q2),
+    )
+
+    # fold photometry
+    tt = results.transit_times[n]
+    tcs = tt["model"] if index is None else tt["model"][tt["index"] == index]
+
+    t_folded, f_folded = [], []
+    for tc in tcs:
+        use = np.abs(time - tc) / T14 < 1.5
+        t_folded.append(time[use] - tc)
+        f_folded.append(flux[use])
+
+    t_folded = np.hstack(t_folded)
+    f_folded = np.hstack(f_folded)
+
+    # median models: unbinned and integrated over a long cadence exposure
+    lc_offsets = np.linspace(-KEPLER_LCIT / 2, KEPLER_LCIT / 2, 29)
+    t_mod = np.arange(t_folded.min(), t_folded.max(), KEPLER_SCIT)
+
+    f_mod = TransitModel.transit_flux(t_mod, *params)
+    f_mod_lc = TransitModel.transit_flux(t_mod, *params, exptime_offsets=lc_offsets)
+    residuals = f_folded - TransitModel.transit_flux(
+        t_folded, *params, exptime_offsets=lc_offsets
+    )
+
+    t_binned, f_binned = bin_data(t_folded, f_folded, T14 / 11)
+    _, r_binned = bin_data(t_folded, residuals, T14 / 11)
+
+    # deterministic subset of points to plot
+    rng = np.random.default_rng(0)
+    inds = rng.choice(len(t_folded), size=min(max_pts, len(t_folded)), replace=False)
+
+    fig, ax = plt.subplots(
+        2, 1, figsize=(12, 6), sharex=True, gridspec_kw={"height_ratios": [2, 1]}
+    )
+
+    ax[0].plot(t_folded[inds] * 24, f_folded[inds], "o", color="lightgrey")
+    ax[0].plot(t_binned * 24, f_binned, "s", color="w", mec="k", ms=10)
+    ax[0].plot(t_mod * 24, f_mod, color=f"C{n}", lw=3)
+    ax[0].plot(t_mod * 24, f_mod_lc, "k--", lw=2)
+    ax[0].set_ylabel("Flux", fontsize=24)
+    ax[0].set_title(f"{results.target} - Planet {n}", fontsize=18)
+
+    ax[1].plot(t_folded[inds] * 24, residuals[inds], ".", color="lightgrey")
+    ax[1].plot(t_binned * 24, r_binned, "s", color="w", mec="k", ms=10)
+    ax[1].axhline(0, color="k", ls="--", lw=2)
+    ax[1].set_xlim(t_folded.min() * 24, t_folded.max() * 24)
+    ax[1].set_xlabel("Time from mid-transit [hrs]", fontsize=24)
+    ax[1].text(
+        0.02,
+        0.8,
+        f"RMS = {int(np.std(residuals) * 1e6)} ppm",
+        transform=ax[1].transAxes,
+        fontsize=11,
+    )
+
+    _save_or_close(fig, filepath, interactive)
 
     return fig, ax

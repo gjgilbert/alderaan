@@ -3,5 +3,5 @@
 Results
 =======
 
-.. automodule:: alderaan.results
+.. automodule:: alderaan.data_models.results
    :members:

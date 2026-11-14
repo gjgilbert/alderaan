@@ -16,6 +16,7 @@ from alderaan.algorithms.transit_fitting import (
     QuickFitTransitTimes,
     SampleTransitModel,
 )
+from alderaan.data_models.results import Results
 from alderaan.utils.io import copy_input_target_catalog
 from alderaan.utils.kepler import load_kepler_data
 
@@ -119,7 +120,17 @@ def main(config):
     star, planets, litecurve = FlagBadTransits(
         star, planets, litecurve, config
     ).perform()
-    SampleTransitModel(star, planets, litecurve, config).perform()
+    dynesty_results = SampleTransitModel(star, planets, litecurve, config).perform()
+
+    # package and save results
+    ttv_filepaths = [
+        os.path.join(results_dir, f"{target}_{n:02d}_quick.ttvs")
+        for n in range(len(planets))
+    ]
+    results = Results.from_dynesty(
+        dynesty_results, mission, target, run_id, ttv_filepaths
+    )
+    results.to_fits(os.path.join(results_dir, f"{target}-results.fits"))
 
     print(f"\ncumulative runtime = {((timer() - pipeline_start_time) / 60):.1f} min")
     print("\n\n=== exiting main pipeline ===\n\n")

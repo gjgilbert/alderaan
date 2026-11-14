@@ -12,7 +12,6 @@ from dynesty.utils import print_fn
 
 from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
 from alderaan.models.transit_model import TransitModel
-from alderaan.utils.io import dynesty_results_to_fits
 from alderaan.utils.plotting import (
     dynesty_cornerplot,
     dynesty_runplot,
@@ -138,10 +137,6 @@ class SampleTransitModel(BaseTransitFittingAlg):
         """
         print("\n\nALGORITHM: SAMPLE TRANSIT MODEL\n")
 
-        mission = self.config["RUN"]["mission"]
-        target = self.config["RUN"]["target"]
-        run_id = self.config["RUN"]["run_id"]
-        results_dir = self.config["PATHS"]["results_dir"]
         quicklook_dir = self.config["PATHS"]["quicklook_dir"]
 
         koi_id = self.star.koi_id
@@ -157,15 +152,6 @@ class SampleTransitModel(BaseTransitFittingAlg):
 
         print("\nFitting for Rp/Rs, b, and T14")
         results = self._sample(tm, progress_every=10)
-
-        # save sampling results
-        hdu_list = dynesty_results_to_fits(
-            results, mission, target, run_id, results_dir
-        )
-        hdu_list.writeto(
-            os.path.join(results_dir, f"{target}-results.fits"),
-            overwrite=True,
-        )
 
         # make quicklook plots
         filepath = os.path.join(quicklook_dir, f"{koi_id}_dynesty_runplot.png")

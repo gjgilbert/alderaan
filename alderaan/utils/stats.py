@@ -4,6 +4,7 @@ __all__ = [
     "norm_ppf",
     "set_sigma_cutoff",
     "robust_polyfit",
+    "weighted_percentile",
 ]
 
 
@@ -95,3 +96,37 @@ def robust_polyfit(x, y, deg):
     coeffs[: converted.size] = converted
 
     return coeffs[::-1]
+
+
+def weighted_percentile(a, q, w=None):
+    """
+    Compute the q-th percentile of data array a, with optional weights w
+
+    Similar to np.percentile, but allows for weights (not axis-wise)
+
+    Args:
+        a (array-like) : data
+        q (float or array-like) : percentile(s) in [0, 100]
+        w (array-like) : optional weights, same length as a
+
+    Returns:
+        float or ndarray : percentile value(s)
+    """
+    a = np.asarray(a)
+    q = np.asarray(q)
+
+    if w is None:
+        return np.percentile(a, q)
+
+    if not (np.all(q >= 0) and np.all(q <= 100)):
+        raise ValueError("quantiles should be in [0, 100]")
+
+    order = np.argsort(a)
+    a = a[order]
+    w = np.asarray(w)[order]
+
+    weighted_quantiles = np.cumsum(w) - 0.5 * w
+    weighted_quantiles -= weighted_quantiles[0]
+    weighted_quantiles /= weighted_quantiles[-1]
+
+    return np.interp(q / 100.0, weighted_quantiles, a)

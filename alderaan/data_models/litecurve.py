@@ -65,6 +65,23 @@ class LiteCurve:
         return lc_instance
 
     @classmethod
+    def from_fits(cls, filepath):
+        """
+        Load a litecurve written by LiteCurve.to_fits
+
+        Only time, flux, error, cadno, and visit are stored on disk
+        """
+        lc_instance = cls()
+        with fits.open(filepath) as hdul:
+            lc_instance.time = np.asarray(hdul["TIME"].data, dtype=float)
+            lc_instance.flux = np.asarray(hdul["FLUX"].data, dtype=float)
+            lc_instance.error = np.asarray(hdul["ERROR"].data, dtype=float)
+            lc_instance.cadno = np.asarray(hdul["CADNO"].data, dtype=int)
+            lc_instance.visit = np.asarray(hdul["QUARTER"].data, dtype=int)
+
+        return lc_instance
+
+    @classmethod
     def from_kplr_pdcsap(cls, data_dir, target_id, obsmode, visits=None):
         """
         Load photometric data from Kepler Project PDCSAP Flux lightcurves
