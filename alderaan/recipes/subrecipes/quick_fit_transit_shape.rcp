@@ -7,10 +7,10 @@ def run(context):
     # infer context
     planets = context.planets
     litecurve = context.litecurve
-    limbdark = context.limbdark
+    star = context.star
 
     # optimize transit parameters
-    transitmodel = RBDTransitModel(litecurve, planets, limbdark)
+    transitmodel = RBDTransitModel(litecurve, planets, star)
     transitmodel = transitmodel.trim_flux_arrays(rel_size=3.0, abs_size=1 / 24)
 
     print("Supersample factor")
@@ -20,6 +20,6 @@ def run(context):
     print("\nFitting initial transit model")
     theta = transitmodel.optimize()
     planets = transitmodel.update_planet_parameters(theta)
-    limbdark = transitmodel.update_limbdark_parameters(theta)
+    star = transitmodel.update_star_parameters(theta)
 
-    return {"planets": planets, "limbdark": limbdark}
+    return {"planets": planets, "star": star}

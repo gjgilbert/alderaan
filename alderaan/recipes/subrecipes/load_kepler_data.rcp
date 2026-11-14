@@ -5,6 +5,7 @@ from astropy.stats import mad_std
 
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.planet import Planet
+from alderaan.data_models.star import Star
 from alderaan.modules.quicklook import plot_litecurve
 from alderaan.utils.io import parse_holczer16_catalog, parse_koi_catalog
 from alderaan.utils.pipeline import capture_locals
@@ -26,13 +27,16 @@ def run(context):
     )
 
     NPL = int(catalog.npl[0])
-    koi_id = catalog.koi_id[0]
-    kic_id = int(catalog.kic_id[0])
-    limbdark = [catalog.limbdark_1[0], catalog.limbdark_2[0]]
+    star = Star(
+        catalog.koi_id[0],
+        int(catalog.kic_id[0]),
+        catalog.limbdark_1[0],
+        catalog.limbdark_2[0],
+    )
 
     # load lightcurves
     litecurve_master = LiteCurve().from_kplr_pdcsap(
-        context.data_dir, kic_id, "long cadence", visits=[1, 2, 3]
+        context.data_dir, star.kic_id, "long cadence", visits=[1, 2, 3]
     )
 
     t_min = litecurve_master.time.min()
@@ -69,7 +73,7 @@ def run(context):
 
     # load Holczer+2016 catalog
     _filepath = os.path.join(context.catalog_dir, "holczer_2016_kepler_ttvs.txt")
-    holczer_ephemerides = parse_holczer16_catalog(_filepath, koi_id, NPL)
+    holczer_ephemerides = parse_holczer16_catalog(_filepath, star.koi_id, NPL)
 
     print(f"\n{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
 

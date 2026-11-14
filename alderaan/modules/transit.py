@@ -29,10 +29,10 @@ class TransitModel(BaseAlg):
     Base transit model class, used for inheritance but not called directly
     """
 
-    def __init__(self, litecurve, planets, limbdark):
+    def __init__(self, litecurve, planets, star):
         super().__init__(litecurve, planets)
 
-        self.limbdark = deepcopy(limbdark)
+        self.star = deepcopy(star)
         self._init_time_warping()
 
     def trim_flux_arrays(self, rel_size=None, abs_size=None):
@@ -170,8 +170,8 @@ class RBDTransitModel(TransitModel):
         sample : samples from the posterior using dynamic nested sampling
     """
 
-    def __init__(self, litecurve, planets, limbdark):
-        super().__init__(litecurve, planets, limbdark)
+    def __init__(self, litecurve, planets, star):
+        super().__init__(litecurve, planets, star)
 
     @staticmethod
     def model_flux(theta, transitmodel):
@@ -241,10 +241,14 @@ class RBDTransitModel(TransitModel):
         tm = transitmodel
         lnlike = -0.5 * np.sum(tm.model_residuals(theta, tm) ** 2)
 
-        # enforce prior on limb darkening
+        # enforce prior on physical limb darkening (see Kipping 2013)
+        q1, q2 = theta[-2], theta[-1]
+        u1 = 2 * np.sqrt(q1) * q2
+        u2 = np.sqrt(q1) * (1 - 2 * q2)
+
         sig_ld_sq = 0.01
-        lnlike -= 1.0 / (2 * sig_ld_sq) * (theta[-1] - tm.limbdark[0]) ** 2
-        lnlike -= 1.0 / (2 * sig_ld_sq) * (theta[-2] - tm.limbdark[1]) ** 2
+        lnlike -= 1.0 / (2 * sig_ld_sq) * (u1 - tm.star.u1) ** 2
+        lnlike -= 1.0 / (2 * sig_ld_sq) * (u2 - tm.star.u2) ** 2
 
         if not np.isfinite(lnlike):
             return -1e300
@@ -386,8 +390,10 @@ class RBDTransitModel(TransitModel):
             theta.append(0.5)
             theta.append(p.duration)
 
-        theta.append(self.limbdark[0])
-        theta.append(self.limbdark[1])
+        # physical (u1, u2) --> sampling basis (q1, q2), see Kipping 2013
+        u1, u2 = self.star.u1, self.star.u2
+        theta.append((u1 + u2) ** 2)
+        theta.append(u1 / (2 * (u1 + u2)))
 
         return np.array(theta)
 
@@ -418,10 +424,13 @@ class RBDTransitModel(TransitModel):
 
         return self.planets
 
-    def update_limbdark_parameters(self, theta):
-        self.limbdark = theta[-2:]
+    def update_star_parameters(self, theta):
+        # sampling basis (q1, q2) --> physical (u1, u2), see Kipping 2013
+        q1, q2 = theta[-2], theta[-1]
+        self.star.u1 = 2 * np.sqrt(q1) * q2
+        self.star.u2 = np.sqrt(q1) * (1 - 2 * q2)
 
-        return self.limbdark
+        return self.star
 
 
 class TTVTransitModel(TransitModel):
@@ -436,8 +445,8 @@ class TTVTransitModel(TransitModel):
         sample : samples from the posterior using dynamic nested sampling
     """
 
-    def __init__(self, litecurve, planets, limbdark):
-        super().__init__(litecurve, planets, limbdark)
+    def __init__(self, litecurve, planets, star):
+        super().__init__(litecurve, planets, star)
 
         self.num_transits = self._count_transits()
 
@@ -493,7 +502,7 @@ class TTVTransitModel(TransitModel):
                 )
 
                 qld_flux = _quadratic_ld._quadratic_ld(
-                    ds, np.abs(p.ror), tm.limbdark[0], tm.limbdark[1], nthreads
+                    ds, np.abs(p.ror), tm.star.u1, tm.star.u2, nthreads
                 )
 
                 qld_flux = np.mean(qld_flux.reshape(-1, supersample), axis=1)
@@ -628,8 +637,8 @@ class TTVTransitModel(TransitModel):
 
 
 class OptimizationTTVFitter(TransitModel):
-    def __init__(self, litecurve, planets, limbdark):
-        super().__init__(litecurve, planets, limbdark)
+    def __init__(self, litecurve, planets, star):
+        super().__init__(litecurve, planets, star)
 
     def optimize(self, planet_no, relative_window_size=3.0):
         lc = self.litecurve
@@ -748,7 +757,7 @@ class OptimizationTTVFitter(TransitModel):
             )
 
             qld_flux = _quadratic_ld._quadratic_ld(
-                ds, np.abs(p.ror), tm.limbdark[0], tm.limbdark[1], nthreads
+                ds, np.abs(p.ror), tm.star.u1, tm.star.u2, nthreads
             )
 
             qld_flux = np.mean(qld_flux.reshape(-1, supersample), axis=1)
@@ -759,8 +768,8 @@ class OptimizationTTVFitter(TransitModel):
 
 
 class CrossCorrelationTTVFitter(TransitModel):
-    def __init__(self, litecurve, planets, limbdark):
-        super().__init__(litecurve, planets, limbdark)
+    def __init__(self, litecurve, planets, star):
+        super().__init__(litecurve, planets, star)
 
     def _construct_template(self, planet_no, obsmode, transit_window_size):
         """
@@ -793,7 +802,7 @@ class CrossCorrelationTTVFitter(TransitModel):
         )
 
         qld_flux = _quadratic_ld._quadratic_ld(
-            ds, np.abs(p.ror), self.limbdark[0], self.limbdark[1], nthreads
+            ds, np.abs(p.ror), self.star.u1, self.star.u2, nthreads
         )
 
         flux_template += qld_flux

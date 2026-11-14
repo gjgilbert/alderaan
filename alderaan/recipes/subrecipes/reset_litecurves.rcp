@@ -14,11 +14,11 @@ def run(context):
     # infer context
     planets = context.planets
     litecurves = context.litecurve.split_visits()
-    limbdark = context.limbdark
+    star = context.star
 
     # clip outliers based on transit model
     for j, lc in enumerate(litecurves):
-        tm = RBDTransitModel(lc, planets, limbdark)
+        tm = RBDTransitModel(lc, planets, star)
 
         theta = tm._theta_initial()
         f_mod = tm.model_flux(theta, tm)

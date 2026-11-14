@@ -136,3 +136,6 @@ temp*
 
 # line profiler
 *.lprof
+
+# local scratch notes
+notes/

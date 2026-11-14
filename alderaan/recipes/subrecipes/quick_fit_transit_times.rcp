@@ -11,11 +11,11 @@ def run(context):
     NPL = context.NPL
     planets = context.planets
     litecurve = context.litecurve
-    limbdark = context.limbdark
+    star = context.star
 
     # fit transit times using Mazeh+13 / Holczer+16 cross-correlation method
     print("\nApplying cross-correlation method")
-    ttvmodel = CrossCorrelationTTVFitter(litecurve, planets, limbdark)
+    ttvmodel = CrossCorrelationTTVFitter(litecurve, planets, star)
     ttime_cc = [None] * NPL
     error_cc = [None] * NPL
 
@@ -46,7 +46,7 @@ def run(context):
 
     # fit transit times using least squares optimization
     print("\nOptimizing independent transit times")
-    ttvmodel = OptimizationTTVFitter(litecurve, planets, limbdark)
+    ttvmodel = OptimizationTTVFitter(litecurve, planets, star)
     ttime_opt = [None] * NPL
 
     for n, p in enumerate(planets):
