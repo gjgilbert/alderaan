@@ -1,4 +1,4 @@
-"""`alderaan run`: parse arguments, build the config, and run the main recipe"""
+"""`alderaan run`: parse arguments, build the config, and run the pipeline"""
 
 import argparse
 from pathlib import Path
@@ -64,8 +64,8 @@ def main(argv=None):
     config = build_config(args, parser)
 
     # deferred so --help and argument errors don't pay for the theano/pymc import
-    from alderaan.recipes.pipeline import main as run_recipe
+    from alderaan.pipeline.pipeline import main as run_pipeline
 
-    run_recipe(config)
+    run_pipeline(config)
 
     return 0

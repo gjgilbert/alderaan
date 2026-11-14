@@ -2,33 +2,11 @@ __all__ = [
     "bin_data",
     "estimate_transit_depth",
     "predict_tc_error",
-    "transit_flux",
     "transit_obsmode",
 ]
 
 
 import numpy as np
-from batman import _quadratic_ld, _rsky
-
-
-def transit_flux(t, t0, period, ror, impact, duration, u1, u2, exptime_offsets=None):
-    """
-    Quadratic limb darkened transit flux for a single planet
-
-    If exptime_offsets is provided, flux is supersampled over each exposure
-    and averaged back to the cadence times t
-    """
-    if exptime_offsets is not None:
-        t = (exptime_offsets + t.reshape(t.size, 1)).ravel()
-
-    nthreads = 1
-    ds = _rsky._rsky(t, t0, period, ror, impact, duration, 1, nthreads)
-    flux = _quadratic_ld._quadratic_ld(ds, np.abs(ror), u1, u2, nthreads)
-
-    if exptime_offsets is not None:
-        flux = np.mean(flux.reshape(-1, len(exptime_offsets)), axis=1)
-
-    return flux
 
 
 def transit_obsmode(planets, litecurve):

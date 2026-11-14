@@ -6,4 +6,3 @@ utils
 
    astro
    kepler
-   plotting

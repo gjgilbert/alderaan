@@ -4,7 +4,6 @@ import os
 import warnings
 
 import aesara_theano_fallback.tensor as T
-import matplotlib.pyplot as plt
 import numpy as np
 import pymc3 as pm
 import pymc3_ext as pmx
@@ -21,7 +20,6 @@ from alderaan.algorithms.transit_fitting import BaseTransitFittingAlg
 from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.models.transit_model import TransitModel
-from alderaan.utils.plotting import plot_litecurve
 from alderaan.utils.stats import set_sigma_cutoff
 
 
@@ -493,7 +491,6 @@ class DetrendVisits(BaseAlg):
 
         target = self.config["RUN"]["target"]
         results_dir = self.config["PATHS"]["results_dir"]
-        quicklook_dir = self.config["PATHS"]["quicklook_dir"]
 
         if clip_outliers not in ("local_trend", "transit_model"):
             raise ValueError(
@@ -539,10 +536,6 @@ class DetrendVisits(BaseAlg):
             )
 
         litecurve = LiteCurve().from_list(litecurves)
-
-        filepath = os.path.join(quicklook_dir, f"{target}_litecurve_detrended.png")
-        plot_litecurve(litecurve, target, self.planets, filepath)
-        plt.close("all")
 
         # output cadence follows the last visit
         obsmode = litecurves[-1].obsmode[0]

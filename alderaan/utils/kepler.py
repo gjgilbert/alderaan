@@ -9,14 +9,12 @@ __all__ = [
 
 import os
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.planet import Planet
 from alderaan.data_models.star import Star
-from alderaan.utils.plotting import plot_litecurve
 from alderaan.utils.stats import robust_polyfit
 
 
@@ -204,7 +202,6 @@ def load_kepler_data(config):
     visits = config["RUN"].get("visits")
     input_dir = config["PATHS"]["input_dir"]
     catalog_dir = config["PATHS"]["catalog_dir"]
-    quicklook_dir = config["PATHS"]["quicklook_dir"]
     koi_filepath = os.path.join(catalog_dir, config["CATALOGS"]["koi_catalog"])
     ttv_filepath = os.path.join(catalog_dir, config["CATALOGS"]["ttv_catalog"])
 
@@ -260,11 +257,6 @@ def load_kepler_data(config):
     print(f"\n{len(holczer_transit_times)} transit time tables found in Holczer+2016")
 
     planets = match_holczer16_transit_times(planets, holczer_transit_times)
-
-    # quicklook litecurve
-    plot_filepath = os.path.join(quicklook_dir, f"{target}_litecurve_raw.png")
-    plot_litecurve(litecurve, target, planets, plot_filepath)
-    plt.close("all")
 
     # clip planet transit times to the litecurve time range and refit ephemerides
     for n, p in enumerate(planets):

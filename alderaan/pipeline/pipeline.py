@@ -17,6 +17,7 @@ from alderaan.algorithms.transit_fitting import (
     SampleTransitModel,
 )
 from alderaan.data_models.results import Results
+from alderaan.quicklook import PlotOMC, PlotPhotometry, PlotResults
 from alderaan.utils.kepler import load_kepler_data
 
 
@@ -73,7 +74,6 @@ def main(config):
     os.makedirs(quicklook_dir, exist_ok=True)
 
     config["PATHS"]["results_dir"] = results_dir
-    config["PATHS"]["quicklook_dir"] = quicklook_dir
 
     # data i/o
     if mission == "Kepler":
@@ -85,13 +85,23 @@ def main(config):
     else:
         raise ValueError(f"Unsupported mission : {mission}")
 
-    star, planets, litecurve, _, _ = RegularizeOMC(
+    PlotPhotometry(litecurve, target, planets).plot_litecurve(
+        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_raw.png")
+    )
+
+    star, planets, litecurve, _, omc = RegularizeOMC(
         star, planets, litecurve, config
     ).perform(method="smooth")
+    PlotOMC(omc, target).plot_omc(
+        fig_path=os.path.join(quicklook_dir, f"{target}_omc_initial.png")
+    )
 
     # 1st pass
     star, planets, litecurve = DetrendVisits(star, planets, litecurve, config).perform(
         tight_mask=False, clip_outliers="local_trend"
+    )
+    PlotPhotometry(litecurve, target, planets).plot_litecurve(
+        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_detrended.png")
     )
     star, planets, litecurve = FlagBadTransits(
         star, planets, litecurve, config
@@ -105,10 +115,16 @@ def main(config):
     star, planets, litecurve, ttv_buffer, transit_times = RegularizeOMC(
         star, planets, litecurve, config
     ).perform(method="select")
+    PlotOMC(transit_times, target).plot_omc(
+        fig_path=os.path.join(quicklook_dir, f"{target}_omc.png")
+    )
 
     # 2nd pass
     star, planets, litecurve = DetrendVisits(star, planets, litecurve, config).perform(
         tight_mask=True, clip_outliers="transit_model", ttv_buffer=ttv_buffer
+    )
+    PlotPhotometry(litecurve, target, planets).plot_litecurve(
+        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_detrended.png")
     )
     star, planets, litecurve = FlagBadTransits(
         star, planets, litecurve, config
@@ -120,6 +136,24 @@ def main(config):
         dynesty_results, mission, target, run_id, transit_times
     )
     results.to_fits(os.path.join(results_dir, f"{target}-results.fits"))
+
+    plot_results = PlotResults(results)
+    plot_results.plot_runplot(
+        fig_path=os.path.join(quicklook_dir, f"{target}_dynesty_runplot.png")
+    )
+    for n in range(results.npl):
+        plot_results.plot_traceplot(
+            n,
+            fig_path=os.path.join(
+                quicklook_dir, f"{target}_dynesty_traceplot_{n:02d}.png"
+            ),
+        )
+        plot_results.plot_cornerplot(
+            n,
+            fig_path=os.path.join(
+                quicklook_dir, f"{target}_dynesty_cornerplot_{n:02d}.png"
+            ),
+        )
 
     print(f"\ncumulative runtime = {((timer() - pipeline_start_time) / 60):.1f} min")
     print("\n\n=== exiting main pipeline ===\n\n")

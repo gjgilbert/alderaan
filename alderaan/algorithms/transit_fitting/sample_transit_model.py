@@ -1,28 +1,21 @@
 """Sample the transit model posterior with dynesty"""
 
 import io
-import os
 import sys
 import time
 
 import dynesty
-import matplotlib.pyplot as plt
 import numpy as np
 from dynesty.utils import print_fn
 
 from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
 from alderaan.models.transit_model import TransitModel
-from alderaan.utils.plotting import (
-    dynesty_cornerplot,
-    dynesty_runplot,
-    dynesty_traceplot,
-)
 from alderaan.utils.stats import loguniform_ppf, norm_ppf, uniform_ppf
 
 
 class SampleTransitModel(BaseTransitFittingAlg):
     """
-    Sample transit shape posteriors and write results and quicklook plots
+    Sample transit shape posteriors with dynesty
 
     Parameters
     ----------
@@ -137,10 +130,6 @@ class SampleTransitModel(BaseTransitFittingAlg):
         """
         print("\n\nALGORITHM: SAMPLE TRANSIT MODEL\n")
 
-        quicklook_dir = self.config["PATHS"]["quicklook_dir"]
-
-        koi_id = self.star.koi_id
-
         tm = TransitModel(self.star, self.planets, self.litecurve)
         tm.trim(
             self.make_transit_mask(rel_size=3.0, abs_size=2 / 24, mask_type="condensed")
@@ -152,22 +141,5 @@ class SampleTransitModel(BaseTransitFittingAlg):
 
         print("\nFitting for Rp/Rs, b, and T14")
         results = self._sample(tm, progress_every=10)
-
-        # make quicklook plots
-        filepath = os.path.join(quicklook_dir, f"{koi_id}_dynesty_runplot.png")
-        dynesty_runplot(results, koi_id, filepath=filepath)
-
-        for n in range(tm.npl):
-            filepath = os.path.join(
-                quicklook_dir, f"{koi_id}_dynesty_traceplot_{n:02d}.png"
-            )
-            dynesty_traceplot(results, koi_id, n, filepath=filepath)
-
-            filepath = os.path.join(
-                quicklook_dir, f"{koi_id}_dynesty_cornerplot_{n:02d}.png"
-            )
-            dynesty_cornerplot(results, koi_id, n, filepath=filepath)
-
-        plt.close("all")
 
         return results

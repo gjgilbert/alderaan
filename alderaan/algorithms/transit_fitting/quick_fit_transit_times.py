@@ -1,15 +1,11 @@
 """Fit individual transit times by cross-correlation and optimization"""
 
-import os
-
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import least_squares
 
 from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
 from alderaan.models.transit_model import TransitModel
-from alderaan.utils.astro import bin_data, predict_tc_error, transit_flux
-from alderaan.utils.plotting import plot_quick_fit_ttvs
+from alderaan.utils.astro import bin_data, predict_tc_error
 from alderaan.utils.stats import robust_polyfit
 
 
@@ -47,7 +43,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
         )
         time_template = np.hstack([-time_template[:-1][::-1], time_template])
 
-        flux_template = transit_flux(
+        flux_template = tm.transit_flux(
             time_template,
             0.0,
             p.period,
@@ -67,8 +63,6 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
         overlap,
         rel_window_size=5.0,
         abs_window_size_buffer=1 / 24,
-        quicklook_dir=None,
-        target=None,
     ):
         """
         Fit transit times using the Mazeh+13 / Holczer+16 cross-correlation method
@@ -188,36 +182,6 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
                                 ttime[i] = _tti
                                 ttime_err[i] = _erri
 
-                        # STEP 4: make quicklook plot
-                        if (quicklook_dir is not None) and (len(_f_obs) > 0):
-                            ttv_dir = os.path.join(quicklook_dir, "ttvs")
-                            os.makedirs(ttv_dir, exist_ok=True)
-                            _filepath = os.path.join(
-                                ttv_dir, f"{target}_{planet_no}_ttv_{i}.png"
-                            )
-
-                            _t_obs = _t
-                            _t_mod = _t_supersample
-                            _f_mod = np.interp(
-                                _t_supersample - _tti, time_template, flux_template
-                            )
-
-                            _ = plot_quick_fit_ttvs(
-                                target,
-                                planet_no,
-                                _t_obs,
-                                _t_mod,
-                                _f_obs,
-                                _f_mod,
-                                tc,
-                                tc_offset,
-                                tc_fit,
-                                x2_fit,
-                                chisq,
-                                transit_window_size,
-                                filepath=_filepath,
-                            )
-
         return ttime, ttime_err
 
     @staticmethod
@@ -225,7 +189,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
         f_mod = np.ones_like(t_obs)
 
         for n, p in enumerate(tm.planets):
-            qld_flux = transit_flux(
+            qld_flux = tm.transit_flux(
                 t_obs,
                 theta[n],
                 p.period,
@@ -342,9 +306,6 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
         """
         print("\n\nALGORITHM: QUICK FIT TRANSIT TIMES\n")
 
-        target = self.config["RUN"]["target"]
-        quicklook_dir = self.config["PATHS"]["quicklook_dir"]
-
         star = self.star
         planets = self.planets
         litecurve = self.litecurve
@@ -360,9 +321,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
         for n, p in enumerate(planets):
             print(f"\nPlanet {n} : fitting {np.sum(p.transit_quality)} transit times")
 
-            ttime_cc[n], error_cc[n] = self._cross_correlation_times(
-                tm, n, overlap, target=target, quicklook_dir=quicklook_dir
-            )
+            ttime_cc[n], error_cc[n] = self._cross_correlation_times(tm, n, overlap)
 
             assert len(ttime_cc[n]) == len(p.transit_times)
             assert len(error_cc[n]) == len(p.transit_errors)
@@ -412,7 +371,5 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
             p.transit_times = ttime_new
             p.transit_errors = error_new
             planets[n] = p.refit_period_and_epoch()
-
-        plt.close("all")
 
         return self.star, self.planets, self.litecurve

@@ -10,4 +10,5 @@ API Documentation
    ephemeris
    litecurve
    planet
+   quicklook
    results

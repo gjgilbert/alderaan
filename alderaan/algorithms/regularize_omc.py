@@ -1,10 +1,8 @@
 """Regularize transit times by modeling observed-minus-calculated (OMC) residuals"""
 
-import os
 import warnings
 
 import aesara_theano_fallback.tensor as T
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pymc3 as pm
@@ -20,7 +18,6 @@ from scipy.signal import savgol_filter
 from sklearn.cluster import KMeans
 
 from alderaan.algorithms.base import BaseAlg
-from alderaan.utils.plotting import plot_omc
 from alderaan.utils.stats import set_sigma_cutoff
 
 
@@ -598,16 +595,14 @@ class RegularizeOMC(BaseAlg):
         litecurve : LiteCurve
         ttv_buffer : list of float
             per-planet scatter of OMC residuals about the model
-        transit_times : list of pd.DataFrame or None
-            'select' only; per-planet [index, ttime, model, out_prob, out_flag]
+        transit_times : list of pd.DataFrame
+            per-planet [index, ttime, model, out_prob, out_flag] for transits passing
+            the initial outlier screen; out_prob is NaN for 'smooth'
         """
         if method not in ("smooth", "select"):
             raise ValueError(f"method must be 'smooth' or 'select', got {method!r}")
 
         print(f"\n\nALGORITHM: REGULARIZE OMC ({method})\n")
-
-        target = self.config["RUN"]["target"]
-        quicklook_dir = self.config["PATHS"]["quicklook_dir"]
 
         planets = self.planets
         npl = len(planets)
@@ -616,12 +611,10 @@ class RegularizeOMC(BaseAlg):
         yobs = [p.transit_times - p.eval_linear_ephemeris() for p in planets]
         yerr = [p.transit_errors for p in planets]
         quality = [self._flag_outliers(y) for y in yobs]
-        period = [p.reference_period for p in planets]
 
         ymod = [None] * npl
-        out_prob = [None] * npl
         ttv_buffer = [None] * npl
-        transit_times = [None] * npl if method == "select" else None
+        transit_times = [None] * npl
 
         if method == "select" and check_periodic:
             freq = self._identify_periodic_signals(xtime, yobs, quality)
@@ -633,6 +626,8 @@ class RegularizeOMC(BaseAlg):
 
             if method == "smooth":
                 ymod[n] = self._smooth(xtime[n], yobs[n], quality[n])
+                out_prob = np.full(len(yobs[n]), np.nan)
+                out_class = np.zeros(len(yobs[n]), dtype=bool)
 
             elif method == "select":
                 print(
@@ -647,23 +642,23 @@ class RegularizeOMC(BaseAlg):
                     "and flagging outliers"
                 )
 
-                out_prob[n], out_class = self._calculate_outlier_probability(
+                out_prob, out_class = self._calculate_outlier_probability(
                     yobs[n], ymod[n]
                 )
 
-                # transit times for the final results file
-                q = quality[n]
-                index = p.transit_index[q]
-                static_ephemeris = p.reference_epoch + p.reference_period * index
-                transit_times[n] = pd.DataFrame(
-                    {
-                        "index": index,
-                        "ttime": yobs[n][q] + static_ephemeris,
-                        "model": ymod[n][q] + static_ephemeris,
-                        "out_prob": out_prob[n][q],
-                        "out_flag": out_class[q],
-                    }
-                )
+            # transit times relative to the reference ephemeris
+            q = quality[n]
+            index = p.transit_index[q]
+            static_ephemeris = p.reference_epoch + p.reference_period * index
+            transit_times[n] = pd.DataFrame(
+                {
+                    "index": index,
+                    "ttime": yobs[n][q] + static_ephemeris,
+                    "model": ymod[n][q] + static_ephemeris,
+                    "out_prob": out_prob[q],
+                    "out_flag": out_class[q],
+                }
+            )
 
             planets[n] = p.update_ephemeris(
                 p.transit_index,
@@ -675,23 +670,5 @@ class RegularizeOMC(BaseAlg):
             print(f"Planet {n} : {old_period:.6f} --> {p.period:.6f}")
 
             ttv_buffer[n] = set_sigma_cutoff(len(yobs[n])) * mad_std(yobs[n] - ymod[n])
-
-        if method == "smooth":
-            filename = f"{target}_omc_initial.png"
-        else:
-            filename = f"{target}_omc.png"
-
-        plot_omc(
-            xtime,
-            yobs,
-            yerr,
-            ymod,
-            quality,
-            out_prob,
-            period,
-            target,
-            os.path.join(quicklook_dir, filename),
-        )
-        plt.close("all")
 
         return self.star, self.planets, self.litecurve, ttv_buffer, transit_times

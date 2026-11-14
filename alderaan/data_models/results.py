@@ -6,7 +6,6 @@ import numpy.polynomial.polynomial as poly
 import pandas as pd
 from astropy.io import fits
 
-from alderaan.data_models.litecurve import LiteCurve
 from alderaan.utils.stats import weighted_percentile
 
 TTIMES_COLUMNS = ["index", "ttime", "model", "out_prob", "out_flag"]
@@ -24,12 +23,13 @@ class Results:
         + [LD_Q1, LD_Q2]
     ln_wt, ln_like, ln_z : ndarray
         log weight, log likelihood, and cumulative log evidence per sample
+    ln_vol, ln_zerr, n_live : ndarray, optional
+        log prior volume, log evidence error, and number of live points per sample;
+        used for sampler diagnostic plots (absent in older results files)
     transit_times : list of pd.DataFrame
         one per planet; columns [index, ttime, model, out_prob, out_flag]
     sampler_info : dict, optional
         sampler diagnostics written to the SAMPLES header (NITER, NBATCH, NLIVEi, EFF)
-    litecurve : LiteCurve, optional
-        detrended litecurve; used for plotting only, not saved by to_fits
     """
 
     def __init__(
@@ -43,7 +43,9 @@ class Results:
         ln_z,
         transit_times,
         sampler_info=None,
-        litecurve=None,
+        ln_vol=None,
+        ln_zerr=None,
+        n_live=None,
     ):
         self.mission = mission
         self.target = target
@@ -54,7 +56,9 @@ class Results:
         self.ln_z = np.asarray(ln_z)
         self.transit_times = transit_times
         self.sampler_info = {} if sampler_info is None else sampler_info
-        self.litecurve = litecurve
+        self.ln_vol = None if ln_vol is None else np.asarray(ln_vol)
+        self.ln_zerr = None if ln_zerr is None else np.asarray(ln_zerr)
+        self.n_live = None if n_live is None else np.asarray(n_live)
 
         if samples.shape[1] != 5 * self.npl + 2:
             raise ValueError(
@@ -64,6 +68,11 @@ class Results:
         nsamp = len(samples)
         if not (len(self.ln_wt) == len(self.ln_like) == len(self.ln_z) == nsamp):
             raise ValueError("ln_wt, ln_like, ln_z must have one entry per sample")
+
+        for name in ("ln_vol", "ln_zerr", "n_live"):
+            x = getattr(self, name)
+            if x is not None and len(x) != nsamp:
+                raise ValueError(f"{name} must have one entry per sample")
 
     @property
     def npl(self):
@@ -110,10 +119,13 @@ class Results:
             results.logz,
             transit_times,
             sampler_info=sampler_info,
+            ln_vol=results.logvol,
+            ln_zerr=results.logzerr,
+            n_live=results.samples_n,
         )
 
     @classmethod
-    def from_fits(cls, filepath, litecurve_filepath=None):
+    def from_fits(cls, filepath):
         """
         Load a results file written by Results.to_fits
 
@@ -121,8 +133,6 @@ class Results:
         ----------
         filepath : str
             path to {target}-results.fits
-        litecurve_filepath : str, optional
-            path to a detrended litecurve written by LiteCurve.to_fits
         """
         with fits.open(filepath) as hdul:
             header = hdul[0].header
@@ -138,6 +148,14 @@ class Results:
             ln_wt = samples.pop("LN_WT").to_numpy()
             ln_like = samples.pop("LN_LIKE").to_numpy()
             ln_z = samples.pop("LN_Z").to_numpy()
+
+            # sampler diagnostics; absent in older results files
+            names = samples_hdu.columns.names
+            ln_vol = samples.pop("LN_VOL").to_numpy() if "LN_VOL" in names else None
+            ln_zerr = samples.pop("LN_ZERR").to_numpy() if "LN_ZERR" in names else None
+            n_live = (
+                samples.pop("N_LIVE").to_numpy(dtype=int) if "N_LIVE" in names else None
+            )
 
             sampler_info = {
                 k: samples_hdu.header[k]
@@ -160,10 +178,6 @@ class Results:
                 header["RUN_ID"],
             )
 
-        litecurve = None
-        if litecurve_filepath is not None:
-            litecurve = LiteCurve.from_fits(litecurve_filepath)
-
         return cls(
             mission,
             target,
@@ -174,7 +188,9 @@ class Results:
             ln_z,
             transit_times,
             sampler_info=sampler_info,
-            litecurve=litecurve,
+            ln_vol=ln_vol,
+            ln_zerr=ln_zerr,
+            n_live=n_live,
         )
 
     def to_hdulist(self):
@@ -190,6 +206,10 @@ class Results:
         samples_df = self.samples.assign(
             LN_WT=self.ln_wt, LN_LIKE=self.ln_like, LN_Z=self.ln_z
         )
+        if self.ln_vol is not None:
+            samples_df = samples_df.assign(
+                LN_VOL=self.ln_vol, LN_ZERR=self.ln_zerr, N_LIVE=self.n_live
+            )
         samples_hdu = fits.BinTableHDU(
             data=samples_df.to_records(index=False), name="SAMPLES"
         )
