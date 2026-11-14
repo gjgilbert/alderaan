@@ -155,10 +155,13 @@ def save_omc_ephemeris(filename, omc, verbose=True):
         print(f"successfully wrote omc ephemeris to {filename}")
 
 
-def dynesty_results_to_fits(results, context):
+def dynesty_results_to_fits(results, mission, target, run_id, results_dir):
     """
     results : dynesty.DynamicNestedSampling.results
-    context : alderaan.utils.pipeline.PipelineContext
+    mission : str
+    target : str
+    run_id : str
+    results_dir : str
     """
     npl = (results.samples.shape[1] - 2) // 5
 
@@ -178,9 +181,9 @@ def dynesty_results_to_fits(results, context):
 
     # primary HDU
     primary_hdu = fits.PrimaryHDU()
-    primary_hdu.header["MISSION"] = context.mission
-    primary_hdu.header["TARGET"] = context.target
-    primary_hdu.header["RUN_ID"] = context.run_id
+    primary_hdu.header["MISSION"] = mission
+    primary_hdu.header["TARGET"] = target
+    primary_hdu.header["RUN_ID"] = run_id
     primary_hdu.header["NPL"] = npl
 
     # samples HDU
@@ -200,8 +203,8 @@ def dynesty_results_to_fits(results, context):
     # add transit times to HDU List
     for n in range(npl):
         ttimes_file = os.path.join(
-            context.results_dir,
-            f"{context.target}_{str(n).zfill(2)}_quick.ttvs",
+            results_dir,
+            f"{target}_{str(n).zfill(2)}_quick.ttvs",
         )
         ttimes_keys = "INDEX TTIME MODEL OUT_PROB OUT_FLAG".split()
         ttimes_data = np.loadtxt(ttimes_file)

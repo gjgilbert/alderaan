@@ -66,8 +66,6 @@ xfail_strict = true
 line-length = 88
 target-version = "py39"
 extend-exclude = ["legacy"]
-# .rcp recipes are Python source.
-extend-include = ["*.rcp"]
 
 [tool.ruff.lint]
 # E/W pycodestyle, F pyflakes, I import-sorting, B bugbear, UP pyupgrade,

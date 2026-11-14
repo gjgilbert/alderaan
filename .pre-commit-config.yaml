@@ -8,14 +8,14 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.17
     hooks:
-      # Ruff scope: the pipeline package (including .rcp recipes), its tests, and tools/.
+      # Ruff scope: the pipeline package, its tests, and tools/.
       - id: ruff-check
         args: [--fix]
         types_or: [file]
-        files: ^(alderaan|tests|tools)/.*\.(py|rcp)$
+        files: ^(alderaan|tests|tools)/.*\.py$
       - id: ruff-format
         types_or: [file]
-        files: ^(alderaan|tests|tools)/.*\.(py|rcp)$
+        files: ^(alderaan|tests|tools)/.*\.py$
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
