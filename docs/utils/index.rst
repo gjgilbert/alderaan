@@ -6,4 +6,5 @@ utils
 
    astro
    io
+   kepler
    plotting

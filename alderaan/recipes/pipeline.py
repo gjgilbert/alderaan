@@ -10,7 +10,6 @@ from astropy.units import UnitsWarning
 
 from alderaan.algorithms.detrend_visits import DetrendVisits
 from alderaan.algorithms.flag_bad_transits import FlagBadTransits
-from alderaan.algorithms.load_kepler_data import LoadKeplerData
 from alderaan.algorithms.regularize_omc import RegularizeOMC
 from alderaan.algorithms.transit_fitting import (
     QuickFitTransitShape,
@@ -18,6 +17,7 @@ from alderaan.algorithms.transit_fitting import (
     SampleTransitModel,
 )
 from alderaan.utils.io import copy_input_target_catalog
+from alderaan.utils.kepler import load_kepler_data
 
 
 def main(config):
@@ -74,7 +74,6 @@ def main(config):
     quicklook_dir = os.path.join(output_dir, "quicklook", run_id, target)
     os.makedirs(quicklook_dir, exist_ok=True)
 
-    config["PATHS"]["catalog_filepath"] = catalog_filepath
     config["PATHS"]["results_dir"] = results_dir
     config["PATHS"]["quicklook_dir"] = quicklook_dir
 
@@ -84,7 +83,7 @@ def main(config):
 
     # data i/o
     if mission == "Kepler":
-        star, planets, litecurve = LoadKeplerData(config).perform()
+        star, planets, litecurve = load_kepler_data(config)
     elif mission == "K2":
         raise NotImplementedError("K2 mission not yet implemented")
     elif mission == "TESS":
