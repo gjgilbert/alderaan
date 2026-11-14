@@ -198,7 +198,7 @@ def dynesty_results_to_fits(results, mission, target, run_id, results_dir):
     samples_hdu.header["EFF"] = results.eff
 
     # build HDU List
-    hduL = fits.HDUList([primary_hdu, samples_hdu])
+    hdul = fits.HDUList([primary_hdu, samples_hdu])
 
     # add transit times to HDU List
     for n in range(npl):
@@ -218,6 +218,6 @@ def dynesty_results_to_fits(results, mission, target, run_id, results_dir):
             name=f"TTIMES_{str(n).zfill(2)}",
         )
 
-        hduL.append(ttimes_hdu)
+        hdul.append(ttimes_hdu)
 
-    return hduL
+    return hdul

@@ -17,7 +17,7 @@ from celerite2.theano import terms as GPterms
 from scipy.signal import medfilt as median_filter
 from scipy.signal import savgol_filter
 
-from alderaan.constants import kepler_lcit, kepler_scit
+from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.shire import Shire
 from alderaan.modules.base import BaseAlg
@@ -62,9 +62,9 @@ class DetrendVisits(BaseAlg):
 
     def _min_period(self, obsmode):
         if obsmode == "short cadence":
-            return np.max([5 * np.max(self.durations), 91 * kepler_scit])
+            return np.max([5 * np.max(self.durations), 91 * KEPLER_SCIT])
         if obsmode == "long cadence":
-            return np.max([5 * np.max(self.durations), 13 * kepler_lcit])
+            return np.max([5 * np.max(self.durations), 13 * KEPLER_LCIT])
         raise ValueError(f"unsuported obsmode: {obsmode}")
 
     def _clip_outliers(self, lc, sigma_upper, sigma_lower, kernel_size, mask=None):
@@ -377,11 +377,11 @@ class DetrendVisits(BaseAlg):
 
         if obsmode == "short cadence":
             gap_tolerance = np.max(
-                [int(np.min(self.durations) / kepler_scit * 5 / 2), 91]
+                [int(np.min(self.durations) / KEPLER_SCIT * 5 / 2), 91]
             )
         elif obsmode == "long cadence":
             gap_tolerance = np.max(
-                [int(np.min(self.durations) / kepler_lcit * 5 / 2), 13]
+                [int(np.min(self.durations) / KEPLER_LCIT * 5 / 2), 13]
             )
         else:
             raise ValueError(f"unsuported obsmode: {obsmode}")

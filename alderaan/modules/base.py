@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import numpy as np
 
-from alderaan.constants import kepler_lcit, kepler_scit
+from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.planet import Planet
 
@@ -35,8 +35,8 @@ class BaseAlg:
         lc = self.litecurve
 
         self.exptime = {
-            "long cadence": kepler_lcit,
-            "short cadence": kepler_scit,
+            "long cadence": KEPLER_LCIT,
+            "short cadence": KEPLER_SCIT,
         }
 
         # observing mode at the cadence nearest each transit

@@ -272,7 +272,7 @@ class OMC:
 
         if npts >= 8:
             try:
-                xf, yf, freqs, faps = self.LS_estimator(
+                xf, yf, freqs, faps = self.ls_estimator(
                     self.xtime[q], self.yobs[q], fap=critical_fap
                 )
 
@@ -287,7 +287,7 @@ class OMC:
         return peakfreq, peakfap
 
     @staticmethod
-    def LS_estimator(x, y, fsamp=None, fap=0.1, return_levels=False, max_peaks=2):
+    def ls_estimator(x, y, fsamp=None, fap=0.1, return_levels=False, max_peaks=2):
         """
         Generate a Lomb-Scargle periodogram and identify significant frequencies
         * assumes that data are nearly evenly sampled

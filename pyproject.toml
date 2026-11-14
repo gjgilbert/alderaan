@@ -69,8 +69,9 @@ extend-exclude = ["legacy"]
 
 [tool.ruff.lint]
 # E/W pycodestyle, F pyflakes, I import-sorting, B bugbear, UP pyupgrade,
-# G logging-format, LOG logging.
-select = ["E", "F", "W", "I", "B", "UP", "G", "LOG"]
+# G logging-format, LOG logging, N pep8-naming (math notation allowed).
+select = ["E", "F", "W", "I", "B", "UP", "G", "LOG", "N"]
+ignore = ["N803", "N806", "N812"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["alderaan"]
