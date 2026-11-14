@@ -14,7 +14,6 @@ __all__ = [
 
 import os
 import warnings
-from copy import deepcopy
 
 import aesara_theano_fallback.tensor as T
 import matplotlib.pyplot as plt
@@ -31,6 +30,7 @@ from scipy.ndimage import median_filter, uniform_filter
 from scipy.signal import savgol_filter
 from sklearn.cluster import KMeans
 
+from alderaan.modules.base import BaseAlg
 from alderaan.utils.io import save_omc_ephemeris
 from alderaan.utils.plotting import plot_omc
 from alderaan.utils.stats import set_sigma_cutoff
@@ -475,30 +475,12 @@ def calculate_outlier_probability(yobs, ymod):
     return 1 - fg_prob, out
 
 
-class RegularizeOMC:
-    def __init__(
-        self,
-        shire,
-        target,
-        quicklook_dir,
-        method,
-        results_dir=None,
-        check_periodic=True,
-    ):
-        if method not in ("smooth", "select"):
-            raise ValueError(f"method must be 'smooth' or 'select', got {method!r}")
-        if method == "select" and results_dir is None:
-            raise ValueError("results_dir is required for method='select'")
-
-        self.shire = deepcopy(shire)
-        self.target = target
-        self.quicklook_dir = quicklook_dir
-        self.method = method
-        self.results_dir = results_dir
-        self.check_periodic = check_periodic
+class RegularizeOMC(BaseAlg):
+    def __init__(self, star, planets, litecurve, config):
+        super().__init__(star, planets, litecurve, config)
 
     def _identify_periodic_signals(self, xtime, yobs, quality):
-        planets = self.shire.planets
+        planets = self.planets
         npl = len(planets)
 
         print("searching for periodic signals")
@@ -576,7 +558,7 @@ class RegularizeOMC:
                 dofs[f"poly_{polyorder}"] = 1 + polyorder
 
         # Sinusoidal model
-        if self.check_periodic and npts >= 8 and freq is not None:
+        if npts >= 8 and freq is not None:
             print("\nsinusoid model")
             with warnings.catch_warnings(record=True) as catch:
                 warnings.simplefilter("always", category=RuntimeWarning)
@@ -590,10 +572,17 @@ class RegularizeOMC:
 
         return select_best_model(yobs, yerr, quality, traces, dofs)
 
-    def perform(self):
-        print(f"\n\nMODULE: REGULARIZE OMC ({self.method})\n")
+    def perform(self, method, check_periodic=True):
+        if method not in ("smooth", "select"):
+            raise ValueError(f"method must be 'smooth' or 'select', got {method!r}")
 
-        planets = self.shire.planets
+        print(f"\n\nMODULE: REGULARIZE OMC ({method})\n")
+
+        target = self.config["RUN"]["target"]
+        results_dir = self.config["PATHS"]["results_dir"]
+        quicklook_dir = self.config["PATHS"]["quicklook_dir"]
+
+        planets = self.planets
         npl = len(planets)
 
         xtime = [p.transit_times for p in planets]
@@ -606,7 +595,7 @@ class RegularizeOMC:
         out_prob = [None] * npl
         ttv_buffer = [None] * npl
 
-        if self.method == "select" and self.check_periodic:
+        if method == "select" and check_periodic:
             freq = self._identify_periodic_signals(xtime, yobs, quality)
         else:
             freq = [None] * npl
@@ -614,10 +603,10 @@ class RegularizeOMC:
         for n, p in enumerate(planets):
             old_period = p.period
 
-            if self.method == "smooth":
+            if method == "smooth":
                 ymod[n] = smooth(xtime[n], yobs[n], quality[n])
 
-            elif self.method == "select":
+            elif method == "select":
                 print(
                     f"\nperforming omc model selection for Planet {n} "
                     f"({np.sum(quality[n])} transits)"
@@ -636,9 +625,7 @@ class RegularizeOMC:
                 q = quality[n]
                 index = p.transit_index[q]
                 static_ephemeris = p.reference_epoch + p.reference_period * index
-                filename = os.path.join(
-                    self.results_dir, f"{self.target}_{n:02d}_quick.ttvs"
-                )
+                filename = os.path.join(results_dir, f"{target}_{n:02d}_quick.ttvs")
                 save_omc_ephemeris(
                     filename,
                     index,
@@ -653,16 +640,16 @@ class RegularizeOMC:
                 ymod[n],
                 yerr[n],
                 quality[n],
-                full=(self.method == "smooth"),
+                full=(method == "smooth"),
             )
             print(f"Planet {n} : {old_period:.6f} --> {p.period:.6f}")
 
             ttv_buffer[n] = set_sigma_cutoff(len(yobs[n])) * mad_std(yobs[n] - ymod[n])
 
-        if self.method == "smooth":
-            filename = f"{self.target}_omc_initial.png"
+        if method == "smooth":
+            filename = f"{target}_omc_initial.png"
         else:
-            filename = f"{self.target}_omc.png"
+            filename = f"{target}_omc.png"
 
         plot_omc(
             xtime,
@@ -672,9 +659,9 @@ class RegularizeOMC:
             quality,
             out_prob,
             period,
-            self.target,
-            os.path.join(self.quicklook_dir, filename),
+            target,
+            os.path.join(quicklook_dir, filename),
         )
         plt.close("all")
 
-        return self.shire, ttv_buffer
+        return self.star, self.planets, self.litecurve, ttv_buffer

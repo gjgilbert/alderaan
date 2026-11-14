@@ -1,13 +1,13 @@
 __all__ = ["QuickFitTransitTimes"]
 
 import os
-from copy import deepcopy
 
 import matplotlib.pyplot as plt
 import numpy as np
 from batman import _quadratic_ld, _rsky
 from scipy.optimize import least_squares
 
+from alderaan.modules.base import BaseAlg
 from alderaan.modules.transit import TransitModel
 from alderaan.utils.astro import bin_data, predict_tc_error
 from alderaan.utils.plotting import plot_quick_fit_ttvs
@@ -15,8 +15,8 @@ from alderaan.utils.stats import robust_polyfit
 
 
 class OptimizationTTVFitter(TransitModel):
-    def __init__(self, litecurve, planets, star):
-        super().__init__(litecurve, planets, star)
+    def __init__(self, star, planets, litecurve):
+        super().__init__(star, planets, litecurve)
 
     def optimize(self, planet_no, relative_window_size=3.0):
         lc = self.litecurve
@@ -146,8 +146,8 @@ class OptimizationTTVFitter(TransitModel):
 
 
 class CrossCorrelationTTVFitter(TransitModel):
-    def __init__(self, litecurve, planets, star):
-        super().__init__(litecurve, planets, star)
+    def __init__(self, star, planets, litecurve):
+        super().__init__(star, planets, litecurve)
 
     def _construct_template(self, planet_no, obsmode, transit_window_size):
         """
@@ -352,23 +352,24 @@ class CrossCorrelationTTVFitter(TransitModel):
         return ttime, ttime_err
 
 
-class QuickFitTransitTimes:
-    def __init__(self, shire, target, quicklook_dir):
-        self.shire = deepcopy(shire)
-        self.target = target
-        self.quicklook_dir = quicklook_dir
+class QuickFitTransitTimes(BaseAlg):
+    def __init__(self, star, planets, litecurve, config):
+        super().__init__(star, planets, litecurve, config)
 
     def perform(self):
         print("\n\nMODULE: QUICK FIT TRANSIT TIMES\n")
 
-        star = self.shire.star
-        planets = self.shire.planets
-        litecurve = self.shire.litecurve
+        target = self.config["RUN"]["target"]
+        quicklook_dir = self.config["PATHS"]["quicklook_dir"]
+
+        star = self.star
+        planets = self.planets
+        litecurve = self.litecurve
         npl = len(planets)
 
         # fit transit times using Mazeh+13 / Holczer+16 cross-correlation method
         print("\nApplying cross-correlation method")
-        ttvmodel = CrossCorrelationTTVFitter(litecurve, planets, star)
+        ttvmodel = CrossCorrelationTTVFitter(star, planets, litecurve)
         ttime_cc = [None] * npl
         error_cc = [None] * npl
 
@@ -376,7 +377,7 @@ class QuickFitTransitTimes:
             print(f"\nPlanet {n} : fitting {np.sum(p.transit_quality)} transit times")
 
             ttime_cc[n], error_cc[n] = ttvmodel.mazeh13_holczer16_method(
-                n, target=self.target, quicklook_dir=self.quicklook_dir
+                n, target=target, quicklook_dir=quicklook_dir
             )
 
             assert len(ttime_cc[n]) == len(p.transit_times)
@@ -399,7 +400,7 @@ class QuickFitTransitTimes:
 
         # fit transit times using least squares optimization
         print("\nOptimizing independent transit times")
-        ttvmodel = OptimizationTTVFitter(litecurve, planets, star)
+        ttvmodel = OptimizationTTVFitter(star, planets, litecurve)
         ttime_opt = [None] * npl
 
         for n in range(npl):
@@ -430,4 +431,4 @@ class QuickFitTransitTimes:
 
         plt.close("all")
 
-        return self.shire
+        return self.star, self.planets, self.litecurve

@@ -1,30 +1,28 @@
 __all__ = ["ResetLitecurves"]
 
-from copy import deepcopy
-
 import numpy as np
 from astropy.stats import mad_std, sigma_clip
 
 from alderaan.data_models.litecurve import LiteCurve
+from alderaan.modules.base import BaseAlg
 from alderaan.modules.transit import RBDTransitModel
 from alderaan.utils.stats import set_sigma_cutoff
 
 
-class ResetLitecurves:
-    def __init__(self, shire, litecurve_raw):
-        self.shire = deepcopy(shire)
-        self.litecurve_raw = deepcopy(litecurve_raw)
+class ResetLitecurves(BaseAlg):
+    def __init__(self, star, planets, litecurve, config):
+        super().__init__(star, planets, litecurve, config)
 
-    def perform(self):
+    def perform(self, litecurve_raw):
         print("\n\nMODULE: RESET LITECURVES\n")
 
-        star = self.shire.star
-        planets = self.shire.planets
-        litecurves = self.shire.litecurve.split_visits()
+        star = self.star
+        planets = self.planets
+        litecurves = self.litecurve.split_visits()
 
         # clip outliers based on transit model
         for lc in litecurves:
-            tm = RBDTransitModel(lc, planets, star)
+            tm = RBDTransitModel(star, planets, lc)
 
             theta = tm._theta_initial()
             f_mod = tm.model_flux(theta, tm)
@@ -46,14 +44,12 @@ class ResetLitecurves:
 
         # reset litecurves to raw data w/ outliers removed
         litecurve = LiteCurve().from_list(litecurves)
-        keep = np.isin(self.litecurve_raw.cadno, litecurve.cadno)
+        keep = np.isin(litecurve_raw.cadno, litecurve.cadno)
 
-        for k, v in self.litecurve_raw.__dict__.items():
+        for k, v in litecurve_raw.__dict__.items():
             if type(v) is np.ndarray:
                 litecurve.__setattr__(k, v[keep])
 
         litecurve.quality = np.ones(len(litecurve.time), dtype=bool)
 
-        self.shire.litecurve = litecurve
-
-        return self.shire
+        return self.star, self.planets, litecurve

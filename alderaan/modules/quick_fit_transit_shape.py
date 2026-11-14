@@ -1,20 +1,17 @@
 __all__ = ["QuickFitTransitShape"]
 
-from copy import deepcopy
-
+from alderaan.modules.base import BaseAlg
 from alderaan.modules.transit import RBDTransitModel
 
 
-class QuickFitTransitShape:
-    def __init__(self, shire):
-        self.shire = deepcopy(shire)
+class QuickFitTransitShape(BaseAlg):
+    def __init__(self, star, planets, litecurve, config):
+        super().__init__(star, planets, litecurve, config)
 
     def perform(self):
         print("\n\nMODULE: QUICK FIT TRANSIT SHAPE\n")
 
-        transitmodel = RBDTransitModel(
-            self.shire.litecurve, self.shire.planets, self.shire.star
-        )
+        transitmodel = RBDTransitModel(self.star, self.planets, self.litecurve)
         transitmodel = transitmodel.trim_flux_arrays(rel_size=3.0, abs_size=1 / 24)
 
         print("Supersample factor")
@@ -23,7 +20,7 @@ class QuickFitTransitShape:
 
         print("\nFitting initial transit model")
         theta = transitmodel.optimize()
-        self.shire.planets = transitmodel.update_planet_parameters(theta)
-        self.shire.star = transitmodel.update_star_parameters(theta)
+        self.planets = transitmodel.update_planet_parameters(theta)
+        self.star = transitmodel.update_star_parameters(theta)
 
-        return self.shire
+        return self.star, self.planets, self.litecurve

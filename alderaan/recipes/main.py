@@ -13,7 +13,6 @@ from timeit import default_timer as timer
 from aesara_theano_fallback import aesara as theano
 from astropy.units import UnitsWarning
 
-from alderaan.data_models.shire import Shire
 from alderaan.modules.detrend_visits import DetrendVisits
 from alderaan.modules.flag_bad_transits import FlagBadTransits
 from alderaan.modules.load_kepler_data import LoadKeplerData
@@ -91,15 +90,19 @@ def main():
     quicklook_dir = os.path.join(outputs_dir, "quicklook", run_id, target)
     os.makedirs(quicklook_dir, exist_ok=True)
 
+    config["RUN"]["mission"] = mission
+    config["RUN"]["target"] = target
+    config["PATHS"]["catalog_filepath"] = catalog_filepath
+    config["PATHS"]["results_dir"] = results_dir
+    config["PATHS"]["quicklook_dir"] = quicklook_dir
+
     copy_input_target_catalog(
         catalog_filepath, os.path.join(outputs_dir, "results", run_id, f"{run_id}.csv")
     )
 
     # data i/o
     if mission == "Kepler":
-        star, planets, litecurve_raw = LoadKeplerData(
-            target, catalog_filepath, catalog_dir, data_dir, quicklook_dir
-        ).perform()
+        star, planets, litecurve_raw = LoadKeplerData(config).perform()
     elif mission == "K2":
         raise NotImplementedError("K2 mission not yet implemented")
     elif mission == "TESS":
@@ -107,40 +110,38 @@ def main():
     else:
         raise ValueError(f"Unsupported mission : {mission}")
 
-    shire = Shire(star, planets, litecurve_raw)
-    shire, _ = RegularizeOMC(shire, target, quicklook_dir, method="smooth").perform()
+    star, planets, litecurve, _ = RegularizeOMC(
+        star, planets, litecurve_raw, config
+    ).perform(method="smooth")
 
     # 1st pass
-    shire = DetrendVisits(
-        shire,
-        target,
-        results_dir,
-        quicklook_dir,
-        tight_mask=False,
-        clip_outliers=True,
+    star, planets, litecurve = DetrendVisits(star, planets, litecurve, config).perform(
+        tight_mask=False, clip_outliers=True
+    )
+    star, planets, litecurve = FlagBadTransits(
+        star, planets, litecurve, config
     ).perform()
-    shire = FlagBadTransits(shire).perform()
-    shire = QuickFitTransitShape(shire).perform()
-    shire = QuickFitTransitTimes(shire, target, quicklook_dir).perform()
-    shire, ttv_buffer = RegularizeOMC(
-        shire, target, quicklook_dir, method="select", results_dir=results_dir
+    star, planets, litecurve = QuickFitTransitShape(
+        star, planets, litecurve, config
     ).perform()
-    shire = ResetLitecurves(shire, litecurve_raw).perform()
+    star, planets, litecurve = QuickFitTransitTimes(
+        star, planets, litecurve, config
+    ).perform()
+    star, planets, litecurve, ttv_buffer = RegularizeOMC(
+        star, planets, litecurve, config
+    ).perform(method="select")
+    star, planets, litecurve = ResetLitecurves(
+        star, planets, litecurve, config
+    ).perform(litecurve_raw)
 
     # 2nd pass
-    shire = DetrendVisits(
-        shire,
-        target,
-        results_dir,
-        quicklook_dir,
-        tight_mask=True,
-        clip_outliers=False,
-        ttv_buffer=ttv_buffer,
+    star, planets, litecurve = DetrendVisits(star, planets, litecurve, config).perform(
+        tight_mask=True, clip_outliers=False, ttv_buffer=ttv_buffer
+    )
+    star, planets, litecurve = FlagBadTransits(
+        star, planets, litecurve, config
     ).perform()
-    shire = FlagBadTransits(shire).perform()
-    SampleTransitModel(
-        shire, mission, target, run_id, results_dir, quicklook_dir
-    ).perform()
+    SampleTransitModel(star, planets, litecurve, config).perform()
 
     print(f"\ncumulative runtime = {((timer() - pipeline_start_time) / 60):.1f} min")
     print("\n\n=== exiting main pipeline ===\n\n")

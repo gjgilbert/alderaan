@@ -1,19 +1,16 @@
 __all__ = ["FlagBadTransits"]
 
 import warnings
-from copy import deepcopy
 
 import numpy as np
 from astropy.stats import mad_std
 
-from alderaan.data_models.shire import Shire
 from alderaan.modules.base import BaseAlg
 
 
 class FlagBadTransits(BaseAlg):
-    def __init__(self, shire):
-        super().__init__(shire.litecurve, shire.planets)
-        self.star = deepcopy(shire.star)
+    def __init__(self, star, planets, litecurve, config):
+        super().__init__(star, planets, litecurve, config)
 
     def _check_coverage(self):
         """
@@ -129,4 +126,4 @@ class FlagBadTransits(BaseAlg):
             p.transit_quality = coverage[n] & good_rms[n]
             planets[n] = p.remove_poor_quality_transits()
 
-        return Shire(self.star, planets, self.litecurve)
+        return self.star, planets, self.litecurve

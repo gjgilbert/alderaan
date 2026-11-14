@@ -7,7 +7,6 @@ __all__ = [
 import io
 import sys
 import time
-from copy import deepcopy
 
 import dynesty
 import numpy as np
@@ -25,10 +24,9 @@ class TransitModel(BaseAlg):
     Base transit model class, used for inheritance but not called directly
     """
 
-    def __init__(self, litecurve, planets, star):
-        super().__init__(litecurve, planets)
+    def __init__(self, star, planets, litecurve):
+        super().__init__(star, planets, litecurve, config=None)
 
-        self.star = deepcopy(star)
         self._init_supersampling()
         self._set_cadence_masks()
         self._init_time_warping()
@@ -198,8 +196,8 @@ class RBDTransitModel(TransitModel):
         sample : samples from the posterior using dynamic nested sampling
     """
 
-    def __init__(self, litecurve, planets, star):
-        super().__init__(litecurve, planets, star)
+    def __init__(self, star, planets, litecurve):
+        super().__init__(star, planets, litecurve)
 
     @staticmethod
     def model_flux(theta, transitmodel):
@@ -473,8 +471,8 @@ class TTVTransitModel(TransitModel):
         sample : samples from the posterior using dynamic nested sampling
     """
 
-    def __init__(self, litecurve, planets, star):
-        super().__init__(litecurve, planets, star)
+    def __init__(self, star, planets, litecurve):
+        super().__init__(star, planets, litecurve)
 
         self.num_transits = self._count_transits()
 

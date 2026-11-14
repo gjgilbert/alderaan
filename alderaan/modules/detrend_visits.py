@@ -2,7 +2,6 @@ __all__ = ["DetrendVisits"]
 
 import os
 import warnings
-from copy import deepcopy
 
 import aesara_theano_fallback.tensor as T
 import matplotlib.pyplot as plt
@@ -19,38 +18,21 @@ from scipy.signal import savgol_filter
 
 from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.data_models.litecurve import LiteCurve
-from alderaan.data_models.shire import Shire
 from alderaan.modules.base import BaseAlg
 from alderaan.utils.plotting import plot_litecurve
 
 
 class DetrendVisits(BaseAlg):
-    def __init__(
-        self,
-        shire,
-        target,
-        results_dir,
-        quicklook_dir,
-        tight_mask,
-        clip_outliers,
-        ttv_buffer=None,
-    ):
-        super().__init__(shire.litecurve, shire.planets)
-        self.star = deepcopy(shire.star)
-        self.target = target
-        self.results_dir = results_dir
-        self.quicklook_dir = quicklook_dir
-        self.tight_mask = tight_mask
-        self.clip_outliers = clip_outliers
-        self.ttv_buffer = ttv_buffer
+    def __init__(self, star, planets, litecurve, config):
+        super().__init__(star, planets, litecurve, config)
 
         self.durations = np.array([p.duration for p in self.planets])
 
-    def _transit_mask(self, lc):
+    def _transit_mask(self, lc, tight_mask, ttv_buffer):
         exptime = self.exptime[lc.obsmode[0]]
 
-        if self.tight_mask:
-            abs_size = 2 * (exptime + np.max(self.ttv_buffer))
+        if tight_mask:
+            abs_size = 2 * (exptime + np.max(ttv_buffer))
             return self.make_transit_mask(
                 rel_size=1.0, abs_size=abs_size, mask_type="condensed", time=lc.time
             )
@@ -214,7 +196,8 @@ class DetrendVisits(BaseAlg):
 
         print("\nSaving stellar oscillation periods...\n")
         filename = os.path.join(
-            self.results_dir, f"{self.target}_stellar_oscillations.txt"
+            self.config["PATHS"]["results_dir"],
+            f"{self.config['RUN']['target']}_stellar_oscillations.txt",
         )
         oscillation_period_by_quarter = np.ones(18) * np.nan
         quarter_indexes = [lc.visit[0] - 1 for lc in litecurves]
@@ -372,7 +355,7 @@ class DetrendVisits(BaseAlg):
 
         return lc
 
-    def _detrend(self, lc, oscillation_periods):
+    def _detrend(self, lc, oscillation_periods, tight_mask, ttv_buffer):
         obsmode = lc.obsmode[0]
 
         if obsmode == "short cadence":
@@ -387,7 +370,7 @@ class DetrendVisits(BaseAlg):
             raise ValueError(f"unsuported obsmode: {obsmode}")
 
         min_period = self._min_period(obsmode)
-        mask = self._transit_mask(lc)
+        mask = self._transit_mask(lc, tight_mask, ttv_buffer)
 
         # use successively simpler models as fallbacks
         try:
@@ -437,12 +420,16 @@ class DetrendVisits(BaseAlg):
             correct_ramp=False,
         )
 
-    def perform(self):
+    def perform(self, tight_mask, clip_outliers, ttv_buffer=None):
         print("\n\nMODULE: DETREND VISITS\n")
+
+        target = self.config["RUN"]["target"]
+        results_dir = self.config["PATHS"]["results_dir"]
+        quicklook_dir = self.config["PATHS"]["quicklook_dir"]
 
         litecurves = self.litecurve.split_visits()
 
-        if self.clip_outliers:
+        if clip_outliers:
             for j, lc in enumerate(litecurves):
                 npts_initial = len(lc.time)
 
@@ -451,7 +438,7 @@ class DetrendVisits(BaseAlg):
                     sigma_upper=5,
                     sigma_lower=5,
                     kernel_size=13,
-                    mask=self._transit_mask(lc),
+                    mask=self._transit_mask(lc, tight_mask, ttv_buffer),
                 )
                 lc = self._clip_outliers(
                     lc, sigma_upper=5, sigma_lower=1000, kernel_size=13
@@ -467,27 +454,23 @@ class DetrendVisits(BaseAlg):
 
         for j, lc in enumerate(litecurves):
             print(f"\nDetrending {j + 1} of {len(litecurves)} litecurves", flush=True)
-            litecurves[j] = self._detrend(lc, oscillation_periods)
+            litecurves[j] = self._detrend(
+                lc, oscillation_periods, tight_mask, ttv_buffer
+            )
 
         litecurve = LiteCurve().from_list(litecurves)
 
-        filepath = os.path.join(
-            self.quicklook_dir, f"{self.target}_litecurve_detrended.png"
-        )
-        plot_litecurve(litecurve, self.target, self.planets, filepath)
+        filepath = os.path.join(quicklook_dir, f"{target}_litecurve_detrended.png")
+        plot_litecurve(litecurve, target, self.planets, filepath)
         plt.close("all")
 
         # output cadence follows the last visit
         obsmode = litecurves[-1].obsmode[0]
         if obsmode == "long cadence":
-            filename = os.path.join(
-                self.results_dir, f"{self.target}_lc_detrended.fits"
-            )
-            litecurve.to_fits(self.target, filename, cadence="LONG")
+            filename = os.path.join(results_dir, f"{target}_lc_detrended.fits")
+            litecurve.to_fits(target, filename, cadence="LONG")
         elif obsmode == "short cadence":
-            filename = os.path.join(
-                self.results_dir, f"{self.target}_sc_detrended.fits"
-            )
-            litecurve.to_fits(self.target, filename, cadence="SHORT")
+            filename = os.path.join(results_dir, f"{target}_sc_detrended.fits")
+            litecurve.to_fits(target, filename, cadence="SHORT")
 
-        return Shire(self.star, self.planets, litecurve)
+        return self.star, self.planets, litecurve

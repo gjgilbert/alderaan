@@ -7,14 +7,15 @@ import numpy as np
 from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.planet import Planet
+from alderaan.data_models.star import Star
 
 
 class BaseAlg:
     """
-    Base Algorithm class for modules which work on a litecurve + planets
+    Base Algorithm class for modules which work on a litecurve + planets + star
     """
 
-    def __init__(self, litecurve, planets):
+    def __init__(self, star, planets, litecurve, config):
         # check inputs
         if not isinstance(litecurve, LiteCurve):
             raise TypeError("litecurve must be a LiteCurve")
@@ -23,11 +24,15 @@ class BaseAlg:
         for p in planets:
             if not isinstance(p, Planet):
                 raise TypeError("planets must be a list of Planets")
+        if not isinstance(star, Star):
+            raise TypeError("star must be a Star")
 
         # set attributes
         self.litecurve = deepcopy(litecurve)
         self.npl = len(planets)
         self.planets = deepcopy(planets)
+        self.star = deepcopy(star)
+        self.config = config
 
         self._init_obsmode_tracking()
 

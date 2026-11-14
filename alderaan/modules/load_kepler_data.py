@@ -14,18 +14,20 @@ from alderaan.utils.stats import robust_polyfit
 
 
 class LoadKeplerData:
-    def __init__(self, target, catalog_filepath, catalog_dir, data_dir, quicklook_dir):
-        self.target = target
-        self.catalog_filepath = catalog_filepath
-        self.catalog_dir = catalog_dir
-        self.data_dir = data_dir
-        self.quicklook_dir = quicklook_dir
+    def __init__(self, config):
+        self.config = config
 
     def perform(self):
         print("\n\nMODULE: LOAD KEPLER DATA\n")
 
+        target = self.config["RUN"]["target"]
+        catalog_filepath = self.config["PATHS"]["catalog_filepath"]
+        catalog_dir = self.config["PATHS"]["catalog_dir"]
+        data_dir = self.config["PATHS"]["data_dir"]
+        quicklook_dir = self.config["PATHS"]["quicklook_dir"]
+
         # load KOI catalog
-        catalog = parse_koi_catalog(self.catalog_filepath, self.target)
+        catalog = parse_koi_catalog(catalog_filepath, target)
 
         assert np.all(np.diff(catalog.period) > 0), (
             "Planets should be ordered by ascending period"
@@ -41,7 +43,7 @@ class LoadKeplerData:
 
         # load lightcurves
         litecurve = LiteCurve().from_kplr_pdcsap(
-            self.data_dir, star.kic_id, "long cadence", visits=[1, 2, 3]
+            data_dir, star.kic_id, "long cadence", visits=[1, 2, 3]
         )
 
         t_min = litecurve.time.min()
@@ -56,7 +58,7 @@ class LoadKeplerData:
             assert len(np.unique(lc.visit)) == 1, "expected one quarter per litecurve"
             assert len(np.unique(lc.obsmode)) == 1, "expected one obsmode per litecurve"
 
-        print(f"{len(litecurves)} litecurves loaded for {self.target}")
+        print(f"{len(litecurves)} litecurves loaded for {target}")
 
         # initialize planets
         planets = [None] * npl
@@ -71,11 +73,11 @@ class LoadKeplerData:
                 t_max,
             )
 
-        print(f"\n{npl} planets loaded for {self.target}")
+        print(f"\n{npl} planets loaded for {target}")
         print([np.round(p.period, 6) for p in planets])
 
         # load Holczer+2016 catalog
-        filepath = os.path.join(self.catalog_dir, "holczer_2016_kepler_ttvs.txt")
+        filepath = os.path.join(catalog_dir, "holczer_2016_kepler_ttvs.txt")
         holczer_ephemerides = parse_holczer16_catalog(filepath, star.koi_id, npl)
 
         print(f"\n{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
@@ -97,8 +99,8 @@ class LoadKeplerData:
         )
 
         # quicklook litecurve
-        filepath = os.path.join(self.quicklook_dir, f"{self.target}_litecurve_raw.png")
-        plot_litecurve(litecurve, self.target, planets, filepath)
+        filepath = os.path.join(quicklook_dir, f"{target}_litecurve_raw.png")
+        plot_litecurve(litecurve, target, planets, filepath)
         plt.close("all")
 
         # enforce (t_min, t_max) consistency on litecurve and planets
