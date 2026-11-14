@@ -9,6 +9,4 @@ algorithms
    regularize_omc
    detrend_visits
    flag_bad_transits
-   quick_fit_transit_shape
-   quick_fit_transit_times
-   sample_transit_model
+   transit_fitting/index

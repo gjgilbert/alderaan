@@ -17,11 +17,11 @@ from scipy.signal import medfilt as median_filter
 from scipy.signal import savgol_filter
 
 from alderaan.algorithms.base import BaseAlg
+from alderaan.algorithms.transit_fitting import BaseTransitFittingAlg
 from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.transit import TransitModel
 from alderaan.utils.plotting import plot_litecurve
-from alderaan.utils.rbd import theta_initial
 from alderaan.utils.stats import set_sigma_cutoff
 
 
@@ -136,7 +136,7 @@ class DetrendVisits(BaseAlg):
 
     def _transit_theta(self):
         """Transit model parameters using the shape from QuickFitTransitShape"""
-        theta = theta_initial(self.star, self.planets)
+        theta = BaseTransitFittingAlg._theta_initial(self.star, self.planets)
         for n, p in enumerate(self.planets):
             theta[5 * n + 2] = p.ror
             theta[5 * n + 3] = p.impact

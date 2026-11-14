@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from dynesty.utils import print_fn
 
-from alderaan.algorithms.base import BaseAlg
+from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
 from alderaan.data_models.transit import TransitModel
 from alderaan.utils.io import dynesty_results_to_fits
 from alderaan.utils.plotting import (
@@ -18,11 +18,10 @@ from alderaan.utils.plotting import (
     dynesty_runplot,
     dynesty_traceplot,
 )
-from alderaan.utils.rbd import ln_likelihood
 from alderaan.utils.stats import loguniform_ppf, norm_ppf, uniform_ppf
 
 
-class SampleTransitModel(BaseAlg):
+class SampleTransitModel(BaseTransitFittingAlg):
     """
     Sample transit shape posteriors and write results and quicklook plots
 
@@ -114,7 +113,7 @@ class SampleTransitModel(BaseAlg):
     def _sample(self, tm, checkpoint_file=None, checkpoint_every=60, progress_every=10):
         ndim = 5 * tm.npl + 2
         sampler = dynesty.DynamicNestedSampler(
-            ln_likelihood,
+            self._ln_likelihood,
             self._prior_transform,
             ndim,
             bound="multi",

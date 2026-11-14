@@ -3,13 +3,12 @@
 import numpy as np
 from scipy.optimize import least_squares
 
-from alderaan.algorithms.base import BaseAlg
+from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
 from alderaan.data_models.transit import TransitModel
 from alderaan.utils.astro import estimate_transit_depth
-from alderaan.utils.rbd import ln_likelihood, model_residuals, theta_initial
 
 
-class QuickFitTransitShape(BaseAlg):
+class QuickFitTransitShape(BaseTransitFittingAlg):
     """
     Fit radius ratio, impact parameter, duration, and limb darkening
 
@@ -44,13 +43,13 @@ class QuickFitTransitShape(BaseAlg):
         return np.array(bounds)
 
     def _optimize(self, tm, fix_limbdark=True, niter=3):
-        theta = theta_initial(self.star, self.planets)
+        theta = self._theta_initial(self.star, self.planets)
         bounds = self._theta_bounds()
 
         def _fxn(x, x0, fix, tm):
             _x = x0.copy()
             _x[~fix] = x
-            return model_residuals(_x, tm)
+            return self._model_residuals(_x, tm)
 
         i_fix = np.arange(len(theta), dtype=int)
         var_names = np.array("C0 C1 r b T14".split())
@@ -74,7 +73,7 @@ class QuickFitTransitShape(BaseAlg):
         for fix in [fix_r_b_T14, fix_C0_C1] * niter:
             print(f"optimizing logp for variables: [{', '.join(var_names[~fix[:5]])}]")
 
-            logp_initial = ln_likelihood(theta, tm).copy()
+            logp_initial = self._ln_likelihood(theta, tm).copy()
 
             result = least_squares(
                 _fxn,
@@ -85,7 +84,7 @@ class QuickFitTransitShape(BaseAlg):
             )
 
             theta[~fix] = result.x.copy()
-            logp_final = ln_likelihood(theta, tm).copy()
+            logp_final = self._ln_likelihood(theta, tm).copy()
 
             print(f"logp: {logp_initial} -> {logp_final}")
             print(f"message: {result['message']}")

@@ -15,6 +15,7 @@ class Planet:
         self.depth = depth
         self.duration = duration
         self.impact = impact
+        self.ror = None
 
         # initialize transit times from linear ephemeris
         self.transit_times = np.arange(self.epoch, t_max, self.period)

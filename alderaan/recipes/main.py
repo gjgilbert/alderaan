@@ -16,10 +16,12 @@ from astropy.units import UnitsWarning
 from alderaan.algorithms.detrend_visits import DetrendVisits
 from alderaan.algorithms.flag_bad_transits import FlagBadTransits
 from alderaan.algorithms.load_kepler_data import LoadKeplerData
-from alderaan.algorithms.quick_fit_transit_shape import QuickFitTransitShape
-from alderaan.algorithms.quick_fit_transit_times import QuickFitTransitTimes
 from alderaan.algorithms.regularize_omc import RegularizeOMC
-from alderaan.algorithms.sample_transit_model import SampleTransitModel
+from alderaan.algorithms.transit_fitting import (
+    QuickFitTransitShape,
+    QuickFitTransitTimes,
+    SampleTransitModel,
+)
 from alderaan.utils.io import copy_input_target_catalog, resolve_config_path
 
 BASE_PATH = Path(__file__).resolve().parents[2]
