@@ -18,7 +18,7 @@ class LoadKeplerData:
         self.config = config
 
     def perform(self):
-        print("\n\nMODULE: LOAD KEPLER DATA\n")
+        print("\n\nALGORITHM: LOAD KEPLER DATA\n")
 
         target = self.config["RUN"]["target"]
         catalog_filepath = self.config["PATHS"]["catalog_filepath"]

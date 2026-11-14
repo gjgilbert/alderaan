@@ -30,7 +30,7 @@ from scipy.ndimage import median_filter, uniform_filter
 from scipy.signal import savgol_filter
 from sklearn.cluster import KMeans
 
-from alderaan.modules.base import BaseAlg
+from alderaan.algorithms.base import BaseAlg
 from alderaan.utils.io import save_omc_ephemeris
 from alderaan.utils.plotting import plot_omc
 from alderaan.utils.stats import set_sigma_cutoff
@@ -576,7 +576,7 @@ class RegularizeOMC(BaseAlg):
         if method not in ("smooth", "select"):
             raise ValueError(f"method must be 'smooth' or 'select', got {method!r}")
 
-        print(f"\n\nMODULE: REGULARIZE OMC ({method})\n")
+        print(f"\n\nALGORITHM: REGULARIZE OMC ({method})\n")
 
         target = self.config["RUN"]["target"]
         results_dir = self.config["PATHS"]["results_dir"]

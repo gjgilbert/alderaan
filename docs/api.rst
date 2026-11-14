@@ -5,7 +5,7 @@ API Documentation
    :maxdepth: 1
    :caption: Detailed API
 
-   modules/index
+   algorithms/index
    utils/index
    ephemeris
    litecurve

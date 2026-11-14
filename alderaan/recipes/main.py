@@ -13,14 +13,14 @@ from timeit import default_timer as timer
 from aesara_theano_fallback import aesara as theano
 from astropy.units import UnitsWarning
 
-from alderaan.modules.detrend_visits import DetrendVisits
-from alderaan.modules.flag_bad_transits import FlagBadTransits
-from alderaan.modules.load_kepler_data import LoadKeplerData
-from alderaan.modules.quick_fit_transit_shape import QuickFitTransitShape
-from alderaan.modules.quick_fit_transit_times import QuickFitTransitTimes
-from alderaan.modules.regularize_omc import RegularizeOMC
-from alderaan.modules.reset_litecurves import ResetLitecurves
-from alderaan.modules.sample_transit_model import SampleTransitModel
+from alderaan.algorithms.detrend_visits import DetrendVisits
+from alderaan.algorithms.flag_bad_transits import FlagBadTransits
+from alderaan.algorithms.load_kepler_data import LoadKeplerData
+from alderaan.algorithms.quick_fit_transit_shape import QuickFitTransitShape
+from alderaan.algorithms.quick_fit_transit_times import QuickFitTransitTimes
+from alderaan.algorithms.regularize_omc import RegularizeOMC
+from alderaan.algorithms.reset_litecurves import ResetLitecurves
+from alderaan.algorithms.sample_transit_model import SampleTransitModel
 from alderaan.utils.io import copy_input_target_catalog, resolve_config_path
 
 BASE_PATH = Path(__file__).resolve().parents[2]

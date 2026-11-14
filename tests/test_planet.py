@@ -4,8 +4,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from alderaan.algorithms.regularize_omc import flag_outliers, smooth
 from alderaan.data_models.planet import Planet
-from alderaan.modules.regularize_omc import flag_outliers, smooth
 from alderaan.utils.io import parse_holczer16_catalog, parse_koi_catalog
 from alderaan.utils.stats import robust_polyfit
 

@@ -16,9 +16,9 @@ from celerite2.theano import terms as GPterms
 from scipy.signal import medfilt as median_filter
 from scipy.signal import savgol_filter
 
+from alderaan.algorithms.base import BaseAlg
 from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.data_models.litecurve import LiteCurve
-from alderaan.modules.base import BaseAlg
 from alderaan.utils.plotting import plot_litecurve
 
 
@@ -421,7 +421,7 @@ class DetrendVisits(BaseAlg):
         )
 
     def perform(self, tight_mask, clip_outliers, ttv_buffer=None):
-        print("\n\nMODULE: DETREND VISITS\n")
+        print("\n\nALGORITHM: DETREND VISITS\n")
 
         target = self.config["RUN"]["target"]
         results_dir = self.config["PATHS"]["results_dir"]

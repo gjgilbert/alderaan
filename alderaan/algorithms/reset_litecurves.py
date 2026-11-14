@@ -3,9 +3,10 @@ __all__ = ["ResetLitecurves"]
 import numpy as np
 from astropy.stats import mad_std, sigma_clip
 
+from alderaan.algorithms.base import BaseAlg
 from alderaan.data_models.litecurve import LiteCurve
-from alderaan.modules.base import BaseAlg
-from alderaan.modules.transit import RBDTransitModel
+from alderaan.data_models.transit import TransitModel
+from alderaan.utils.rbd import theta_initial
 from alderaan.utils.stats import set_sigma_cutoff
 
 
@@ -14,7 +15,7 @@ class ResetLitecurves(BaseAlg):
         super().__init__(star, planets, litecurve, config)
 
     def perform(self, litecurve_raw):
-        print("\n\nMODULE: RESET LITECURVES\n")
+        print("\n\nALGORITHM: RESET LITECURVES\n")
 
         star = self.star
         planets = self.planets
@@ -22,10 +23,9 @@ class ResetLitecurves(BaseAlg):
 
         # clip outliers based on transit model
         for lc in litecurves:
-            tm = RBDTransitModel(star, planets, lc)
+            tm = TransitModel(star, planets, lc)
 
-            theta = tm._theta_initial()
-            f_mod = tm.model_flux(theta, tm)
+            f_mod = tm.model_flux(theta_initial(star, planets))
             sigma = set_sigma_cutoff(len(lc.flux), sigma_min=5.0)
 
             bad = sigma_clip(

@@ -8,6 +8,7 @@ from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.planet import Planet
 from alderaan.data_models.star import Star
+from alderaan.utils.astro import transit_obsmode
 
 
 class BaseAlg:
@@ -37,20 +38,14 @@ class BaseAlg:
         self._init_obsmode_tracking()
 
     def _init_obsmode_tracking(self):
-        lc = self.litecurve
-
         self.exptime = {
             "long cadence": KEPLER_LCIT,
             "short cadence": KEPLER_SCIT,
         }
 
-        # observing mode at the cadence nearest each transit
-        self.transit_obsmode = [None] * self.npl
-        for n, p in enumerate(self.planets):
-            nearest = [np.argmin(np.abs(lc.time - tc)) for tc in p.transit_times]
-            self.transit_obsmode[n] = np.array([lc.obsmode[i] for i in nearest])
-
-        self.unique_obsmodes = np.unique(np.hstack(self.transit_obsmode))
+        self.transit_obsmode, self.unique_obsmodes = transit_obsmode(
+            self.planets, self.litecurve
+        )
 
     def make_transit_mask(
         self, rel_size=None, abs_size=None, mask_type="standard", time=None

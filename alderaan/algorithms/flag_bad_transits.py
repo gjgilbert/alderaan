@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 from astropy.stats import mad_std
 
-from alderaan.modules.base import BaseAlg
+from alderaan.algorithms.base import BaseAlg
 
 
 class FlagBadTransits(BaseAlg):
@@ -91,7 +91,7 @@ class FlagBadTransits(BaseAlg):
         return quality
 
     def perform(self):
-        print("\n\nMODULE: FLAG BAD TRANSITS\n")
+        print("\n\nALGORITHM: FLAG BAD TRANSITS\n")
 
         planets = self.planets
 

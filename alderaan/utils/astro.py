@@ -2,10 +2,27 @@ __all__ = [
     "bin_data",
     "estimate_transit_depth",
     "predict_tc_error",
+    "transit_obsmode",
 ]
 
 
 import numpy as np
+
+
+def transit_obsmode(planets, litecurve):
+    """
+    Observing mode at the cadence nearest each transit
+
+    Returns:
+        transit_obsmode (list) : one array of obsmodes per planet
+        unique_obsmodes (ndarray) : unique obsmodes across all transits
+    """
+    obsmode = [None] * len(planets)
+    for n, p in enumerate(planets):
+        nearest = [np.argmin(np.abs(litecurve.time - tc)) for tc in p.transit_times]
+        obsmode[n] = np.array([litecurve.obsmode[i] for i in nearest])
+
+    return obsmode, np.unique(np.hstack(obsmode))
 
 
 def bin_data(time, data, binsize, bin_centers=None):
