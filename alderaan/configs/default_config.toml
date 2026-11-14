@@ -8,3 +8,6 @@ catalog_dir = "{base_path}/tests/catalogs"
 [CATALOGS]
 koi_catalog = "kepler_dr25_gaia_dr2_crossmatch.csv"
 ttv_catalog = "holczer_2016_kepler_ttvs.txt"
+
+[LOGGING]
+level = "INFO"

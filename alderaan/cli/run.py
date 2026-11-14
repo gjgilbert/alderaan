@@ -38,6 +38,11 @@ def build_parser():
         type=int,
         help="visits (Kepler quarters) to load (default: all)",
     )
+    parser.add_argument(
+        "--log_level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="console log level (file always logs DEBUG); overrides config",
+    )
     return parser
 
 
@@ -48,7 +53,11 @@ def build_config(args, parser):
 
     paths = {k: getattr(args, k) for k in PATH_KEYS if getattr(args, k) is not None}
 
-    config = load_config(args.config, overrides={"RUN": run, "PATHS": paths})
+    logging = {"level": args.log_level} if args.log_level is not None else {}
+
+    config = load_config(
+        args.config, overrides={"RUN": run, "PATHS": paths, "LOGGING": logging}
+    )
 
     for k in PATH_KEYS:
         if k not in config["PATHS"]:

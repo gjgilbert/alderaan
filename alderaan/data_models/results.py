@@ -1,5 +1,7 @@
 __all__ = ["Results"]
 
+import logging
+
 import dynesty
 import numpy as np
 import numpy.polynomial.polynomial as poly
@@ -7,6 +9,8 @@ import pandas as pd
 from astropy.io import fits
 
 from alderaan.utils.stats import weighted_percentile
+
+logger = logging.getLogger(__name__)
 
 TTIMES_COLUMNS = ["index", "ttime", "model", "out_prob", "out_flag"]
 
@@ -134,6 +138,7 @@ class Results:
         filepath : str
             path to {target}-results.fits
         """
+        logger.info("reading %s", filepath)
         with fits.open(filepath) as hdul:
             header = hdul[0].header
             npl = header["NPL"]
@@ -231,6 +236,7 @@ class Results:
 
     def to_fits(self, filepath):
         self.to_hdulist().writeto(filepath, overwrite=True)
+        logger.info("wrote %s", filepath)
 
     def weights(self):
         """

@@ -1,5 +1,6 @@
 __all__ = ["TransitModel"]
 
+import logging
 from copy import copy
 
 import numpy as np
@@ -7,6 +8,8 @@ from batman import _quadratic_ld, _rsky
 
 from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.utils.astro import transit_obsmode
+
+logger = logging.getLogger(__name__)
 
 
 class TransitModel:
@@ -70,6 +73,13 @@ class TransitModel:
             self.exptime_offsets[om] = np.linspace(
                 -exptime / 2, exptime / 2, self.supersample[om]
             )
+            logger.debug(
+                "supersample (%s) = %d (min tau12 = %.2f min, sigma = %.2e)",
+                om,
+                self.supersample[om],
+                np.min(tau12) * 1440,
+                sigma,
+            )
 
     def _set_cadence_masks(self):
         self.cadence_mask = {
@@ -81,6 +91,7 @@ class TransitModel:
         Keep only cadences where mask is True; supersampling is not recomputed
         """
         lc = self.litecurve
+        logger.debug("trimmed litecurve to %d of %d cadences", np.sum(mask), len(mask))
 
         for k in lc.__dict__.keys():
             if type(lc.__dict__[k]) is np.ndarray:

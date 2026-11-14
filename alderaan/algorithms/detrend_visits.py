@@ -1,7 +1,7 @@
 """Detrend each visit of a litecurve with a GP, masking transits"""
 
+import logging
 import os
-import warnings
 
 import aesara_theano_fallback.tensor as T
 import numpy as np
@@ -21,6 +21,8 @@ from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.models.transit_model import TransitModel
 from alderaan.utils.stats import set_sigma_cutoff
+
+logger = logging.getLogger(__name__)
 
 
 class DetrendVisits(BaseAlg):
@@ -99,6 +101,13 @@ class DetrendVisits(BaseAlg):
             # second pass: try savgol filter
             # if over 1% of points were flagged with median filter
             if np.sum(bad) / len(bad) > 0.01:
+                logger.debug(
+                    "visit %d: median filter flagged %d of %d cadences; "
+                    "retrying with savgol filter",
+                    lc.visit[0],
+                    np.sum(bad),
+                    len(bad),
+                )
                 smoothed = savgol_filter(
                     lc.flux, window_length=kernel_size, polyorder=2
                 )
@@ -112,6 +121,13 @@ class DetrendVisits(BaseAlg):
 
             # third pass: skip outlier rejection
             if np.sum(bad) / len(bad) > 0.01:
+                logger.warning(
+                    "visit %d: >1%% of cadences flagged by median and savgol filters "
+                    "(%d of %d); skipping outlier rejection this iteration",
+                    lc.visit[0],
+                    np.sum(bad),
+                    len(bad),
+                )
                 bad = np.zeros_like(mask)
 
             # set attributes
@@ -153,6 +169,9 @@ class DetrendVisits(BaseAlg):
 
         f_mod = tm.model_flux(theta)
         sigma = set_sigma_cutoff(len(lc.flux), sigma_min=5.0)
+        logger.debug(
+            "visit %d: transit-model clipping at %.1f sigma", lc.visit[0], sigma
+        )
 
         bad = sigma_clip(
             lc.flux - f_mod, sigma_upper=sigma, sigma_lower=sigma, stdfunc=mad_std
@@ -225,8 +244,13 @@ class DetrendVisits(BaseAlg):
     def _estimate_oscillation_periods(self, litecurves):
         oscillation_periods = np.zeros(len(litecurves))
         for j, lc in enumerate(litecurves):
-            oscillation_periods[j] = self._estimate_oscillation_period(
-                lc, self._min_period(lc.obsmode[0])
+            min_period = self._min_period(lc.obsmode[0])
+            oscillation_periods[j] = self._estimate_oscillation_period(lc, min_period)
+            logger.debug(
+                "visit %d: Lomb-Scargle oscillation period %.2f d (floor %.2f d)",
+                lc.visit[0],
+                oscillation_periods[j],
+                1.001 * min_period,
             )
 
         osc_per_mu = np.nanmedian(oscillation_periods)
@@ -234,12 +258,12 @@ class DetrendVisits(BaseAlg):
             [mad_std(oscillation_periods, ignore_nan=True), 0.1 * osc_per_mu]
         )
 
-        print(
-            f"\nNominal stellar oscillation period = "
-            f"{osc_per_mu:.1f} +/- {osc_per_sd:.1f} days"
+        logger.info(
+            "nominal stellar oscillation period = %.1f +/- %.1f days",
+            osc_per_mu,
+            osc_per_sd,
         )
 
-        print("\nSaving stellar oscillation periods...\n")
         filename = os.path.join(
             self.config["PATHS"]["results_dir"],
             f"{self.config['RUN']['target']}_stellar_oscillations.txt",
@@ -248,6 +272,7 @@ class DetrendVisits(BaseAlg):
         quarter_indexes = [lc.visit[0] - 1 for lc in litecurves]
         oscillation_period_by_quarter[quarter_indexes] = oscillation_periods
         np.savetxt(filename, np.stack([np.arange(18), oscillation_period_by_quarter]).T)
+        logger.debug("wrote %s", filename)
 
         return oscillation_periods
 
@@ -367,33 +392,46 @@ class DetrendVisits(BaseAlg):
             pm.Deterministic("pred", pred + mean_all)
 
         # optimize hyperparameters
+        def _optimize(start, vars):
+            return pmx.optimize(
+                start=start, vars=vars, progress=False, verbose=False, return_info=True
+            )
+
         with model:
-            map_soln = pmx.optimize(
-                start=model.test_point, vars=[flux0], progress=False
-            )
-            map_soln = pmx.optimize(
-                start=map_soln, vars=[flux0, log_var], progress=False
-            )
+            map_soln, info = _optimize(model.test_point, [flux0])
+            map_soln, info = _optimize(map_soln, [flux0, log_var])
 
             for _ in range(1 + correct_ramp):
                 if gp_term == "RotationTerm":
-                    map_soln = pmx.optimize(
-                        start=map_soln,
-                        vars=[log_var, flux0, sigma, P, log_Q0, log_dQ, mix],
-                        progress=False,
+                    map_soln, info = _optimize(
+                        map_soln, [log_var, flux0, sigma, P, log_Q0, log_dQ, mix]
                     )
                 if gp_term == "SHOTerm":
-                    map_soln = pmx.optimize(
-                        start=map_soln,
-                        vars=[log_var, flux0, sigma, P, log_Q0],
-                        progress=False,
+                    map_soln, info = _optimize(
+                        map_soln, [log_var, flux0, sigma, P, log_Q0]
                     )
                 if correct_ramp:
-                    map_soln = pmx.optimize(
-                        start=map_soln,
-                        vars=[log_var, flux0, ramp_amp, log_tau],
-                        progress=False,
+                    map_soln, info = _optimize(
+                        map_soln, [log_var, flux0, ramp_amp, log_tau]
                     )
+
+        # "precision loss" non-success is routine here; pmx warns on non-finite logp
+        if info is not None and not info.success:
+            logger.debug(
+                "visit %d: %s GP optimizer: %s", lc.visit[0], gp_term, info.message
+            )
+        logger.info(
+            "visit %d: %s GP, %d segments, ramp = %s, P = %.2f d (nominal %.2f d), "
+            "Q0 = %.2f, sigma = %.2e",
+            lc.visit[0],
+            gp_term,
+            n_seg,
+            correct_ramp,
+            map_soln["P"],
+            nominal_gp_period,
+            map_soln["Q0"],
+            map_soln["sigma"],
+        )
 
         lc.flux /= map_soln["pred"]
         lc.error /= map_soln["pred"]
@@ -416,6 +454,20 @@ class DetrendVisits(BaseAlg):
 
         min_period = self._min_period(obsmode)
         mask = self._transit_mask(lc, tight_mask, ttv_buffer)
+        logger.debug(
+            "visit %d: %s transit mask covers %d of %d cadences; gap tolerance = %d",
+            lc.visit[0],
+            "tight" if tight_mask else "wide",
+            np.sum(mask),
+            len(mask),
+            gap_tolerance,
+        )
+        if np.mean(mask) > 0.5:
+            logger.warning(
+                "visit %d: transit mask covers %.0f%% of cadences",
+                lc.visit[0],
+                100 * np.mean(mask),
+            )
 
         # use successively simpler models as fallbacks
         try:
@@ -429,11 +481,11 @@ class DetrendVisits(BaseAlg):
                 jump_tolerance=5.0,
                 correct_ramp=True,
             )
-        except LinAlgError:
-            warnings.warn(
-                "Initial detrending failed..."
-                "attempting to refit without exponential ramp component",
-                stacklevel=1,
+        except LinAlgError as e:
+            logger.warning(
+                "visit %d: RotationTerm GP with ramp failed (%s); refitting w/o ramp",
+                lc.visit[0],
+                e,
             )
 
         try:
@@ -447,11 +499,11 @@ class DetrendVisits(BaseAlg):
                 jump_tolerance=5.0,
                 correct_ramp=False,
             )
-        except LinAlgError:
-            warnings.warn(
-                "Detrending with RotationTerm failed..."
-                "attempting to detrend with SHOTerm",
-                stacklevel=1,
+        except LinAlgError as e:
+            logger.warning(
+                "visit %d: RotationTerm GP failed (%s); falling back to SHOTerm",
+                lc.visit[0],
+                e,
             )
 
         return self._detrend_gp(
@@ -487,8 +539,6 @@ class DetrendVisits(BaseAlg):
         litecurve : LiteCurve
             detrended litecurve; flux_raw and error_raw are retained
         """
-        print("\n\nALGORITHM: DETREND VISITS\n")
-
         target = self.config["RUN"]["target"]
         results_dir = self.config["PATHS"]["results_dir"]
 
@@ -497,6 +547,8 @@ class DetrendVisits(BaseAlg):
                 "clip_outliers must be 'local_trend' or 'transit_model', "
                 f"got {clip_outliers!r}"
             )
+        if tight_mask and ttv_buffer is None:
+            raise ValueError("tight_mask=True requires ttv_buffer (from RegularizeOMC)")
 
         litecurves = self.litecurve.split_visits()
 
@@ -522,15 +574,17 @@ class DetrendVisits(BaseAlg):
 
             litecurves[j] = lc.reset()
 
-            print(
-                f"  Quarter {lc.visit[0]} : "
-                f"{npts_initial - len(lc.time)} outliers rejected"
+            logger.info(
+                "visit %d: %d of %d cadences rejected as outliers (%s)",
+                lc.visit[0],
+                npts_initial - len(lc.time),
+                npts_initial,
+                clip_outliers,
             )
 
         oscillation_periods = self._estimate_oscillation_periods(litecurves)
 
         for j, lc in enumerate(litecurves):
-            print(f"\nDetrending {j + 1} of {len(litecurves)} litecurves", flush=True)
             litecurves[j] = self._detrend(
                 lc, oscillation_periods, tight_mask, ttv_buffer
             )

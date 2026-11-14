@@ -27,7 +27,11 @@ class BaseTransitFittingAlg(BaseAlg):
             num_planets * [C0, C1, rp, b, T14] + [q1, q2]
         """
         theta = []
-        for p in planets:
+        for n, p in enumerate(planets):
+            if not p.depth > 0:
+                raise ValueError(
+                    f"planet {n}: depth = {p.depth} must be positive to initialize ror"
+                )
             theta.append(0.0)
             theta.append(0.0)
             theta.append(np.sqrt(p.depth))

@@ -7,7 +7,9 @@ __all__ = [
     "load_kepler_data",
 ]
 
+import logging
 import os
+import time
 
 import numpy as np
 import pandas as pd
@@ -16,6 +18,8 @@ from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.planet import Planet
 from alderaan.data_models.star import Star
 from alderaan.utils.stats import robust_polyfit
+
+logger = logging.getLogger(__name__)
 
 
 def parse_koi_catalog(filepath, koi_id):
@@ -51,34 +55,36 @@ def parse_koi_catalog(filepath, koi_id):
 
     # check for consistency in multi-planet systems
     if not all(kic_id == catalog.kic_id.to_numpy()[0] for kic_id in catalog.kic_id):
-        raise ValueError("There are inconsistencies with KIC in the csv input file")
+        raise ValueError(f"{koi_id}: inconsistent kic_id across rows in {filepath}")
 
     if not all(npl == catalog.npl.to_numpy()[0] for npl in catalog.npl):
-        raise ValueError("There are inconsistencies with NPL in the csv input file")
+        raise ValueError(f"{koi_id}: inconsistent npl across rows in {filepath}")
 
     if catalog.npl[0] != len(catalog):
         raise ValueError(
-            f"{koi_id} has npl = {catalog.npl[0]} but {len(catalog)} catalog rows"
+            f"{koi_id}: npl = {catalog.npl[0]} but {len(catalog)} rows in {filepath}"
         )
 
     if not all(
         ld_u1 == catalog.limbdark_1.to_numpy()[0] for ld_u1 in catalog.limbdark_1
     ):
-        raise ValueError("There are inconsistencies with LD_U1 in the csv input file")
+        raise ValueError(f"{koi_id}: inconsistent limbdark_1 across rows in {filepath}")
 
     if not all(
         ld_u2 == catalog.limbdark_2.to_numpy()[0] for ld_u2 in catalog.limbdark_2
     ):
-        raise ValueError("There are inconsistencies with LD_U2 in the csv input file")
+        raise ValueError(f"{koi_id}: inconsistent limbdark_2 across rows in {filepath}")
 
     if np.any(np.diff(catalog.period) == 0):
-        raise ValueError(f"duplicate periods found for {koi_id} in the csv input file")
+        raise ValueError(f"{koi_id}: duplicate periods in {filepath}")
 
     # check for NaN valued transit parameters
-    if np.any(
-        np.isnan(np.array(catalog["period epoch depth duration impact".split()]))
-    ):
-        raise ValueError("NaN values found in input catalog")
+    params = catalog["period epoch depth duration impact".split()]
+    if params.isna().any().any():
+        raise ValueError(
+            f"{koi_id}: NaN values in columns "
+            f"{list(params.columns[params.isna().any()])} of {filepath}"
+        )
 
     # convert units
     catalog["depth"] = catalog["depth"] * 1e-6  # ppm --> fraction
@@ -169,12 +175,36 @@ def match_holczer16_transit_times(planets, transit_times):
             if k in used:
                 raise ValueError(f"Holczer+2016 table {k} matches multiple planets")
 
-            print(f"  Planet {n} : {p.period:.6f} --> {periods[k]:.6f}")
             index, ttime, error = transit_times[k]
-            planets[n] = p.set_transit_times(index, ttime, error)
+            logger.info(
+                "planet %d: matched Holczer+2016 table %d (%d transits; "
+                "P = %.6f d catalog, %.6f d fit)",
+                n,
+                k,
+                len(ttime),
+                p.period,
+                periods[k],
+            )
+            try:
+                planets[n] = p.set_transit_times(index, ttime, error)
+            except ValueError as e:
+                raise ValueError(f"planet {n}, Holczer+2016 table {k}: {e}") from e
             used.add(k)
+        else:
+            logger.info(
+                "planet %d: no Holczer+2016 match (P = %.6f d); "
+                "using KOI linear ephemeris",
+                n,
+                p.period,
+            )
 
-    print(f"{len(used)} of {len(planets)} planets matched to Holczer+2016 tables")
+    unused = sorted(set(range(len(transit_times))) - used)
+    if unused:
+        logger.warning(
+            "Holczer+2016 tables %s matched no KOI planet (P = %s d)",
+            unused,
+            ", ".join(f"{periods[k]:.6f}" for k in unused),
+        )
 
     return planets
 
@@ -196,10 +226,10 @@ def load_kepler_data(config):
     litecurve : LiteCurve
         raw litecurve, all visits concatenated
     """
-    print("\n\nLOAD KEPLER DATA\n")
-
+    t0 = time.perf_counter()
     target = config["RUN"]["target"]
     visits = config["RUN"].get("visits")
+    logger.info("start load_kepler_data(target=%r, visits=%r)", target, visits)
     input_dir = config["PATHS"]["input_dir"]
     catalog_dir = config["PATHS"]["catalog_dir"]
     koi_filepath = os.path.join(catalog_dir, config["CATALOGS"]["koi_catalog"])
@@ -207,6 +237,7 @@ def load_kepler_data(config):
 
     # load KOI catalog
     catalog = parse_koi_catalog(koi_filepath, target)
+    logger.debug("read KOI catalog %s", koi_filepath)
 
     npl = int(catalog.npl[0])
     star = Star(
@@ -233,7 +264,19 @@ def load_kepler_data(config):
         assert len(np.unique(lc.visit)) == 1, "expected one quarter per litecurve"
         assert len(np.unique(lc.obsmode)) == 1, "expected one obsmode per litecurve"
 
-    print(f"{len(per_visit)} litecurves loaded for {target}")
+    loaded = [int(lc.visit[0]) for lc in per_visit]
+    logger.info(
+        "loaded %d long cadence quarters (%s), %d cadences, t = %.1f to %.1f BKJD",
+        len(loaded),
+        ", ".join(str(v) for v in loaded),
+        len(litecurve.time),
+        t_min,
+        t_max,
+    )
+    if visits is not None:
+        missing = sorted(set(visits) - set(loaded))
+        if missing:
+            logger.warning("requested quarters %s not found in %s", missing, input_dir)
 
     # initialize planets
     planets = [None] * npl
@@ -248,22 +291,59 @@ def load_kepler_data(config):
             t_max,
         )
 
-    print(f"\n{npl} planets loaded for {target}")
-    print([np.round(p.period, 6) for p in planets])
+    logger.info(
+        "KOI %s / KIC %d: %d planets, limb darkening u1 = %.3f, u2 = %.3f",
+        star.koi_id,
+        star.kic_id,
+        npl,
+        star.u1,
+        star.u2,
+    )
+    for n, p in enumerate(planets):
+        logger.info(
+            "planet %d (KOI catalog): P = %.6f d, epoch = %.4f BKJD, "
+            "depth = %.0f ppm, T14 = %.2f hr, b = %.2f",
+            n,
+            p.period,
+            p.epoch,
+            p.depth * 1e6,
+            p.duration * 24,
+            p.impact,
+        )
 
     # load Holczer+2016 transit times
     holczer_transit_times = parse_holczer16_catalog(ttv_filepath, star.koi_id, npl)
 
-    print(f"\n{len(holczer_transit_times)} transit time tables found in Holczer+2016")
+    logger.info(
+        "%d transit time tables found in Holczer+2016 (%s)",
+        len(holczer_transit_times),
+        ttv_filepath,
+    )
 
     planets = match_holczer16_transit_times(planets, holczer_transit_times)
 
     # clip planet transit times to the litecurve time range and refit ephemerides
     for n, p in enumerate(planets):
+        n_before = len(p.transit_times)
         p.clip_range(t_min, t_max)
         p.set_reference_period_and_epoch()
         planets[n] = p.refit_period_and_epoch()
 
-        print(f"  Planet {n} : {len(p.transit_times)} transits")
+        logger.info(
+            "planet %d: %d of %d transits within litecurve span; "
+            "P = %.6f d, epoch = %.4f BKJD",
+            n,
+            len(planets[n].transit_times),
+            n_before,
+            planets[n].period,
+            planets[n].epoch,
+        )
+        if len(planets[n].transit_times) < 3:
+            logger.warning(
+                "planet %d: only %d transits within litecurve span",
+                n,
+                len(planets[n].transit_times),
+            )
 
+    logger.info("done load_kepler_data in %.1f s", time.perf_counter() - t0)
     return star, planets, litecurve

@@ -1,5 +1,6 @@
 """Regularize transit times by modeling observed-minus-calculated (OMC) residuals"""
 
+import logging
 import warnings
 
 import aesara_theano_fallback.tensor as T
@@ -19,6 +20,8 @@ from sklearn.cluster import KMeans
 
 from alderaan.algorithms.base import BaseAlg
 from alderaan.utils.stats import set_sigma_cutoff
+
+logger = logging.getLogger(__name__)
 
 
 class RegularizeOMC(BaseAlg):
@@ -231,7 +234,9 @@ class RegularizeOMC(BaseAlg):
     @staticmethod
     def _sample(model, progressbar=False):
         with model:
-            map_soln = pmx.optimize(start=model.test_point, progress=progressbar)
+            map_soln = pmx.optimize(
+                start=model.test_point, progress=progressbar, verbose=False
+            )
 
             trace = pmx.sample(
                 tune=8000,
@@ -272,7 +277,12 @@ class RegularizeOMC(BaseAlg):
                         peakfap = faps[0]
 
             except Exception:
-                pass
+                logger.warning(
+                    "Lomb-Scargle TTV search failed (%d transits); "
+                    "assuming no periodic signal",
+                    npts,
+                    exc_info=True,
+                )
 
         return peakfreq, peakfap
 
@@ -360,9 +370,7 @@ class RegularizeOMC(BaseAlg):
             return xf_out, yf_out, freqs, faps
 
     @staticmethod
-    def _select_best_model(
-        yobs, yerr, quality, traces, dofs, return_name=True, verbose=True
-    ):
+    def _select_best_model(yobs, yerr, quality, traces, dofs, return_name=True):
         """
         Args:
             traces (dict): PyMC3 MultiTraces, output from _sample()
@@ -385,6 +393,13 @@ class RegularizeOMC(BaseAlg):
 
             aic[k] = 2 * dofs[k] - 2 * lnlike
             bic[k] = dofs[k] * np.log(npts) - 2 * lnlike
+            logger.debug(
+                "%s OMC model: dof = %.1f, AIC = %.1f, BIC = %.1f",
+                k,
+                dofs[k],
+                aic[k],
+                bic[k],
+            )
 
         preferred_by_aic = min(aic, key=aic.get)
         preferred_by_bic = min(bic, key=bic.get)
@@ -392,9 +407,11 @@ class RegularizeOMC(BaseAlg):
         # Case 1: AIC and BIC match recommendation
         if preferred_by_aic == preferred_by_bic:
             best_omc_model_name = preferred_by_aic
+            reason = "AIC and BIC agree"
 
         # Case 2: Select parametric models over Matern-3/2 GP
         elif np.any(np.array([preferred_by_aic, preferred_by_bic]) == "matern32"):
+            reason = "parametric model preferred over matern32"
             if preferred_by_aic == "matern32":
                 best_omc_model_name = preferred_by_bic
             elif preferred_by_bic == "matern32":
@@ -402,16 +419,19 @@ class RegularizeOMC(BaseAlg):
 
         # Case 3: Select model with more degrees of freedom
         else:
+            reason = "more degrees of freedom"
             if dofs[preferred_by_aic] >= dofs[preferred_by_bic]:
                 best_omc_model_name = preferred_by_aic
             elif dofs[preferred_by_aic] < dofs[preferred_by_bic]:
                 best_omc_model_name = preferred_by_bic
 
-        if verbose:
-            print("\bselecting best model")
-            print(f"  AIC : {preferred_by_aic}")
-            print(f"  BIC : {preferred_by_bic}")
-            print(f"  returning: {best_omc_model_name}")
+        logger.debug(
+            "AIC prefers %s, BIC prefers %s; selecting %s (%s)",
+            preferred_by_aic,
+            preferred_by_bic,
+            best_omc_model_name,
+            reason,
+        )
 
         # calculate best model prediction and return
         ymod = np.nanmedian(traces[best_omc_model_name]["pred"], 0)
@@ -450,10 +470,11 @@ class RegularizeOMC(BaseAlg):
 
             pm.NormalMixture("obs", w, mu=mu * T.ones(2), tau=tau, observed=res)
 
-        with warnings.catch_warnings(record=True):
+        with warnings.catch_warnings(record=True) as catch:
             warnings.simplefilter("always", category=RuntimeWarning)
             with model:
                 trace = RegularizeOMC._sample(model)
+        logger.debug("%d RuntimeWarnings during mixture model sampling", len(catch))
 
         # calculate foreground/background probability
         loc = np.nanmedian(trace["mu"], axis=0)
@@ -474,12 +495,12 @@ class RegularizeOMC(BaseAlg):
 
         # reduce fg_prob threshold so that than 30% of points are flagged
         if np.sum(out) / len(out) > 0.3:
+            logger.warning(
+                "K-means flagged %.0f%% of transit times as outliers; "
+                "falling back to fg_prob percentile threshold",
+                100 * np.mean(out),
+            )
             out = fg_prob < np.percentile(fg_prob, 0.3)
-
-        print(
-            f"{np.sum(out)} of {len(out)} ({100 * np.sum(out) / len(out):.1f}%) "
-            "of transit times flagged as outliers"
-        )
 
         return 1 - fg_prob, out
 
@@ -487,7 +508,6 @@ class RegularizeOMC(BaseAlg):
         planets = self.planets
         npl = len(planets)
 
-        print("searching for periodic signals")
         if npl == 1:
             critical_fap = 0.1
         elif npl > 1:
@@ -522,17 +542,29 @@ class RegularizeOMC(BaseAlg):
             for i in range(npl):
                 if fap[i] is not None:
                     if not np.any(close[i]) and fap[i] > 0.1:
+                        # freq is None (fap = 1) when no candidate was found
+                        if freq[i] is not None:
+                            logger.info(
+                                "planet %d: candidate TTV period %.1f d "
+                                "(FAP = %.3g) rejected; no matching frequency "
+                                "in other planets",
+                                i,
+                                1 / freq[i],
+                                fap[i],
+                            )
                         freq[i] = None
                         fap[i] = None
 
         for n in range(npl):
             if freq[n] is not None:
-                print(
-                    f"  Planet {n} : periodic signal found at "
-                    f"P = {1 / freq[n]:.1f} days"
+                logger.info(
+                    "planet %d: periodic TTV signal at P = %.1f d (FAP = %.3g)",
+                    n,
+                    1 / freq[n],
+                    fap[n],
                 )
             else:
-                print(f"  Planet {n} : no significant periodic component found")
+                logger.info("planet %d: no significant periodic TTV signal", n)
 
         return freq
 
@@ -542,39 +574,53 @@ class RegularizeOMC(BaseAlg):
         traces = {}
         dofs = {}
 
-        # Matern-3/2 model | don't use GP on very noisy data
-        if (npts >= 8) & (np.median(yerr) <= 0.5 * mad_std(yobs)):
-            print("\nmatern-3/2 model")
+        def _sample_quietly(name, model):
+            logger.debug("sampling %s OMC model", name)
             with warnings.catch_warnings(record=True) as catch:
                 warnings.simplefilter("always", category=RuntimeWarning)
-                traces["matern32"] = self._sample(
-                    self._matern32_model(xtime, yobs, yerr, quality)
+                trace = self._sample(model)
+            if len(catch) > 0:
+                logger.debug(
+                    "%s OMC model: %d RuntimeWarnings during sampling (first: %s)",
+                    name,
+                    len(catch),
+                    catch[0].message,
                 )
-                dofs["matern32"] = np.nanmedian(traces["matern32"]["dof"])
+            return trace
+
+        # Matern-3/2 model | don't use GP on very noisy data
+        if (npts >= 8) & (np.median(yerr) <= 0.5 * mad_std(yobs)):
+            traces["matern32"] = _sample_quietly(
+                "matern32", self._matern32_model(xtime, yobs, yerr, quality)
+            )
+            dofs["matern32"] = np.nanmedian(traces["matern32"]["dof"])
+        else:
+            logger.info(
+                "skipping matern32 OMC model (%d transits; median error %.2e d "
+                "vs 0.5 * mad_std(OMC) = %.2e d)",
+                npts,
+                np.median(yerr),
+                0.5 * mad_std(yobs),
+            )
 
         # Polynomial model | require 2^N transits, at most do 3rd order
         max_polyorder = np.max([1, np.min([3, int(np.log2(npts)) - 1])])
         for polyorder in range(1, max_polyorder + 1):
-            print(f"\npolynomial (degree {polyorder}) model")
-            with warnings.catch_warnings(record=True) as catch:
-                warnings.simplefilter("always", category=RuntimeWarning)
-                traces[f"poly_{polyorder}"] = self._sample(
-                    self._poly_model(xtime, yobs, yerr, quality, polyorder)
-                )
-                dofs[f"poly_{polyorder}"] = 1 + polyorder
+            traces[f"poly_{polyorder}"] = _sample_quietly(
+                f"poly_{polyorder}",
+                self._poly_model(xtime, yobs, yerr, quality, polyorder),
+            )
+            dofs[f"poly_{polyorder}"] = 1 + polyorder
 
         # Sinusoidal model
         if npts >= 8 and freq is not None:
-            print("\nsinusoid model")
-            with warnings.catch_warnings(record=True) as catch:
-                warnings.simplefilter("always", category=RuntimeWarning)
-                traces["sinusoid"] = self._sample(
-                    self._sin_model(xtime, yobs, yerr, quality, ttv_period=1 / freq)
-                )
-                dofs["sinusoid"] = 3
+            traces["sinusoid"] = _sample_quietly(
+                "sinusoid",
+                self._sin_model(xtime, yobs, yerr, quality, ttv_period=1 / freq),
+            )
+            dofs["sinusoid"] = 3
 
-        if len(catch) > 0:
-            print(f"{len(catch)} RuntimeWarnings caught during sampling")
+        logger.info("OMC models sampled: %s", ", ".join(traces))
 
         return self._select_best_model(yobs, yerr, quality, traces, dofs)
 
@@ -602,8 +648,6 @@ class RegularizeOMC(BaseAlg):
         if method not in ("smooth", "select"):
             raise ValueError(f"method must be 'smooth' or 'select', got {method!r}")
 
-        print(f"\n\nALGORITHM: REGULARIZE OMC ({method})\n")
-
         planets = self.planets
         npl = len(planets)
 
@@ -624,26 +668,33 @@ class RegularizeOMC(BaseAlg):
         for n, p in enumerate(planets):
             old_period = p.period
 
+            logger.info(
+                "planet %d: %d of %d transit times pass initial outlier screen",
+                n,
+                np.sum(quality[n]),
+                len(quality[n]),
+            )
+
             if method == "smooth":
                 ymod[n] = self._smooth(xtime[n], yobs[n], quality[n])
                 out_prob = np.full(len(yobs[n]), np.nan)
                 out_class = np.zeros(len(yobs[n]), dtype=bool)
 
             elif method == "select":
-                print(
-                    f"\nperforming omc model selection for Planet {n} "
-                    f"({np.sum(quality[n])} transits)"
-                )
                 ymod[n], best_omc_model_name = self._select_model(
                     xtime[n], yobs[n], yerr[n], quality[n], freq[n]
                 )
-                print(
-                    f"\nPlanet {n} : adopting {best_omc_model_name} as omc model "
-                    "and flagging outliers"
-                )
-
                 out_prob, out_class = self._calculate_outlier_probability(
                     yobs[n], ymod[n]
+                )
+                logger.info(
+                    "planet %d: adopting %s OMC model; %d of %d (%.1f%%) transit "
+                    "times flagged as outliers",
+                    n,
+                    best_omc_model_name,
+                    np.sum(out_class),
+                    len(out_class),
+                    100 * np.mean(out_class),
                 )
 
             # transit times relative to the reference ephemeris
@@ -660,15 +711,23 @@ class RegularizeOMC(BaseAlg):
                 }
             )
 
-            planets[n] = p.update_ephemeris(
-                p.transit_index,
-                ymod[n],
-                yerr[n],
-                quality[n],
-                full=(method == "smooth"),
-            )
-            print(f"Planet {n} : {old_period:.6f} --> {p.period:.6f}")
-
+            try:
+                planets[n] = p.update_ephemeris(
+                    p.transit_index,
+                    ymod[n],
+                    yerr[n],
+                    quality[n],
+                    full=(method == "smooth"),
+                )
+            except ValueError as e:
+                raise ValueError(f"planet {n}, OMC method {method!r}: {e}") from e
             ttv_buffer[n] = set_sigma_cutoff(len(yobs[n])) * mad_std(yobs[n] - ymod[n])
+            logger.info(
+                "planet %d: P = %.6f -> %.6f d; ttv_buffer = %.1f min",
+                n,
+                old_period,
+                planets[n].period,
+                ttv_buffer[n] * 1440,
+            )
 
         return self.star, self.planets, self.litecurve, ttv_buffer, transit_times

@@ -6,3 +6,4 @@ utils
 
    astro
    kepler
+   logger

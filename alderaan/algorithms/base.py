@@ -1,5 +1,8 @@
 """Base class for algorithms that operate on a star, planets, and litecurve"""
 
+import functools
+import logging
+import time
 from copy import deepcopy
 
 import numpy as np
@@ -9,6 +12,25 @@ from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.planet import Planet
 from alderaan.data_models.star import Star
 from alderaan.utils.astro import transit_obsmode
+
+
+def _log_perform(perform, name, module):
+    logger = logging.getLogger(module)
+
+    @functools.wraps(perform)
+    def wrapper(self, *args, **kwargs):
+        params = [repr(a) for a in args] + [f"{k}={v!r}" for k, v in kwargs.items()]
+        logger.info("start %s(%s)", name, ", ".join(params))
+        t0 = time.perf_counter()
+        try:
+            out = perform(self, *args, **kwargs)
+        except Exception:
+            logger.error("%s failed after %.1f s", name, time.perf_counter() - t0)
+            raise
+        logger.info("done %s in %.1f s", name, time.perf_counter() - t0)
+        return out
+
+    return wrapper
 
 
 class BaseAlg:
@@ -22,7 +44,17 @@ class BaseAlg:
     litecurve : LiteCurve
     config : ConfigParser
         pipeline configuration, including RUN and PATHS values set by main
+
+    Notes
+    -----
+    Each subclass's perform() is wrapped to log its start (with keyword
+    arguments), runtime, and failure to the subclass module's logger.
     """
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if "perform" in cls.__dict__:
+            cls.perform = _log_perform(cls.perform, cls.__name__, cls.__module__)
 
     def __init__(self, star, planets, litecurve, config):
         # check inputs

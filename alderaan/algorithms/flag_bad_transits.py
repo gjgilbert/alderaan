@@ -1,11 +1,14 @@
 """Flag transits with poor photometric coverage or high noise"""
 
+import logging
 import warnings
 
 import numpy as np
 from astropy.stats import mad_std
 
 from alderaan.algorithms.base import BaseAlg
+
+logger = logging.getLogger(__name__)
 
 
 class FlagBadTransits(BaseAlg):
@@ -56,10 +59,13 @@ class FlagBadTransits(BaseAlg):
             f_quality = np.sum(quality[n]) / len(quality[n])
 
             if f_quality < 0.8:
-                warnings.warn(
-                    f"WARNING: {int((1 - f_quality) * 100)}% of transits for "
-                    f"Planet {n} have been flagged as low quality",
-                    stacklevel=2,
+                logger.warning(
+                    "planet %d: %d of %d transits (%.0f%%) have insufficient "
+                    "photometric coverage",
+                    n,
+                    np.sum(~quality[n]),
+                    len(quality[n]),
+                    (1 - f_quality) * 100,
                 )
 
         return quality
@@ -96,8 +102,25 @@ class FlagBadTransits(BaseAlg):
 
                 # too few transits to estimate the noise spread
                 if not rms_sd > 0:
+                    logger.warning(
+                        "planet %d (%s): rms spread undefined from %d transits; "
+                        "noise check skipped",
+                        n,
+                        om,
+                        np.sum(use),
+                    )
                     continue
 
+                logger.debug(
+                    "planet %d (%s): median in-window rms = %.2e, spread = %.2e, "
+                    "cut = %.1f sigma; %d overlapping transits exempt",
+                    n,
+                    om,
+                    rms_mu,
+                    rms_sd,
+                    sigma_cut,
+                    np.sum((obsmode[n] == om) & overlap[n]),
+                )
                 quality[n][use] &= np.abs(rms[use] - rms_mu) / rms_sd < sigma_cut
 
         return quality
@@ -110,8 +133,6 @@ class FlagBadTransits(BaseAlg):
         planets : list of Planet
         litecurve : LiteCurve
         """
-        print("\n\nALGORITHM: FLAG BAD TRANSITS\n")
-
         planets = self.planets
 
         # check for transits with poor photometric coverage
@@ -123,23 +144,18 @@ class FlagBadTransits(BaseAlg):
             good_rms = self._check_rms(rel_size=3.0, abs_size=2 / 24, sigma_cut=5.0)
 
         for n, p in enumerate(planets):
-            print(f"\n  Planet {n}:")
-
             assert len(coverage[n]) == len(p.transit_times)
             assert len(good_rms[n]) == len(p.transit_times)
 
             ntot = len(p.transit_times)
 
-            nbad = np.sum(~coverage[n])
-            print(
-                f"    {nbad} of {ntot} transits ({int(100 * nbad / max(ntot, 1))}%) "
-                "rejected for insufficient photometric coverage"
-            )
-
-            nbad = np.sum(~good_rms[n] & coverage[n])
-            print(
-                f"    {nbad} of {ntot} transits ({int(100 * nbad / max(ntot, 1))}%) "
-                "rejected for high photometric noise"
+            logger.info(
+                "planet %d: %d of %d transits rejected for insufficient coverage, "
+                "%d more for high photometric noise",
+                n,
+                np.sum(~coverage[n]),
+                ntot,
+                np.sum(~good_rms[n] & coverage[n]),
             )
 
             p.transit_quality = coverage[n] & good_rms[n]

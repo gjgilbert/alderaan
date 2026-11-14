@@ -1,16 +1,17 @@
 """Sample the transit model posterior with dynesty"""
 
-import io
-import sys
+import logging
 import time
 
 import dynesty
 import numpy as np
-from dynesty.utils import print_fn
+from dynesty.utils import get_print_fn_args, quantile
 
 from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
 from alderaan.models.transit_model import TransitModel
 from alderaan.utils.stats import loguniform_ppf, norm_ppf, uniform_ppf
+
+logger = logging.getLogger(__name__)
 
 
 class SampleTransitModel(BaseTransitFittingAlg):
@@ -81,29 +82,32 @@ class SampleTransitModel(BaseTransitFittingAlg):
         return x
 
     @staticmethod
-    def _throttled_print_fn(interval=10):
+    def _throttled_print_fn(interval=60):
         last = [0]
         start = time.time()
 
         def callback(results, niter, ncall, *args, **kwargs):
             now = time.time()
             if now - last[0] >= interval:
-                runtime = (now - start) / 60
-
-                buf = io.StringIO()
-                stdout = sys.stdout
-                sys.stdout = buf
-                print_fn(results, niter, ncall, *args, **kwargs)
-                sys.stdout = stdout
-
-                line = buf.getvalue().rstrip()
-                print(f"{line} | runtime: {runtime:.1f} min")
+                fn_args = get_print_fn_args(results, niter, ncall, *args, **kwargs)
+                logger.info(
+                    "iter: %d | %s | runtime: %.1f min",
+                    niter,
+                    " | ".join(fn_args.long_str),
+                    (now - start) / 60,
+                )
                 last[0] = now
 
         return callback
 
-    def _sample(self, tm, checkpoint_file=None, checkpoint_every=60, progress_every=10):
+    def _sample(self, tm, checkpoint_file=None, checkpoint_every=60, progress_every=60):
         ndim = 5 * tm.npl + 2
+        logger.info(
+            "dynesty DynamicNestedSampler: ndim = %d, bound = multi, sample = rwalk, "
+            "default nlive/dlogz, checkpoint = %s",
+            ndim,
+            checkpoint_file,
+        )
         sampler = dynesty.DynamicNestedSampler(
             self._ln_likelihood,
             self._prior_transform,
@@ -120,7 +124,57 @@ class SampleTransitModel(BaseTransitFittingAlg):
             print_func=self._throttled_print_fn(progress_every),
         )
 
-        return sampler.results
+        results = sampler.results
+        weights = results.importance_weights()
+        logger.info(
+            "dynesty finished: niter = %d, ncall = %d, eff = %.1f%%, "
+            "ln Z = %.2f +/- %.2f, effective samples = %.0f",
+            results.niter,
+            np.sum(results.ncall),
+            results.eff,
+            results.logz[-1],
+            results.logzerr[-1],
+            1 / np.sum(weights**2),
+        )
+
+        return results
+
+    @staticmethod
+    def _log_posterior_summary(results, tm):
+        weights = results.importance_weights()
+
+        def _q(i):
+            return np.asarray(
+                quantile(results.samples[:, i], [0.16, 0.5, 0.84], weights=weights)
+            )
+
+        for n, p in enumerate(tm.planets):
+            r, b, T14 = (_q(5 * n + k) for k in (2, 3, 4))
+            logger.info(
+                "planet %d posterior (16/50/84): ror = %.4f/%.4f/%.4f, "
+                "b = %.3f/%.3f/%.3f, T14 = %.3f/%.3f/%.3f hr",
+                n,
+                *r,
+                *b,
+                *(T14 * 24),
+            )
+            if T14[1] < 1.05 * 0.01 * p.duration or T14[1] > 0.95 * 3 * p.duration:
+                logger.warning(
+                    "planet %d: posterior median T14 = %.3f hr is near the prior edge "
+                    "(%.3f to %.3f hr)",
+                    n,
+                    T14[1] * 24,
+                    0.01 * p.duration * 24,
+                    3 * p.duration * 24,
+                )
+
+        q1, q2 = _q(-2), _q(-1)
+        logger.info(
+            "limb darkening posterior (16/50/84): q1 = %.3f/%.3f/%.3f, "
+            "q2 = %.3f/%.3f/%.3f",
+            *q1,
+            *q2,
+        )
 
     def perform(self):
         """
@@ -128,18 +182,15 @@ class SampleTransitModel(BaseTransitFittingAlg):
         -------
         results : dynesty.results.Results
         """
-        print("\n\nALGORITHM: SAMPLE TRANSIT MODEL\n")
-
         tm = TransitModel(self.star, self.planets, self.litecurve)
         tm.trim(
             self.make_transit_mask(rel_size=3.0, abs_size=2 / 24, mask_type="condensed")
         )
 
-        print("Supersample factor")
         for obsmode in tm.unique_obsmodes:
-            print(f"  {obsmode} : {tm.supersample[obsmode]}")
+            logger.info("supersample factor (%s): %d", obsmode, tm.supersample[obsmode])
 
-        print("\nFitting for Rp/Rs, b, and T14")
-        results = self._sample(tm, progress_every=10)
+        results = self._sample(tm)
+        self._log_posterior_summary(results, tm)
 
         return results

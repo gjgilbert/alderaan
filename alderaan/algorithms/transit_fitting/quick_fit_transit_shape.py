@@ -1,11 +1,15 @@
 """Least-squares fit of a single transit shape per planet"""
 
+import logging
+
 import numpy as np
 from scipy.optimize import least_squares
 
 from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
 from alderaan.models.transit_model import TransitModel
 from alderaan.utils.astro import estimate_transit_depth
+
+logger = logging.getLogger(__name__)
 
 
 class QuickFitTransitShape(BaseTransitFittingAlg):
@@ -70,9 +74,8 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
         fix_r_b_T14[-2:] = fix_limbdark
 
         # do the optimization
+        logp_start = self._ln_likelihood(theta, tm)
         for fix in [fix_r_b_T14, fix_C0_C1] * niter:
-            print(f"optimizing logp for variables: [{', '.join(var_names[~fix[:5]])}]")
-
             logp_initial = self._ln_likelihood(theta, tm)
 
             result = least_squares(
@@ -86,8 +89,31 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
             theta[~fix] = result.x
             logp_final = self._ln_likelihood(theta, tm)
 
-            print(f"logp: {logp_initial} -> {logp_final}")
-            print(f"message: {result['message']}")
+            logger.debug(
+                "shape fit, optimized [%s]: logp %.6g -> %.6g (%s)",
+                ", ".join(var_names[~fix[:5]]),
+                logp_initial,
+                logp_final,
+                result.message,
+            )
+            if not result.success:
+                logger.warning(
+                    "shape fit, optimizing [%s] did not converge (%s)",
+                    ", ".join(var_names[~fix[:5]]),
+                    result.message,
+                )
+            if not np.isfinite(logp_final) or logp_final <= -1e299:
+                logger.warning(
+                    "shape fit: non-finite likelihood after optimizing [%s]",
+                    ", ".join(var_names[~fix[:5]]),
+                )
+
+        logger.info(
+            "shape fit: logp %.6g -> %.6g over %d alternating iterations",
+            logp_start,
+            logp_final,
+            niter,
+        )
 
         return theta
 
@@ -97,12 +123,27 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
             self.planets[n].impact = theta[3 + n * 5]
             self.planets[n].duration = theta[4 + n * 5]
             self.planets[n].depth = estimate_transit_depth(p.ror, p.impact)
+            logger.info(
+                "planet %d: ror = %.4f, b = %.3f, T14 = %.3f hr, depth = %.0f ppm",
+                n,
+                p.ror,
+                p.impact,
+                p.duration * 24,
+                p.depth * 1e6,
+            )
 
     def _update_star(self, theta):
         # sampling basis (q1, q2) --> physical (u1, u2), see Kipping 2013
         q1, q2 = theta[-2], theta[-1]
         self.star.u1 = 2 * np.sqrt(q1) * q2
         self.star.u2 = np.sqrt(q1) * (1 - 2 * q2)
+        logger.info(
+            "limb darkening: q1 = %.3f, q2 = %.3f (u1 = %.3f, u2 = %.3f)",
+            q1,
+            q2,
+            self.star.u1,
+            self.star.u2,
+        )
 
     def perform(self):
         """
@@ -112,18 +153,14 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
         planets : list of Planet
         litecurve : LiteCurve
         """
-        print("\n\nALGORITHM: QUICK FIT TRANSIT SHAPE\n")
-
         tm = TransitModel(self.star, self.planets, self.litecurve)
         tm.trim(
             self.make_transit_mask(rel_size=3.0, abs_size=1 / 24, mask_type="condensed")
         )
 
-        print("Supersample factor")
         for obsmode in tm.unique_obsmodes:
-            print(f"  {obsmode} : {tm.supersample[obsmode]}")
+            logger.info("supersample factor (%s): %d", obsmode, tm.supersample[obsmode])
 
-        print("\nFitting initial transit model")
         theta = self._optimize(tm)
         self._update_planets(theta)
         self._update_star(theta)

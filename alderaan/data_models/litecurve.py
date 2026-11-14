@@ -1,10 +1,13 @@
 __all__ = ["LiteCurve"]
 
 import glob
+import logging
 
 import lightkurve as lk
 import numpy as np
 from astropy.io import fits
+
+logger = logging.getLogger(__name__)
 
 
 class LiteCurve:
@@ -72,6 +75,7 @@ class LiteCurve:
         Only time, flux, error, cadno, and visit are stored on disk
         """
         lc_instance = cls()
+        logger.info("reading %s", filepath)
         with fits.open(filepath) as hdul:
             lc_instance.time = np.asarray(hdul["TIME"].data, dtype=float)
             lc_instance.flux = np.asarray(hdul["FLUX"].data, dtype=float)
@@ -117,6 +121,7 @@ class LiteCurve:
         mast_files.sort()
 
         mast_data_list = []
+        logger.info("found %d MAST files for KIC %d", len(mast_files), target_id)
         for mf in mast_files:
             with fits.open(mf) as hdu_list:
                 if hdu_list[0].header["OBSMODE"] == obsmode and np.isin(
@@ -124,6 +129,19 @@ class LiteCurve:
                     visits,  # hard coded for Kepler
                 ):
                     mast_data_list.append(lk.read(mf))
+                else:
+                    logger.debug(
+                        "skipped %s (OBSMODE = %s, QUARTER = %d not requested)",
+                        mf,
+                        hdu_list[0].header["OBSMODE"],
+                        hdu_list[0].header["QUARTER"],
+                    )
+
+        if len(mast_data_list) == 0:
+            raise FileNotFoundError(
+                f"no {obsmode} files for KIC {target_id} quarters {list(visits)} "
+                f"in {data_dir}"
+            )
 
         lk_col_raw = lk.LightCurveCollection(mast_data_list)
 
@@ -144,11 +162,25 @@ class LiteCurve:
                     lkc_list.append(lkc)
                     cadno.append(lkc.cadenceno.min())
 
+            nmismatch = sum(lkc.quarter == v for lkc in lk_col_raw) - len(lkc_list)
+            if nmismatch > 0:
+                logger.warning(
+                    "KIC %d Q%d: dropped %d files with mismatched TARGETID",
+                    target_id,
+                    v,
+                    nmismatch,
+                )
+
             order = np.argsort(cadno)
             lkc_list = [lkc_list[j] for j in order]
 
             # lk.stitch() also normalizes the lightkurves
-            lkc = lk.LightCurveCollection(lkc_list).stitch().remove_nans()
+            lkc = lk.LightCurveCollection(lkc_list).stitch()
+            npts = len(lkc.time)
+            lkc = lkc.remove_nans()
+            logger.debug(
+                "Q%d: removed %d NaN cadences of %d", v, npts - len(lkc.time), npts
+            )
 
             lkc.quarter = lkc.quarter * np.ones(
                 len(lkc.time), dtype="int"
@@ -175,7 +207,13 @@ class LiteCurve:
         lc_instance.season = np.array(lklc.season, dtype=int)
 
         # remove cadences flagged by Kepler project pipeline
+        npts = len(lc_instance.time)
         lc_instance = lc_instance._remove_flagged_cadences(lklc.quality)
+        logger.info(
+            "removed %d of %d cadences with Kepler quality flags (default bitmask)",
+            npts - len(lc_instance.time),
+            npts,
+        )
 
         return lc_instance
 
@@ -257,5 +295,6 @@ class LiteCurve:
 
         hdulist = fits.HDUList(hdulist)
         hdulist.writeto(filename, overwrite=True)
+        logger.info("wrote %s", filename)
 
         return None
