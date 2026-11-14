@@ -1,9 +1,9 @@
 # [RUN] (run_id, mission, target, visits) is set from the command line
 
 [PATHS]
-input_dir = "{base_path}/alderaan/examples/data/MAST_downloads"
-output_dir = "{base_path}/alderaan/examples/outputs"
-catalog_dir = "{base_path}/alderaan/examples/catalogs"
+input_dir = "{base_path}/tests/data/MAST_downloads"
+output_dir = "{base_path}/outputs"
+catalog_dir = "{base_path}/tests/catalogs"
 
 [CATALOGS]
 koi_catalog = "kepler_dr25_gaia_dr2_crossmatch.csv"

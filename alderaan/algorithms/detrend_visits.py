@@ -20,7 +20,7 @@ from alderaan.algorithms.base import BaseAlg
 from alderaan.algorithms.transit_fitting import BaseTransitFittingAlg
 from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.data_models.litecurve import LiteCurve
-from alderaan.data_models.transit import TransitModel
+from alderaan.models.transit_model import TransitModel
 from alderaan.utils.plotting import plot_litecurve
 from alderaan.utils.stats import set_sigma_cutoff
 

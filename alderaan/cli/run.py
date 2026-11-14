@@ -3,8 +3,7 @@
 import argparse
 from pathlib import Path
 
-from alderaan.utils.config import load_config
-from alderaan.utils.io import resolve_config_path
+from alderaan.utils.config import load_config, resolve_config_path
 
 BASE_PATH = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = str(BASE_PATH / "alderaan" / "configs" / "default_config.toml")
@@ -65,7 +64,7 @@ def main(argv=None):
     config = build_config(args, parser)
 
     # deferred so --help and argument errors don't pay for the theano/pymc import
-    from alderaan.recipes.main import main as run_recipe
+    from alderaan.recipes.pipeline import main as run_recipe
 
     run_recipe(config)
 

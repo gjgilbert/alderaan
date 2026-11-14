@@ -11,7 +11,7 @@ import numpy as np
 from dynesty.utils import print_fn
 
 from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
-from alderaan.data_models.transit import TransitModel
+from alderaan.models.transit_model import TransitModel
 from alderaan.utils.io import dynesty_results_to_fits
 from alderaan.utils.plotting import (
     dynesty_cornerplot,

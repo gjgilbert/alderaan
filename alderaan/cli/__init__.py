@@ -1,8 +1,8 @@
-"""`alderaan` command-line entry point; dispatches to subcommand scripts"""
+"""`alderaan` command-line entry point; dispatches to subcommand modules"""
 
 import sys
 
-from alderaan.scripts import run
+from alderaan.cli import run
 
 _COMMANDS = {
     "run": run.main,
@@ -27,7 +27,3 @@ def main(argv=None):
         return 2
 
     return _COMMANDS[command](rest)
-
-
-if __name__ == "__main__":
-    sys.exit(main())

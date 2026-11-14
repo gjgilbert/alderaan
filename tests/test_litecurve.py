@@ -10,7 +10,7 @@ warnings.simplefilter("always", UserWarning)
 warnings.filterwarnings(action="ignore", category=UnitsWarning, module="astropy")
 
 base_path = Path(__file__).resolve().parents[1]
-data_dir = os.path.join(base_path, "alderaan/examples/data/MAST_downloads/")
+data_dir = os.path.join(base_path, "tests/data/MAST_downloads/")
 kic_id = 8644288  # KOI-137 (Kepler-18)
 
 litecurve = LiteCurve().from_kplr_pdcsap(data_dir, kic_id, "long cadence")

@@ -4,7 +4,7 @@ import numpy as np
 from scipy.optimize import least_squares
 
 from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
-from alderaan.data_models.transit import TransitModel
+from alderaan.models.transit_model import TransitModel
 from alderaan.utils.astro import estimate_transit_depth
 
 

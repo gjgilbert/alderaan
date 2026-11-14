@@ -27,7 +27,7 @@ def main(config):
     Parameters
     ----------
     config : dict
-        pipeline configuration built by `alderaan run` (alderaan/scripts/run.py)
+        pipeline configuration built by `alderaan run` (alderaan/cli/run.py)
     """
     pipeline_start_time = timer()
 

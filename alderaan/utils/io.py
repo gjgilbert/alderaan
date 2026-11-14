@@ -1,5 +1,4 @@
 __all__ = [
-    "resolve_config_path",
     "parse_koi_catalog",
     "parse_holczer16_catalog",
     "copy_input_target_catalog",
@@ -8,16 +7,11 @@ __all__ = [
 
 
 import os
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from astropy.io import fits
 from pandas.testing import assert_frame_equal
-
-
-def resolve_config_path(path_str, base_path):
-    return os.path.join(str(Path(path_str.format(base_path=base_path)).resolve()), "")
 
 
 def parse_koi_catalog(filepath, koi_id):

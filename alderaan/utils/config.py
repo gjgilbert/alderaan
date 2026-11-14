@@ -1,6 +1,7 @@
 """Load TOML pipeline configs with optional in-memory section overrides"""
 
 import os
+from pathlib import Path
 
 try:
     import tomllib
@@ -33,3 +34,8 @@ def load_config(path, overrides=None):
         config.setdefault(section, {}).update(values)
 
     return config
+
+
+def resolve_config_path(path_str, base_path):
+    """Substitute {base_path} and return an absolute directory path ending in '/'"""
+    return os.path.join(str(Path(path_str.format(base_path=base_path)).resolve()), "")
