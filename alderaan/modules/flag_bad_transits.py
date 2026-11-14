@@ -41,6 +41,9 @@ class FlagBadTransits(BaseAlg):
 
                 quality[n][i] = enough_pts_in and enough_pts_near
 
+            if len(quality[n]) == 0:
+                continue
+
             f_quality = np.sum(quality[n]) / len(quality[n])
 
             if f_quality < 0.8:
@@ -78,9 +81,13 @@ class FlagBadTransits(BaseAlg):
             quality[n] = np.ones(len(p.transit_times), dtype="bool")
 
             for om in np.unique(np.array(obsmode[n])):
-                use = (obsmode[n] == om) & overlap[n]
+                use = (obsmode[n] == om) & ~overlap[n]
                 rms_mu = np.nanmedian(rms[use])
                 rms_sd = mad_std(rms[use], ignore_nan=True)
+
+                # too few transits to estimate the noise spread
+                if not rms_sd > 0:
+                    continue
 
                 quality[n][use] &= np.abs(rms[use] - rms_mu) / rms_sd < sigma_cut
 
@@ -92,9 +99,7 @@ class FlagBadTransits(BaseAlg):
         planets = self.planets
 
         # check for transits with poor photometric coverage
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always", category=RuntimeWarning)
-            coverage = self._check_coverage()
+        coverage = self._check_coverage()
 
         # check for transits with unusually high noise
         with warnings.catch_warnings(record=True):
@@ -107,17 +112,17 @@ class FlagBadTransits(BaseAlg):
             assert len(coverage[n]) == len(p.transit_times)
             assert len(good_rms[n]) == len(p.transit_times)
 
+            ntot = len(p.transit_times)
+
             nbad = np.sum(~coverage[n])
-            ntot = len(coverage[n])
             print(
-                f"    {np.sum(nbad)} of {ntot} transits ({int(100 * nbad / ntot)}%) "
+                f"    {nbad} of {ntot} transits ({int(100 * nbad / max(ntot, 1))}%) "
                 "rejected for insufficient photometric coverage"
             )
 
             nbad = np.sum(~good_rms[n] & coverage[n])
-            ntot = len(good_rms[n])
             print(
-                f"    {np.sum(nbad)} of {ntot} transits ({int(100 * nbad / ntot)}%) "
+                f"    {nbad} of {ntot} transits ({int(100 * nbad / max(ntot, 1))}%) "
                 "rejected for high photometric noise"
             )
 

@@ -104,7 +104,9 @@ class BaseAlg:
             overlap[i] = np.zeros(len(self.planets[i].transit_times), dtype=bool)
             ttime_i = self.planets[i].transit_times
 
-            for j in range(i + 1, self.npl):
+            for j in range(self.npl):
+                if j == i:
+                    continue
                 for tc_j in self.planets[j].transit_times:
                     if rtol is not None:
                         overlap[i] |= np.abs(ttime_i - tc_j) < rtol * 0.5 * (
