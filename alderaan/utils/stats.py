@@ -82,12 +82,17 @@ def robust_polyfit(x, y, deg):
 
     Args:
         x (ndarray) : independent variable
-        y (ndarray) : dependent variable
+        y (ndarray) : dependent variable, shape (M,) or (M, K)
         deg (int) : degree of the fitted polynomial
 
     Returns:
-        ndarray : power-basis coefficients, highest order first (same as np.polyfit)
+        ndarray : power-basis coefficients, highest order first (same as np.polyfit);
+            shape (deg + 1,) or (deg + 1, K)
     """
+    y = np.asarray(y)
+    if y.ndim == 2:
+        return np.column_stack([robust_polyfit(x, yk, deg) for yk in y.T])
+
     series = Legendre.fit(x, y, deg)
 
     # convert() trims trailing zero coefficients; np.polyfit always returns deg + 1

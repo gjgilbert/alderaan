@@ -269,7 +269,7 @@ class DetrendVisits(BaseAlg):
             f"{self.config['RUN']['target']}_stellar_oscillations.txt",
         )
         oscillation_period_by_quarter = np.ones(18) * np.nan
-        quarter_indexes = [lc.visit[0] - 1 for lc in litecurves]
+        quarter_indexes = [lc.visit[0] for lc in litecurves]
         oscillation_period_by_quarter[quarter_indexes] = oscillation_periods
         np.savetxt(filename, np.stack([np.arange(18), oscillation_period_by_quarter]).T)
         logger.debug("wrote %s", filename)
@@ -313,6 +313,8 @@ class DetrendVisits(BaseAlg):
 
         for i in range(n_seg):
             seg_id[break_locs[i] : break_locs[i + 1]] = i
+        # break_locs[-1] is the last cadence, which belongs to the last segment
+        seg_id[break_locs[-1]] = n_seg - 1
 
         approx_mean = [np.mean(lc.flux[seg_id == i]) for i in range(n_seg)]
 

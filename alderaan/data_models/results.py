@@ -4,11 +4,10 @@ import logging
 
 import dynesty
 import numpy as np
-import numpy.polynomial.polynomial as poly
 import pandas as pd
 from astropy.io import fits
 
-from alderaan.utils.stats import weighted_percentile
+from alderaan.utils.stats import robust_polyfit, weighted_percentile
 
 logger = logging.getLogger(__name__)
 
@@ -278,7 +277,7 @@ class Results:
         Least squares (epoch, period) fit to the model transit times of planet n
         """
         tt = self.transit_times[n]
-        epoch, period = poly.polyfit(tt["index"], tt["model"], 1)
+        period, epoch = robust_polyfit(tt["index"], tt["model"], 1)
         return epoch, period
 
     def planet_samples(self, n):
@@ -301,7 +300,7 @@ class Results:
             + np.outer(s[f"C0_{n}"], np.ones_like(legx))
             + np.outer(s[f"C1_{n}"], legx)
         )
-        t0, period = poly.polyfit(index, ephem.T, 1)
+        period, t0 = robust_polyfit(index, ephem.T, 1)
 
         # limb darkening (see Kipping 2013)
         q1, q2 = s["LD_Q1"], s["LD_Q2"]

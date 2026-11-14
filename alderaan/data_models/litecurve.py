@@ -14,13 +14,13 @@ class LiteCurve:
     """LiteCurve"""
 
     def __init__(self, *args, **kwargs):
-
+        # each constructor builds a new instance; copy its attributes onto self
         if len(args) == 0:
-            self = self._set_empty_attribute_arrays()
+            built = self._set_empty_attribute_arrays()
 
         elif len(args) == 1 and isinstance(args[0], list):
             if all([isinstance(lc, LiteCurve) for lc in args[0]]):
-                self = self.from_list(*args, **kwargs)
+                built = self.from_list(*args, **kwargs)
             else:
                 raise TypeError("Unexpected input types in list")
 
@@ -31,14 +31,16 @@ class LiteCurve:
                 data_source = kwargs.pop("data_source")
 
             if data_source == "Kepler PDCSAP":
-                self = self.from_kplr_pdcsap(*args, **kwargs)
+                built = self.from_kplr_pdcsap(*args, **kwargs)
             elif data_source == "ALDERAAN":
-                self = self.from_alderaan(*args, **kwargs)
+                built = self.from_alderaan(*args, **kwargs)
             else:
                 raise ValueError(f"Unsupported data_source: {data_source}")
 
         else:
             raise TypeError("Unsupported init signature")
+
+        self.__dict__.update(built.__dict__)
 
     @classmethod
     def _set_empty_attribute_arrays(cls):
@@ -74,7 +76,7 @@ class LiteCurve:
 
         Only time, flux, error, cadno, and visit are stored on disk
         """
-        lc_instance = cls()
+        lc_instance = cls.__new__(cls)
         logger.info("reading %s", filepath)
         with fits.open(filepath) as hdul:
             lc_instance.time = np.asarray(hdul["TIME"].data, dtype=float)

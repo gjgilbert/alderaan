@@ -493,14 +493,14 @@ class RegularizeOMC(BaseAlg):
         )
         out = group == np.argmin(centroids)
 
-        # reduce fg_prob threshold so that than 30% of points are flagged
+        # reduce fg_prob threshold so that fewer than 30% of points are flagged
         if np.sum(out) / len(out) > 0.3:
             logger.warning(
                 "K-means flagged %.0f%% of transit times as outliers; "
-                "falling back to fg_prob percentile threshold",
+                "capping at the 30th percentile of fg_prob",
                 100 * np.mean(out),
             )
-            out = fg_prob < np.percentile(fg_prob, 0.3)
+            out = fg_prob < np.percentile(fg_prob, 30)
 
         return 1 - fg_prob, out
 
@@ -697,15 +697,15 @@ class RegularizeOMC(BaseAlg):
                     100 * np.mean(out_class),
                 )
 
-            # transit times relative to the reference ephemeris
+            # observed and model transit times; OMC is relative to the current
+            # linear ephemeris, which update_ephemeris also uses
             q = quality[n]
-            index = p.transit_index[q]
-            static_ephemeris = p.reference_epoch + p.reference_period * index
+            linear_ephemeris = p.eval_linear_ephemeris()[q]
             transit_times[n] = pd.DataFrame(
                 {
-                    "index": index,
-                    "ttime": yobs[n][q] + static_ephemeris,
-                    "model": ymod[n][q] + static_ephemeris,
+                    "index": p.transit_index[q],
+                    "ttime": yobs[n][q] + linear_ephemeris,
+                    "model": ymod[n][q] + linear_ephemeris,
                     "out_prob": out_prob[q],
                     "out_flag": out_class[q],
                 }

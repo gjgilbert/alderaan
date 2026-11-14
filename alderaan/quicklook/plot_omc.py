@@ -2,10 +2,10 @@ __all__ = ["PlotOMC"]
 
 import matplotlib.pyplot as plt
 import numpy as np
-import numpy.polynomial.polynomial as poly
 from astropy.stats import mad_std
 
 from alderaan.quicklook.base import finish
+from alderaan.utils.stats import robust_polyfit
 
 
 class PlotOMC:
@@ -38,7 +38,7 @@ class PlotOMC:
             out_flag = tt["out_flag"].to_numpy()
 
             # O-C relative to a linear fit to the model transit times
-            epoch, period = poly.polyfit(index, tt["model"].to_numpy(), 1)
+            period, epoch = robust_polyfit(index, tt["model"].to_numpy(), 1)
             linear = epoch + period * index
             yobs = xtime - linear
             ymod = tt["model"].to_numpy() - linear

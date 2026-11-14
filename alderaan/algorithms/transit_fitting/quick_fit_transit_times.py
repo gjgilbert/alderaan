@@ -380,13 +380,11 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
             ttime_cc[n], error_cc[n] = self._cross_correlation_times(tm, n, overlap)
 
             assert len(ttime_cc[n]) == len(p.transit_times)
-            assert len(error_cc[n]) == len(p.transit_errors)
 
-        # update ephemerides
+        # update ephemerides (transit errors are set after optimization)
         for n, p in enumerate(planets):
             q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
             p.transit_times[q] = ttime_cc[n][q]
-            p.transit_errors[q] = error_cc[n][q]
             planets[n] = p.refit_period_and_epoch()
 
         # fit transit times using least squares optimization

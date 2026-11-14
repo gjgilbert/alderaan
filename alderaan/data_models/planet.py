@@ -140,13 +140,13 @@ class Planet:
 
     def update_ephemeris(self, index, omc_model, error, quality, full=False):
         """
-        Replace transit times with O-C model added to the reference ephemeris,
+        Replace transit times with O-C model added to the current linear ephemeris,
         interpolate over poor quality transits, and reset all quality flags to True
 
         Args:
             index (ndarray) : transit index
-            omc_model (ndarray) : O-C model relative to the reference ephemeris
-            error (ndarray) : transit time uncertainties
+            omc_model (ndarray) : O-C model relative to the current linear ephemeris
+            error (ndarray) : transit time uncertainties; None if not yet measured
             quality (ndarray) : boolean mask; True for good quality transits
             full (bool) : True to also interpolate missing transit times (default=False)
 
@@ -155,12 +155,8 @@ class Planet:
         """
         old_period = self.period
 
+        self.transit_times = self.epoch + self.period * index + omc_model
         self.transit_index = index
-        self.transit_times = (
-            self.reference_epoch
-            + self.reference_period * self.transit_index
-            + omc_model
-        )
         self.transit_errors = error
         self.transit_quality = quality
 
@@ -183,8 +179,11 @@ class Planet:
         index_full = np.arange(0, self.transit_index.max() + 1, dtype=int)
         ttime_full = interpolator(index_full)
 
-        error_full = np.nanmedian(self.transit_errors) * np.ones_like(index_full)
-        error_full[np.isin(index_full, self.transit_index[q])] = self.transit_errors[q]
+        if self.transit_errors is not None:
+            error_full = np.nanmedian(self.transit_errors) * np.ones_like(index_full)
+            error_full[np.isin(index_full, self.transit_index[q])] = (
+                self.transit_errors[q]
+            )
 
         quality_full = np.ones(len(index_full), dtype=bool)
 
@@ -195,7 +194,8 @@ class Planet:
 
         self.transit_index = index_full[keep]
         self.transit_times = ttime_full[keep]
-        self.transit_errors = error_full[keep]
+        if self.transit_errors is not None:
+            self.transit_errors = error_full[keep]
         self.transit_quality = quality_full[keep]
 
         return self.refit_period_and_epoch()
