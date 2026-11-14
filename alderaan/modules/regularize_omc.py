@@ -9,8 +9,8 @@ import numpy as np
 from astropy.stats import mad_std
 
 from alderaan.modules.omc import OMC
-from alderaan.modules.quicklook import plot_omc
 from alderaan.utils.io import save_omc_ephemeris
+from alderaan.utils.plotting import plot_omc
 from alderaan.utils.stats import set_sigma_cutoff
 
 
@@ -74,7 +74,7 @@ class RegularizeOMC:
         return freq
 
     def perform(self):
-        print("\n\nSTAGE: REGULARIZE OMC\n")
+        print("\n\nMODULE: REGULARIZE OMC\n")
 
         planets = self.shire.planets
         npl = len(planets)

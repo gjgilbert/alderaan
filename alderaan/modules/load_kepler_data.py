@@ -8,8 +8,8 @@ import numpy as np
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.planet import Planet
 from alderaan.data_models.star import Star
-from alderaan.modules.quicklook import plot_litecurve
 from alderaan.utils.io import parse_holczer16_catalog, parse_koi_catalog
+from alderaan.utils.plotting import plot_litecurve
 from alderaan.utils.stats import robust_polyfit
 
 
@@ -22,7 +22,7 @@ class LoadKeplerData:
         self.quicklook_dir = quicklook_dir
 
     def perform(self):
-        print("\n\nSTAGE: LOAD KEPLER DATA\n")
+        print("\n\nMODULE: LOAD KEPLER DATA\n")
 
         # load KOI catalog
         catalog = parse_koi_catalog(self.catalog_filepath, self.target)

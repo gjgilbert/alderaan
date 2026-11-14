@@ -10,7 +10,7 @@ class QuickFitTransitShape:
         self.shire = deepcopy(shire)
 
     def perform(self):
-        print("\n\nSTAGE: QUICK FIT TRANSIT SHAPE\n")
+        print("\n\nMODULE: QUICK FIT TRANSIT SHAPE\n")
 
         transitmodel = RBDTransitModel(
             self.shire.litecurve, self.shire.planets, self.shire.star

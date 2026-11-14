@@ -5,13 +5,13 @@ from copy import deepcopy
 
 import matplotlib.pyplot as plt
 
-from alderaan.modules.quicklook import (
+from alderaan.modules.transit import RBDTransitModel
+from alderaan.utils.io import dynesty_results_to_fits
+from alderaan.utils.plotting import (
     dynesty_cornerplot,
     dynesty_runplot,
     dynesty_traceplot,
 )
-from alderaan.modules.transit import RBDTransitModel
-from alderaan.utils.io import dynesty_results_to_fits
 
 
 class SampleTransitModel:
@@ -24,7 +24,7 @@ class SampleTransitModel:
         self.quicklook_dir = quicklook_dir
 
     def perform(self):
-        print("\n\nSTAGE: SAMPLE TRANSIT MODEL\n")
+        print("\n\nMODULE: SAMPLE TRANSIT MODEL\n")
 
         koi_id = self.shire.star.koi_id
 

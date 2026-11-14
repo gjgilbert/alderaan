@@ -1,18 +1,21 @@
-__all__ = ["QualityControl"]
+__all__ = ["FlagBadTransits"]
 
 import warnings
+from copy import deepcopy
 
 import numpy as np
 from astropy.stats import mad_std
 
+from alderaan.data_models.shire import Shire
 from alderaan.modules.base import BaseAlg
 
 
-class QualityControl(BaseAlg):
-    def __init__(self, litecurve, planets):
-        super().__init__(litecurve, planets)
+class FlagBadTransits(BaseAlg):
+    def __init__(self, shire):
+        super().__init__(shire.litecurve, shire.planets)
+        self.star = deepcopy(shire.star)
 
-    def check_coverage(self):
+    def _check_coverage(self):
         """
         Check that each transit has at least 50% coverage
           * number of cadences in transit (tc +/- 0.5*T14)
@@ -49,7 +52,7 @@ class QualityControl(BaseAlg):
 
         return quality
 
-    def check_rms(self, rel_size=None, abs_size=None, sigma_cut=5.0):
+    def _check_rms(self, rel_size=None, abs_size=None, sigma_cut=5.0):
         if (rel_size is None) and (abs_size is None):
             raise ValueError("either rel_size or abs_size must be provided")
 
@@ -82,3 +85,43 @@ class QualityControl(BaseAlg):
                 quality[n][use] &= np.abs(rms[use] - rms_mu) / rms_sd < sigma_cut
 
         return quality
+
+    def perform(self):
+        print("\n\nMODULE: FLAG BAD TRANSITS\n")
+
+        planets = self.planets
+
+        # check for transits with poor photometric coverage
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always", category=RuntimeWarning)
+            coverage = self._check_coverage()
+
+        # check for transits with unusually high noise
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always", category=RuntimeWarning)
+            good_rms = self._check_rms(rel_size=3.0, abs_size=2 / 24, sigma_cut=5.0)
+
+        for n, p in enumerate(planets):
+            print(f"\n  Planet {n}:")
+
+            assert len(coverage[n]) == len(p.transit_times)
+            assert len(good_rms[n]) == len(p.transit_times)
+
+            nbad = np.sum(~coverage[n])
+            ntot = len(coverage[n])
+            print(
+                f"    {np.sum(nbad)} of {ntot} transits ({int(100 * nbad / ntot)}%) "
+                "rejected for insufficient photometric coverage"
+            )
+
+            nbad = np.sum(~good_rms[n] & coverage[n])
+            ntot = len(good_rms[n])
+            print(
+                f"    {np.sum(nbad)} of {ntot} transits ({int(100 * nbad / ntot)}%) "
+                "rejected for high photometric noise"
+            )
+
+            p.transit_quality = coverage[n] & good_rms[n]
+            planets[n] = p.remove_poor_quality_transits()
+
+        return Shire(self.star, planets, self.litecurve)

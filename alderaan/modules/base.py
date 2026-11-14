@@ -47,41 +47,15 @@ class BaseAlg:
 
         self.unique_obsmodes = np.unique(np.hstack(self.transit_obsmode))
 
-        # ingress/egress timescale estimate following Winn 2010
-        period = np.array([p.period for p in self.planets])
-        depth = np.array([p.depth for p in self.planets])
-        tau12 = (13 / 24) * (period / 365.25) ** (1 / 3) * np.sqrt(depth)
-
-        # sigma so binning error is < 0.1% of photometric uncertainty
-        sigma = np.nanmean(lc.error / lc.flux) * 0.04
-
-        # supersample factor (forced odd) following Kipping 2010,
-        # and exposure time integration offsets
-        self.supersample = {}
-        self._exptime_offsets = {}
-        for om in self.unique_obsmodes:
-            exptime = self.exptime[om]
-            supersample = np.array(
-                np.ceil(np.sqrt((depth / tau12) * (exptime / 8 / sigma))), dtype=int
-            )
-            self.supersample[om] = np.max(supersample + (supersample % 2 + 1))
-            self._exptime_offsets[om] = np.linspace(
-                -exptime / 2, exptime / 2, self.supersample[om]
-            )
-
-        self._set_cadence_masks()
-
-    def _set_cadence_masks(self):
-        self._cadence_mask = {
-            om: self.litecurve.obsmode == om for om in self.unique_obsmodes
-        }
-
-    def make_transit_mask(self, rel_size=None, abs_size=None, mask_type="standard"):
+    def make_transit_mask(
+        self, rel_size=None, abs_size=None, mask_type="standard", time=None
+    ):
         """
         Arguments
             rel_size : full width of masked region in units of transit duration
             abs_size : full width of masked region in units of time
             mask_type : type of transit mask to return (default = 'standard')
+            time : cadence times to mask (default = self.litecurve.time)
 
         Supported mask_type
          * standard : bool, shape (n_planet, n_cadence),
@@ -96,12 +70,15 @@ class BaseAlg:
         if abs_size is None:
             abs_size = 0.0
 
-        mask = np.zeros((self.npl, len(self.litecurve.time)), dtype=int)
+        if time is None:
+            time = self.litecurve.time
+
+        mask = np.zeros((self.npl, len(time)), dtype=int)
 
         for n, p in enumerate(self.planets):
             half_width = 0.5 * np.max([rel_size * p.duration, abs_size])
             for tc in p.transit_times:
-                mask[n] += np.abs(self.litecurve.time - tc) < half_width
+                mask[n] += np.abs(time - tc) < half_width
 
         if mask_type == "standard":
             return mask.astype(bool)

@@ -3,9 +3,9 @@ __all__ = ["ResetLitecurves"]
 from copy import deepcopy
 
 import numpy as np
+from astropy.stats import mad_std, sigma_clip
 
 from alderaan.data_models.litecurve import LiteCurve
-from alderaan.modules.detrend import SimpleDetrender
 from alderaan.modules.transit import RBDTransitModel
 from alderaan.utils.stats import set_sigma_cutoff
 
@@ -16,32 +16,33 @@ class ResetLitecurves:
         self.litecurve_raw = deepcopy(litecurve_raw)
 
     def perform(self):
-        print("\n\nSTAGE: RESET LITECURVES\n")
+        print("\n\nMODULE: RESET LITECURVES\n")
 
         star = self.shire.star
         planets = self.shire.planets
         litecurves = self.shire.litecurve.split_visits()
 
         # clip outliers based on transit model
-        for j, lc in enumerate(litecurves):
+        for lc in litecurves:
             tm = RBDTransitModel(lc, planets, star)
 
             theta = tm._theta_initial()
             f_mod = tm.model_flux(theta, tm)
             sigma = set_sigma_cutoff(len(lc.flux), sigma_min=5.0)
 
-            dt = SimpleDetrender(lc, planets)
+            bad = sigma_clip(
+                lc.flux - f_mod, sigma_upper=sigma, sigma_lower=sigma, stdfunc=mad_std
+            ).mask
 
-            npts_initial = len(dt.litecurve.time)
-            dt.clip_outliers(trend=f_mod, sigma_upper=sigma, sigma_lower=sigma)
-            npts_final = len(dt.litecurve.time)
+            npts_initial = len(lc.time)
+            for k in lc.__dict__.keys():
+                if type(lc.__dict__[k]) is np.ndarray:
+                    lc.__setattr__(k, lc.__dict__[k][~bad])
 
             print(
-                f"  Quarter {dt.litecurve.visit[0]} : "
-                f"{npts_initial - npts_final} outliers rejected"
+                f"  Quarter {lc.visit[0]} : "
+                f"{npts_initial - len(lc.time)} outliers rejected"
             )
-
-            litecurves[j] = deepcopy(dt.litecurve)
 
         # reset litecurves to raw data w/ outliers removed
         for j, lc_raw in enumerate(self.litecurve_raw.split_visits()):

@@ -6,7 +6,7 @@ from copy import deepcopy
 import matplotlib.pyplot as plt
 
 from alderaan.modules.omc import OMC
-from alderaan.modules.quicklook import plot_omc
+from alderaan.utils.plotting import plot_omc
 
 
 class CleanupOMC:
@@ -17,7 +17,7 @@ class CleanupOMC:
         self.full = full
 
     def perform(self):
-        print("\n\nSTAGE: CLEANUP OMC\n")
+        print("\n\nMODULE: CLEANUP OMC\n")
 
         planets = self.shire.planets
 

@@ -14,15 +14,15 @@ from aesara_theano_fallback import aesara as theano
 from astropy.units import UnitsWarning
 
 from alderaan.data_models.shire import Shire
-from alderaan.stages.cleanup_omc import CleanupOMC
-from alderaan.stages.detrend_visits import DetrendVisits
-from alderaan.stages.flag_bad_transits import FlagBadTransits
-from alderaan.stages.load_kepler_data import LoadKeplerData
-from alderaan.stages.quick_fit_transit_shape import QuickFitTransitShape
-from alderaan.stages.quick_fit_transit_times import QuickFitTransitTimes
-from alderaan.stages.regularize_omc import RegularizeOMC
-from alderaan.stages.reset_litecurves import ResetLitecurves
-from alderaan.stages.sample_transit_model import SampleTransitModel
+from alderaan.modules.cleanup_omc import CleanupOMC
+from alderaan.modules.detrend_visits import DetrendVisits
+from alderaan.modules.flag_bad_transits import FlagBadTransits
+from alderaan.modules.load_kepler_data import LoadKeplerData
+from alderaan.modules.quick_fit_transit_shape import QuickFitTransitShape
+from alderaan.modules.quick_fit_transit_times import QuickFitTransitTimes
+from alderaan.modules.regularize_omc import RegularizeOMC
+from alderaan.modules.reset_litecurves import ResetLitecurves
+from alderaan.modules.sample_transit_model import SampleTransitModel
 from alderaan.utils.io import copy_input_target_catalog, resolve_config_path
 
 BASE_PATH = Path(__file__).resolve().parents[2]
