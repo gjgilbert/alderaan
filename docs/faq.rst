@@ -9,6 +9,6 @@ To run the pipeline, navigate into the ALDERAAN source directory and run the fol
 
 .. code-block:: console
 
-   python alderaan/pipelines/alderaan_pipeline.py -m Kepler -t K00148 -c configs/default_config.cfg
+   alderaan run -m Kepler -t K00148 --run_id develop
 
 The flags -m (mission) -t (target) and -c (config) are required and set the pipeline run conditions.

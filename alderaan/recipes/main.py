@@ -1,13 +1,8 @@
-#!/usr/bin/env python3
-
-import argparse
 import os
 import shutil
 import sys
 import warnings
-from configparser import ConfigParser
 from datetime import datetime
-from pathlib import Path
 from timeit import default_timer as timer
 
 from aesara_theano_fallback import aesara as theano
@@ -22,12 +17,18 @@ from alderaan.algorithms.transit_fitting import (
     QuickFitTransitTimes,
     SampleTransitModel,
 )
-from alderaan.utils.io import copy_input_target_catalog, resolve_config_path
-
-BASE_PATH = Path(__file__).resolve().parents[2]
+from alderaan.utils.io import copy_input_target_catalog
 
 
-def main():
+def main(config):
+    """
+    Run the ALDERAAN pipeline on one target
+
+    Parameters
+    ----------
+    config : dict
+        pipeline configuration built by `alderaan run` (alderaan/scripts/run.py)
+    """
     pipeline_start_time = timer()
 
     sys.stdout.flush()
@@ -43,32 +44,14 @@ def main():
     print("+" * shutil.get_terminal_size().columns)
     print("")
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-m", "--mission", required=True, type=str, help="Observing mission"
-    )
-    parser.add_argument(
-        "-t", "--target", required=True, type=str, help="Target ID for star"
-    )
-    parser.add_argument(
-        "-c", "--config", required=True, type=str, help="Path to config file"
-    )
-    args = parser.parse_args()
-
-    config = ConfigParser()
-    config.read(args.config)
-
-    for k in config["PATHS"]:
-        config["PATHS"][k] = resolve_config_path(config["PATHS"][k], BASE_PATH)
-
-    mission = args.mission
-    target = args.target
+    mission = config["RUN"]["mission"]
+    target = config["RUN"]["target"]
     run_id = config["RUN"]["run_id"]
 
-    data_dir = config["PATHS"]["data_dir"]
-    outputs_dir = config["PATHS"]["outputs_dir"]
+    input_dir = config["PATHS"]["input_dir"]
+    output_dir = config["PATHS"]["output_dir"]
     catalog_dir = config["PATHS"]["catalog_dir"]
-    catalog_name = str(config["ARGS"]["catalog_csv"])
+    catalog_name = config["CATALOGS"]["koi_catalog"]
     catalog_filepath = os.path.join(catalog_dir, catalog_name)
 
     print("")
@@ -76,29 +59,27 @@ def main():
     print(f"   TARGET  : {target}")
     print(f"   RUN ID  : {run_id}")
     print("")
-    print(f"   Data directory    : {data_dir}")
-    print(f"   Config file       : {args.config}")
+    print(f"   Input directory   : {input_dir}")
+    print(f"   Output directory  : {output_dir}")
     print(f"   Input catalog     : {catalog_name}")
     print("")
     print(f"   theano cache : {theano.config.compiledir}")
     print("")
 
-    os.makedirs(outputs_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
 
-    results_dir = os.path.join(outputs_dir, "results", run_id, target)
+    results_dir = os.path.join(output_dir, "results", run_id, target)
     os.makedirs(results_dir, exist_ok=True)
 
-    quicklook_dir = os.path.join(outputs_dir, "quicklook", run_id, target)
+    quicklook_dir = os.path.join(output_dir, "quicklook", run_id, target)
     os.makedirs(quicklook_dir, exist_ok=True)
 
-    config["RUN"]["mission"] = mission
-    config["RUN"]["target"] = target
     config["PATHS"]["catalog_filepath"] = catalog_filepath
     config["PATHS"]["results_dir"] = results_dir
     config["PATHS"]["quicklook_dir"] = quicklook_dir
 
     copy_input_target_catalog(
-        catalog_filepath, os.path.join(outputs_dir, "results", run_id, f"{run_id}.csv")
+        catalog_filepath, os.path.join(output_dir, "results", run_id, f"{run_id}.csv")
     )
 
     # data i/o
@@ -143,7 +124,3 @@ def main():
 
     print(f"\ncumulative runtime = {((timer() - pipeline_start_time) / 60):.1f} min")
     print("\n\n=== exiting main pipeline ===\n\n")
-
-
-if __name__ == "__main__":
-    main()

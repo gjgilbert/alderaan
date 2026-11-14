@@ -41,7 +41,7 @@ pip install alderaan
 To run the pipeline, navigate into the `alderaan` source directory and run the following commmand:
 
 ```
-python alderaan/recipes/main.py -m Kepler -t K00137 -c alderaan/configs/default_config.cfg
+alderaan run -m Kepler -t K00137 --run_id develop
 ```
 
 The flags -m (mission) -t (target) and -c (config) are required and set the pipeline run conditions.

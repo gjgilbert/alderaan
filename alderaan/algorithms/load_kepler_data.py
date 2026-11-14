@@ -41,7 +41,9 @@ class LoadKeplerData:
         target = self.config["RUN"]["target"]
         catalog_filepath = self.config["PATHS"]["catalog_filepath"]
         catalog_dir = self.config["PATHS"]["catalog_dir"]
-        data_dir = self.config["PATHS"]["data_dir"]
+        input_dir = self.config["PATHS"]["input_dir"]
+        ttv_catalog = self.config["CATALOGS"]["ttv_catalog"]
+        visits = self.config["RUN"].get("visits")
         quicklook_dir = self.config["PATHS"]["quicklook_dir"]
 
         # load KOI catalog
@@ -61,7 +63,7 @@ class LoadKeplerData:
 
         # load lightcurves
         litecurve = LiteCurve().from_kplr_pdcsap(
-            data_dir, star.kic_id, "long cadence", visits=[1, 2, 3]
+            input_dir, star.kic_id, "long cadence", visits=visits
         )
 
         t_min = litecurve.time.min()
@@ -95,7 +97,7 @@ class LoadKeplerData:
         print([np.round(p.period, 6) for p in planets])
 
         # load Holczer+2016 catalog
-        filepath = os.path.join(catalog_dir, "holczer_2016_kepler_ttvs.txt")
+        filepath = os.path.join(catalog_dir, ttv_catalog)
         holczer_ephemerides = parse_holczer16_catalog(filepath, star.koi_id, npl)
 
         print(f"\n{len(holczer_ephemerides)} ephemerides found in Holczer+2016")
