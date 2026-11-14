@@ -52,15 +52,13 @@ class LiteCurve:
     @classmethod
     def from_list(cls, litecurve_list):
 
-        lc_instance = cls()
-        lc_instance = lc_instance._set_empty_attribute_arrays()
+        lc_instance = cls._set_empty_attribute_arrays()
 
-        for lc in litecurve_list:
-            for k in lc_instance.__dict__.keys():
-                if type(lc_instance.__dict__[k]) is np.ndarray:
-                    lc_instance.__setattr__(
-                        k, np.hstack([lc_instance.__dict__[k], lc.__dict__[k]])
-                    )
+        for k, v in litecurve_list[0].__dict__.items():
+            if type(v) is np.ndarray:
+                lc_instance.__setattr__(
+                    k, np.hstack([lc.__dict__[k] for lc in litecurve_list])
+                )
 
         return lc_instance
 

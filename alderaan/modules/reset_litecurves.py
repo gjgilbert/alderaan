@@ -45,15 +45,15 @@ class ResetLitecurves:
             )
 
         # reset litecurves to raw data w/ outliers removed
-        for j, lc_raw in enumerate(self.litecurve_raw.split_visits()):
-            qmask = np.isin(lc_raw.cadno, litecurves[j].cadno)
+        litecurve = LiteCurve().from_list(litecurves)
+        keep = np.isin(self.litecurve_raw.cadno, litecurve.cadno)
 
-            for k in litecurves[j].__dict__.keys():
-                if type(litecurves[j].__dict__[k]) is np.ndarray:
-                    litecurves[j].__setattr__(k, lc_raw.__dict__[k][qmask])
+        for k, v in self.litecurve_raw.__dict__.items():
+            if type(v) is np.ndarray:
+                litecurve.__setattr__(k, v[keep])
 
-            litecurves[j].quality = np.ones(len(litecurves[j].time), dtype=bool)
+        litecurve.quality = np.ones(len(litecurve.time), dtype=bool)
 
-        self.shire.litecurve = LiteCurve().from_list(litecurves)
+        self.shire.litecurve = litecurve
 
         return self.shire
