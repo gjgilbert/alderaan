@@ -64,10 +64,9 @@ class Planet:
         """
         Freeze current period and epoch as the fixed reference for O-C and time warping
         """
-        assert self.static_period is None, "static_period already set"
+        if self.static_period is not None:
+            raise ValueError("static period/epoch already set")
         self.static_period = self.period
-
-        assert self.static_epoch is None, "static_epoch already set"
         self.static_epoch = self.epoch
 
     def set_transit_shape(self, ror, impact, duration, depth):
