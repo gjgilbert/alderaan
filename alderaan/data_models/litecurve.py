@@ -9,16 +9,17 @@ from astropy.io import fits
 
 logger = logging.getLogger(__name__)
 
-# per-cadence arrays carried by every LiteCurve, in __init__ order
-ARRAY_FIELDS = (
-    "time",
-    "flux",
-    "error",
-    "cadno",
-    "visit",
-    "obsmode",
-    "quality",
-)
+# per-cadence arrays carried by every LiteCurve, in __init__ order:
+# name -> (dtype, FITS column format); OBSMODE width is set at write time
+FIELDS = {
+    "time": (float, "D"),
+    "flux": (float, "D"),
+    "error": (float, "D"),
+    "cadno": (int, "K"),
+    "visit": (int, "K"),
+    "obsmode": (str, None),
+    "quality": (bool, "L"),
+}
 
 
 class LiteCurve:
@@ -53,32 +54,14 @@ class LiteCurve:
     ):
         self.mission = mission
         self.target = target
-        self.time = np.asarray(time, dtype=float)
-        self.flux = np.asarray(flux, dtype=float)
-        self.error = np.asarray(error, dtype=float)
-        self.cadno = np.asarray(cadno, dtype=int)
-        self.visit = np.asarray(visit, dtype=int)
-        self.obsmode = np.asarray(obsmode, dtype=str)
-        self.quality = np.asarray(quality, dtype=bool)
 
-        lengths = {len(getattr(self, k)) for k in ARRAY_FIELDS}
+        arrays = (time, flux, error, cadno, visit, obsmode, quality)
+        for (k, (dtype, _)), x in zip(FIELDS.items(), arrays):
+            setattr(self, k, np.asarray(x, dtype=dtype))
+
+        lengths = {len(getattr(self, k)) for k in FIELDS}
         if len(lengths) != 1:
-            raise ValueError(f"{', '.join(ARRAY_FIELDS)} must have equal lengths")
-
-    @classmethod
-    def concatenate_visits(cls, litecurve_list):
-        """Concatenate per-visit litecurves (inverse of split_visits)"""
-        first = litecurve_list[0]
-        for lc in litecurve_list:
-            if (lc.mission, lc.target) != (first.mission, first.target):
-                raise ValueError("litecurves have inconsistent mission/target")
-
-        arrays = {
-            k: np.hstack([getattr(lc, k) for lc in litecurve_list])
-            for k in ARRAY_FIELDS
-        }
-
-        return cls(first.mission, first.target, **arrays)
+            raise ValueError(f"{', '.join(FIELDS)} must have equal lengths")
 
     @classmethod
     def from_fits(cls, filepath):
@@ -86,17 +69,10 @@ class LiteCurve:
         logger.info("reading %s", filepath)
         with fits.open(filepath) as hdul:
             hdu = hdul["LITECURVE"]
-            data = hdu.data
             return cls(
                 hdu.header["MISSION"],
                 hdu.header["TARGET"],
-                data["TIME"],
-                data["FLUX"],
-                data["ERROR"],
-                data["CADNO"],
-                data["VISIT"],
-                data["OBSMODE"],
-                data["QUALITY"],
+                *(hdu.data[k.upper()] for k in FIELDS),
             )
 
     @classmethod
@@ -236,18 +212,8 @@ class LiteCurve:
 
     def select(self, mask):
         """Keep only cadences where mask is True (in place)"""
-        for k in ARRAY_FIELDS:
+        for k in FIELDS:
             setattr(self, k, getattr(self, k)[mask])
-
-    def split_visits(self):
-        """List of new litecurves, one per visit"""
-        litecurve_list = []
-        for v in np.unique(self.visit):
-            use = self.visit == v
-            arrays = {k: getattr(self, k)[use] for k in ARRAY_FIELDS}
-            litecurve_list.append(LiteCurve(self.mission, self.target, **arrays))
-
-        return litecurve_list
 
     def reset(self, raw):
         """
@@ -279,13 +245,10 @@ class LiteCurve:
 
         width = max([1, *map(len, self.obsmode)])
         columns = [
-            fits.Column(name="TIME", format="D", array=self.time),
-            fits.Column(name="FLUX", format="D", array=self.flux),
-            fits.Column(name="ERROR", format="D", array=self.error),
-            fits.Column(name="CADNO", format="K", array=self.cadno),
-            fits.Column(name="VISIT", format="K", array=self.visit),
-            fits.Column(name="OBSMODE", format=f"{width}A", array=self.obsmode),
-            fits.Column(name="QUALITY", format="L", array=self.quality),
+            fits.Column(
+                name=k.upper(), format=fmt or f"{width}A", array=getattr(self, k)
+            )
+            for k, (_, fmt) in FIELDS.items()
         ]
         hdu = fits.BinTableHDU.from_columns(columns, name="LITECURVE")
         hdu.header["MISSION"] = self.mission

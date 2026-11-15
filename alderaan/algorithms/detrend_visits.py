@@ -18,7 +18,6 @@ from scipy.signal import savgol_filter
 from alderaan.algorithms.base import BaseAlg
 from alderaan.algorithms.transit_fitting import BaseTransitFittingAlg
 from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
-from alderaan.data_models.litecurve import LiteCurve
 from alderaan.models.transit_model import TransitModel
 from alderaan.utils.stats import set_sigma_cutoff
 
@@ -44,18 +43,18 @@ class DetrendVisits(BaseAlg):
 
         self.durations = np.array([p.duration for p in self.planets])
 
-    def _transit_mask(self, lc, tight_mask, ttv_buffer):
-        exptime = self.exptime[lc.obsmode[0]]
+    def _transit_mask(self, time, obsmode, tight_mask, ttv_buffer):
+        exptime = self.exptime[obsmode]
 
         if tight_mask:
             abs_size = 2 * (exptime + np.max(ttv_buffer))
             return self.make_transit_mask(
-                rel_size=1.0, abs_size=abs_size, mask_type="condensed", time=lc.time
+                rel_size=1.0, abs_size=abs_size, mask_type="condensed", time=time
             )
 
         abs_size = 2 * (exptime + 1 / 24)
         return self.make_transit_mask(
-            rel_size=3.0, abs_size=abs_size, mask_type="condensed", time=lc.time
+            rel_size=3.0, abs_size=abs_size, mask_type="condensed", time=time
         )
 
     def _min_period(self, obsmode):
@@ -65,12 +64,19 @@ class DetrendVisits(BaseAlg):
             return np.max([5 * np.max(self.durations), 13 * KEPLER_LCIT])
         raise ValueError(f"unsuported obsmode: {obsmode}")
 
-    def _clip_outliers(self, lc, sigma_upper, sigma_lower, kernel_size, mask=None):
+    @staticmethod
+    def _clip_outliers(flux, visit, sigma_upper, sigma_lower, kernel_size, mask=None):
         """
         Sigma-clip outliers using astropy.stats.sigma_clip() and a smoothed trend
         Applies an additional iteration wrapper to allow for masked cadences
 
+        Returns a boolean mask over flux; True for cadences to keep
+
         Arguments:
+            flux : ndarray
+                flux for one visit
+            visit : int
+                visit number (for logging)
             sigma_upper : float
                 upper sigmga clipping threshold
             sigma_lower : float
@@ -82,17 +88,19 @@ class DetrendVisits(BaseAlg):
                 useful for protecting transits
         """
         if mask is None:
-            mask = np.zeros(len(lc.time), dtype=bool)
+            mask = np.zeros(len(flux), dtype=bool)
+        npts = len(flux)
+        idx = np.arange(npts)
 
         loop = True
         count = 0
         while loop:
             # first pass: try median filter
             if loop:
-                smoothed = median_filter(lc.flux, kernel_size=kernel_size)
+                smoothed = median_filter(flux, kernel_size=kernel_size)
 
                 bad = sigma_clip(
-                    lc.flux - smoothed,
+                    flux - smoothed,
                     sigma_upper=sigma_upper,
                     sigma_lower=sigma_lower,
                     stdfunc=mad_std,
@@ -105,15 +113,13 @@ class DetrendVisits(BaseAlg):
                 logger.debug(
                     "visit %d: median filter flagged %d of %d cadences; "
                     "retrying with savgol filter",
-                    lc.visit[0],
+                    visit,
                     np.sum(bad),
                     len(bad),
                 )
-                smoothed = savgol_filter(
-                    lc.flux, window_length=kernel_size, polyorder=2
-                )
+                smoothed = savgol_filter(flux, window_length=kernel_size, polyorder=2)
                 bad = sigma_clip(
-                    lc.flux - smoothed,
+                    flux - smoothed,
                     sigma_upper=sigma_upper,
                     sigma_lower=sigma_lower,
                     stdfunc=mad_std,
@@ -125,13 +131,14 @@ class DetrendVisits(BaseAlg):
                 logger.warning(
                     "visit %d: >1%% of cadences flagged by median and savgol filters "
                     "(%d of %d); skipping outlier rejection this iteration",
-                    lc.visit[0],
+                    visit,
                     np.sum(bad),
                     len(bad),
                 )
                 bad = np.zeros_like(mask)
 
-            lc.select(~bad)
+            flux = flux[~bad]
+            idx = idx[~bad]
 
             # update mask and iterate
             mask = mask[~bad]
@@ -144,7 +151,9 @@ class DetrendVisits(BaseAlg):
             if count >= 3:
                 loop = False
 
-        return lc
+        keep = np.zeros(npts, dtype=bool)
+        keep[idx] = True
+        return keep
 
     def _transit_theta(self):
         """Transit model parameters using the shape from QuickFitTransitShape"""
@@ -155,31 +164,8 @@ class DetrendVisits(BaseAlg):
 
         return theta
 
-    def _clip_transit_outliers(self, lc, theta):
-        """
-        Sigma-clip outliers from residuals about a transit model
-
-        Arguments:
-            theta : array-like
-                transit model parameters, num_planets * [C0, C1, rp, b, T14] + [q1, q2]
-        """
-        tm = TransitModel(self.star, self.planets, lc)
-
-        f_mod = tm.model_flux(theta)
-        sigma = set_sigma_cutoff(len(lc.flux), sigma_min=5.0)
-        logger.debug(
-            "visit %d: transit-model clipping at %.1f sigma", lc.visit[0], sigma
-        )
-
-        bad = sigma_clip(
-            lc.flux - f_mod, sigma_upper=sigma, sigma_lower=sigma, stdfunc=mad_std
-        ).mask
-
-        lc.select(~bad)
-
-        return lc
-
-    def _identify_breaks(self, lc, gap_tolerance, jump_tolerance, mask):
+    @staticmethod
+    def _identify_breaks(cadno, flux, gap_tolerance, jump_tolerance, mask):
         """
         Identify gaps (breaks in times) and jumps (sudden flux changes) in a litecurve
             * GAPS are consecutive missing cadences in the TIME domain
@@ -194,7 +180,7 @@ class DetrendVisits(BaseAlg):
                 1 near transit, 0 far from transit
         """
         # identify GAPS in time
-        gaps = np.pad(np.diff(lc.cadno), (1, 0), "constant", constant_values=(1, 0))
+        gaps = np.pad(np.diff(cadno), (1, 0), "constant", constant_values=(1, 0))
         gap_locs = np.pad(
             np.where(gaps > gap_tolerance)[0],
             (1, 1),
@@ -203,7 +189,7 @@ class DetrendVisits(BaseAlg):
         )
 
         # identify JUMPS in flux
-        jumps = np.pad(np.diff(lc.flux), (1, 0), "constant", constant_values=(0, 0))
+        jumps = np.pad(np.diff(flux), (1, 0), "constant", constant_values=(0, 0))
         jump_size = np.abs(jumps - np.median(jumps)) / mad_std(jumps)
         jump_locs = np.where(~mask.astype(bool) & (jump_size > jump_tolerance))[0]
 
@@ -218,14 +204,15 @@ class DetrendVisits(BaseAlg):
         break_locs[-1] -= 2
 
         assert break_locs[0] == 0, "unexpected edge behavior"
-        assert break_locs[-1] == len(lc.cadno) - 1, "unexpected edge behavior"
+        assert break_locs[-1] == len(cadno) - 1, "unexpected edge behavior"
 
         return break_locs
 
-    def _estimate_oscillation_period(self, lc, min_period):
-        lombscargle = LombScargle(lc.time, lc.flux)
+    @staticmethod
+    def _estimate_oscillation_period(time, flux, min_period):
+        lombscargle = LombScargle(time, flux)
 
-        min_freq = 1 / (lc.time.max() - lc.time.min())
+        min_freq = 1 / (time.max() - time.min())
         max_freq = 1 / min_period
 
         xf, yf = lombscargle.autopower(
@@ -237,14 +224,19 @@ class DetrendVisits(BaseAlg):
 
         return peak_per
 
-    def _estimate_oscillation_periods(self, litecurves):
-        oscillation_periods = np.zeros(len(litecurves))
-        for j, lc in enumerate(litecurves):
-            min_period = self._min_period(lc.obsmode[0])
-            oscillation_periods[j] = self._estimate_oscillation_period(lc, min_period)
+    def _estimate_oscillation_periods(self, lc):
+        """One Lomb-Scargle oscillation period per visit, in np.unique(visit) order"""
+        visits = np.unique(lc.visit)
+        oscillation_periods = np.zeros(len(visits))
+        for j, v in enumerate(visits):
+            use = lc.visit == v
+            min_period = self._min_period(lc.obsmode[use][0])
+            oscillation_periods[j] = self._estimate_oscillation_period(
+                lc.time[use], lc.flux[use], min_period
+            )
             logger.debug(
                 "visit %d: Lomb-Scargle oscillation period %.2f d (floor %.2f d)",
-                lc.visit[0],
+                v,
                 oscillation_periods[j],
                 1.001 * min_period,
             )
@@ -265,7 +257,7 @@ class DetrendVisits(BaseAlg):
             f"{self.config['RUN']['target']}_stellar_oscillations.txt",
         )
         oscillation_period_by_quarter = np.ones(18) * np.nan
-        quarter_indexes = [lc.visit[0] for lc in litecurves]
+        quarter_indexes = visits
         oscillation_period_by_quarter[quarter_indexes] = oscillation_periods
         np.savetxt(filename, np.stack([np.arange(18), oscillation_period_by_quarter]).T)
         logger.debug("wrote %s", filename)
@@ -274,7 +266,10 @@ class DetrendVisits(BaseAlg):
 
     def _detrend_gp(
         self,
-        lc,
+        time,
+        flux,
+        cadno,
+        visit,
         gp_term,
         nominal_gp_period,
         minimum_gp_period,
@@ -284,7 +279,13 @@ class DetrendVisits(BaseAlg):
         correct_ramp,
     ):
         """
+        Fit a GP trend to one visit; returns the predicted trend (same length as time)
+
         Arguments
+            time, flux, cadno : ndarray
+                cadence times, fluxes, and cadence numbers for one visit
+            visit : int
+                visit number (for logging)
             gp_term : str "RotationTerm" or "SHOTerm"
             nominal_gp_period : float
             minimum_gp_period : float
@@ -301,18 +302,18 @@ class DetrendVisits(BaseAlg):
         # gp parameters are shared between all segments
 
         break_locs = self._identify_breaks(
-            lc, gap_tolerance, jump_tolerance, transit_mask
+            cadno, flux, gap_tolerance, jump_tolerance, transit_mask
         )
 
         n_seg = len(break_locs) - 1
-        seg_id = np.zeros(len(lc.time), dtype=int)
+        seg_id = np.zeros(len(time), dtype=int)
 
         for i in range(n_seg):
             seg_id[break_locs[i] : break_locs[i + 1]] = i
         # break_locs[-1] is the last cadence, which belongs to the last segment
         seg_id[break_locs[-1]] = n_seg - 1
 
-        approx_mean = [np.mean(lc.flux[seg_id == i]) for i in range(n_seg)]
+        approx_mean = [np.mean(flux[seg_id == i]) for i in range(n_seg)]
 
         # convenience function
         def _mean_fxn(time, seg_id, flux0, ramp_amp, log_tau):
@@ -332,7 +333,7 @@ class DetrendVisits(BaseAlg):
         # pymc model
         with pm.Model() as model:
             # set up the kernel
-            log_sigma = pm.Normal("log_sigma", mu=np.log(mad_std(lc.flux)), sd=5.0)
+            log_sigma = pm.Normal("log_sigma", mu=np.log(mad_std(flux)), sd=5.0)
             sigma = pm.Deterministic("sigma", T.exp(log_sigma))
 
             log_P_off = pm.Normal(
@@ -360,7 +361,7 @@ class DetrendVisits(BaseAlg):
             flux0 = pm.Normal("flux0", mu=approx_mean, sd=np.ones(n_seg), shape=n_seg)
 
             if correct_ramp:
-                ramp_amp = pm.Normal("ramp_amp", mu=0, sd=np.std(lc.flux), shape=n_seg)
+                ramp_amp = pm.Normal("ramp_amp", mu=0, sd=np.std(flux), shape=n_seg)
                 log_tau = pm.Normal("log_tau", mu=0, sd=5, shape=n_seg)
             else:
                 ramp_amp = T.zeros(n_seg)
@@ -370,23 +371,23 @@ class DetrendVisits(BaseAlg):
             oot = ~transit_mask
             mean_oot = pm.Deterministic(
                 "mean_oot",
-                _mean_fxn(lc.time[oot], seg_id[oot], flux0, ramp_amp, log_tau),
+                _mean_fxn(time[oot], seg_id[oot], flux0, ramp_amp, log_tau),
             )
             mean_all = pm.Deterministic(
-                "mean_all", _mean_fxn(lc.time, seg_id, flux0, ramp_amp, log_tau)
+                "mean_all", _mean_fxn(time, seg_id, flux0, ramp_amp, log_tau)
             )
             log_var = pm.Normal(
-                "log_var", mu=np.var(lc.flux - median_filter(lc.flux, 13)), sd=5.0
+                "log_var", mu=np.var(flux - median_filter(flux, 13)), sd=5.0
             )
 
             gp = GaussianProcess(kernel, mean=mean_oot)
-            gp.compute(lc.time[oot], diag=T.exp(log_var) * T.ones(len(lc.time[oot])))
+            gp.compute(time[oot], diag=T.exp(log_var) * T.ones(len(time[oot])))
 
             # likelihood
-            pm.Potential("lnlike", gp.log_likelihood(lc.flux[oot]))
+            pm.Potential("lnlike", gp.log_likelihood(flux[oot]))
 
             # predicted trend; if len(y)!=len(t) set include_mean=False
-            pred = gp.predict(lc.flux[oot], t=lc.time, include_mean=False)
+            pred = gp.predict(flux[oot], t=time, include_mean=False)
             pm.Deterministic("pred", pred + mean_all)
 
         # optimize hyperparameters
@@ -415,13 +416,11 @@ class DetrendVisits(BaseAlg):
 
         # "precision loss" non-success is routine here; pmx warns on non-finite logp
         if info is not None and not info.success:
-            logger.debug(
-                "visit %d: %s GP optimizer: %s", lc.visit[0], gp_term, info.message
-            )
+            logger.debug("visit %d: %s GP optimizer: %s", visit, gp_term, info.message)
         logger.info(
             "visit %d: %s GP, %d segments, ramp = %s, P = %.2f d (nominal %.2f d), "
             "Q0 = %.2f, sigma = %.2e",
-            lc.visit[0],
+            visit,
             gp_term,
             n_seg,
             correct_ramp,
@@ -431,13 +430,23 @@ class DetrendVisits(BaseAlg):
             map_soln["sigma"],
         )
 
-        lc.flux /= map_soln["pred"]
-        lc.error /= map_soln["pred"]
+        return map_soln["pred"]
 
-        return lc
-
-    def _detrend(self, lc, oscillation_periods, tight_mask, ttv_buffer):
-        obsmode = lc.obsmode[0]
+    def _detrend(
+        self,
+        time,
+        flux,
+        cadno,
+        visit,
+        obsmode,
+        oscillation_periods,
+        tight_mask,
+        ttv_buffer,
+    ):
+        """
+        Detrend one visit, falling back to successively simpler GP models;
+        returns the predicted trend (same length as time)
+        """
 
         if obsmode == "short cadence":
             gap_tolerance = np.max(
@@ -451,10 +460,10 @@ class DetrendVisits(BaseAlg):
             raise ValueError(f"unsuported obsmode: {obsmode}")
 
         min_period = self._min_period(obsmode)
-        mask = self._transit_mask(lc, tight_mask, ttv_buffer)
+        mask = self._transit_mask(time, obsmode, tight_mask, ttv_buffer)
         logger.debug(
             "visit %d: %s transit mask covers %d of %d cadences; gap tolerance = %d",
-            lc.visit[0],
+            visit,
             "tight" if tight_mask else "wide",
             np.sum(mask),
             len(mask),
@@ -463,14 +472,17 @@ class DetrendVisits(BaseAlg):
         if np.mean(mask) > 0.5:
             logger.warning(
                 "visit %d: transit mask covers %.0f%% of cadences",
-                lc.visit[0],
+                visit,
                 100 * np.mean(mask),
             )
 
         # use successively simpler models as fallbacks
         try:
             return self._detrend_gp(
-                lc,
+                time,
+                flux,
+                cadno,
+                visit,
                 "RotationTerm",
                 np.nanmedian(oscillation_periods),
                 min_period,
@@ -482,13 +494,16 @@ class DetrendVisits(BaseAlg):
         except LinAlgError as e:
             logger.warning(
                 "visit %d: RotationTerm GP with ramp failed (%s); refitting w/o ramp",
-                lc.visit[0],
+                visit,
                 e,
             )
 
         try:
             return self._detrend_gp(
-                lc,
+                time,
+                flux,
+                cadno,
+                visit,
                 "RotationTerm",
                 np.nanmedian(oscillation_periods),
                 min_period,
@@ -500,12 +515,15 @@ class DetrendVisits(BaseAlg):
         except LinAlgError as e:
             logger.warning(
                 "visit %d: RotationTerm GP failed (%s); falling back to SHOTerm",
-                lc.visit[0],
+                visit,
                 e,
             )
 
         return self._detrend_gp(
-            lc,
+            time,
+            flux,
+            cadno,
+            visit,
             "SHOTerm",
             np.nanmedian(oscillation_periods),
             min_period,
@@ -548,53 +566,73 @@ class DetrendVisits(BaseAlg):
         if tight_mask and ttv_buffer is None:
             raise ValueError("tight_mask=True requires ttv_buffer (from RegularizeOMC)")
 
-        litecurves = self.litecurve.split_visits()
+        lc = self.litecurve
+        visits = np.unique(lc.visit)
 
+        # clip outliers from the incoming flux, one visit at a time
         if clip_outliers == "transit_model":
-            theta = self._transit_theta()
+            f_mod = TransitModel(self.star, self.planets, lc).model_flux(
+                self._transit_theta()
+            )
 
-        for lc in litecurves:
-            npts_initial = len(lc.time)
+        keep = np.ones(len(lc.time), dtype=bool)
+        for v in visits:
+            use = (lc.visit == v) & keep
+            npts_initial = int(np.sum(use))
 
             if clip_outliers == "local_trend":
-                lc = self._clip_outliers(
-                    lc,
-                    sigma_upper=5,
-                    sigma_lower=5,
-                    kernel_size=13,
-                    mask=self._transit_mask(lc, tight_mask, ttv_buffer),
+                transit_mask = self._transit_mask(
+                    lc.time[use], lc.obsmode[use][0], tight_mask, ttv_buffer
                 )
-                lc = self._clip_outliers(
-                    lc, sigma_upper=5, sigma_lower=1000, kernel_size=13
+                keep[use] = self._clip_outliers(
+                    lc.flux[use], v, 5, 5, 13, mask=transit_mask
                 )
-            elif clip_outliers == "transit_model":
-                lc = self._clip_transit_outliers(lc, theta)
+                use = (lc.visit == v) & keep
+                keep[use] = self._clip_outliers(lc.flux[use], v, 5, 1000, 13)
 
-            lc.reset(self.raw_litecurve)
+            elif clip_outliers == "transit_model":
+                sigma = set_sigma_cutoff(int(np.sum(use)), sigma_min=5.0)
+                logger.debug("visit %d: transit-model clipping at %.1f sigma", v, sigma)
+                keep[use] = ~sigma_clip(
+                    lc.flux[use] - f_mod[use],
+                    sigma_upper=sigma,
+                    sigma_lower=sigma,
+                    stdfunc=mad_std,
+                ).mask
 
             logger.info(
                 "visit %d: %d of %d cadences rejected as outliers (%s)",
-                lc.visit[0],
-                npts_initial - len(lc.time),
+                v,
+                npts_initial - int(np.sum((lc.visit == v) & keep)),
                 npts_initial,
                 clip_outliers,
             )
 
-        oscillation_periods = self._estimate_oscillation_periods(litecurves)
+        # detrend raw photometry for surviving cadences
+        lc.select(keep)
+        lc.reset(self.raw_litecurve)
 
-        for j, lc in enumerate(litecurves):
-            litecurves[j] = self._detrend(
-                lc, oscillation_periods, tight_mask, ttv_buffer
+        oscillation_periods = self._estimate_oscillation_periods(lc)
+
+        for v in visits:
+            use = lc.visit == v
+            pred = self._detrend(
+                lc.time[use],
+                lc.flux[use],
+                lc.cadno[use],
+                v,
+                lc.obsmode[use][0],
+                oscillation_periods,
+                tight_mask,
+                ttv_buffer,
             )
+            lc.flux[use] /= pred
+            lc.error[use] /= pred
 
-        litecurve = LiteCurve.concatenate_visits(litecurves)
-
-        obsmodes = np.unique(litecurve.obsmode)
+        obsmodes = np.unique(lc.obsmode)
         if len(obsmodes) != 1 or obsmodes[0] not in ("long cadence", "short cadence"):
             raise ValueError(f"expected a single long or short cadence, got {obsmodes}")
         cadence = "lc" if obsmodes[0] == "long cadence" else "sc"
-        litecurve.to_fits(
-            os.path.join(results_dir, f"{target}_{cadence}_detrended.fits")
-        )
+        lc.to_fits(os.path.join(results_dir, f"{target}_{cadence}_detrended.fits"))
 
-        return self.star, self.planets, litecurve
+        return self.star, self.planets, lc
