@@ -9,6 +9,7 @@ from aesara_theano_fallback import aesara as theano
 from astropy.units import UnitsWarning
 
 import alderaan
+from alderaan.algorithms.clip_outliers import ClipOutliers
 from alderaan.algorithms.detrend_visits import DetrendVisits
 from alderaan.algorithms.flag_bad_transits import FlagBadTransits
 from alderaan.algorithms.regularize_omc import RegularizeOMC
@@ -118,8 +119,12 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
         )
 
     # 1st pass
-    planets, litecurve = DetrendVisits(star, planets, litecurve, raw_litecurve).perform(
-        tight_mask=False, clip_outliers="local_trend"
+    planets, litecurve = ClipOutliers(star, planets, litecurve).perform(
+        method="local_trend"
+    )
+    litecurve.reset(raw_litecurve)  # detrend raw photometry for surviving cadences
+    planets, litecurve = DetrendVisits(star, planets, litecurve).perform(
+        tight_mask=False
     )
     litecurve.plot(
         mark_times=[p.transit_times.ttime_mod for p in planets],
@@ -138,12 +143,14 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
         )
 
     # 2nd pass
-    planets, litecurve = DetrendVisits(star, planets, litecurve, raw_litecurve).perform(
-        tight_mask=True, clip_outliers="transit_model"
+    planets, litecurve = ClipOutliers(star, planets, litecurve).perform(
+        method="transit_model"
     )
-    (obsmode,) = set(litecurve.obsmode)  # fails loudly on mixed cadence
-    cadence = {"long cadence": "lc", "short cadence": "sc"}[obsmode]
-    litecurve.to_fits(os.path.join(results_dir, f"{target}_{cadence}_detrended.fits"))
+    litecurve.reset(raw_litecurve)  # detrend raw photometry for surviving cadences
+    planets, litecurve = DetrendVisits(star, planets, litecurve).perform(
+        tight_mask=True
+    )
+    litecurve.to_fits(os.path.join(results_dir, f"{target}_detrended.fits"))
     litecurve.plot(
         mark_times=[p.transit_times.ttime_mod for p in planets],
         fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_detrended_pass2.png"),

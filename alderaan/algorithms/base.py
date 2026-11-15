@@ -124,6 +124,25 @@ class BaseAlg:
         else:
             raise ValueError(f"mask_type {mask_type} not supported")
 
+    def _transit_mask(self, time, obsmode, tight_mask):
+        """
+        Condensed transit mask over time; tight = 1 x T14 plus the largest
+        TransitTimes.ttv_buffer(), wide = 3 x T14 plus 1 hour
+        """
+        exptime = self.exptime[obsmode]
+
+        if tight_mask:
+            ttv_buffer = max(p.transit_times.ttv_buffer() for p in self.planets)
+            abs_size = 2 * (exptime + ttv_buffer)
+            return self.make_transit_mask(
+                rel_size=1.0, abs_size=abs_size, mask_type="condensed", time=time
+            )
+
+        abs_size = 2 * (exptime + 1 / 24)
+        return self.make_transit_mask(
+            rel_size=3.0, abs_size=abs_size, mask_type="condensed", time=time
+        )
+
     def identify_overlapping_transits(self, rtol=None, atol=None):
         """
         Identify where transits overlap based on separation of transit midpoints
