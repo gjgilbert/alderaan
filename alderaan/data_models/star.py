@@ -4,7 +4,9 @@ __all__ = ["Star"]
 class Star:
     """Star"""
 
-    def __init__(self, koi_id, kic_id, u1, u2):
+    def __init__(self, mission, target, koi_id, kic_id, u1, u2):
+        self.mission = mission
+        self.target = target
         self.koi_id = koi_id
         self.kic_id = kic_id
 

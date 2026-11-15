@@ -195,5 +195,5 @@ class SampleTransitModel(BaseTransitFittingAlg):
         self._log_posterior_summary(results, tm)
 
         return Posteriors.from_dynesty(
-            self.config["RUN"]["mission"], self.config["RUN"]["target"], results, tm
+            self.litecurve.mission, self.litecurve.target, results, tm
         )

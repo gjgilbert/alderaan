@@ -254,7 +254,7 @@ class DetrendVisits(BaseAlg):
 
         filename = os.path.join(
             self.config["PATHS"]["results_dir"],
-            f"{self.config['RUN']['target']}_stellar_oscillations.txt",
+            f"{self.litecurve.target}_stellar_oscillations.txt",
         )
         oscillation_period_by_quarter = np.ones(18) * np.nan
         quarter_indexes = visits
@@ -555,7 +555,7 @@ class DetrendVisits(BaseAlg):
         litecurve : LiteCurve
             detrended litecurve
         """
-        target = self.config["RUN"]["target"]
+        target = self.litecurve.target
         results_dir = self.config["PATHS"]["results_dir"]
 
         if clip_outliers not in ("local_trend", "transit_model"):

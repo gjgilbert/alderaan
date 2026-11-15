@@ -136,7 +136,7 @@ def parse_holczer16_catalog(filepath, koi_id, num_planets):
     return transit_times
 
 
-def match_holczer16_transit_times(planets, transit_times, target):
+def match_holczer16_transit_times(planets, transit_times):
     """
     Assign Holczer+2016 transit times to planets by matching periods
 
@@ -148,7 +148,6 @@ def match_holczer16_transit_times(planets, transit_times, target):
     planets : list of Planet
     transit_times : list of (index, ttime, error) tuples
         output of parse_holczer16_catalog
-    target : str
 
     Returns
     -------
@@ -190,8 +189,8 @@ def match_holczer16_transit_times(planets, transit_times, target):
             try:
                 p.set_transit_times(
                     TransitTimes(
-                        "Kepler",
-                        target,
+                        p.mission,
+                        p.target,
                         index - index[0],
                         ttime_obs=ttime,
                         error_obs=error,
@@ -251,6 +250,8 @@ def load_kepler_data(config):
 
     npl = int(catalog.npl[0])
     star = Star(
+        "Kepler",
+        target,
         catalog.koi_id[0],
         int(catalog.kic_id[0]),
         catalog.limbdark_1[0],
@@ -287,6 +288,8 @@ def load_kepler_data(config):
     planets = [None] * npl
     for n in range(npl):
         planets[n] = Planet(
+            "Kepler",
+            target,
             catalog.period[n],
             catalog.epoch[n],
             catalog.depth[n],
@@ -333,7 +336,7 @@ def load_kepler_data(config):
         ttv_filepath,
     )
 
-    planets = match_holczer16_transit_times(planets, holczer_transit_times, target)
+    planets = match_holczer16_transit_times(planets, holczer_transit_times)
 
     # clip planet transit times to the litecurve time range and refit ephemerides
     for n, p in enumerate(planets):

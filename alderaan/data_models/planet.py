@@ -8,6 +8,7 @@ class Planet:
     Physical planet parameters plus one attached TransitTimes
 
     Args:
+        mission, target (str)
         period (float) : initial orbital period (days), e.g. from a catalog
         epoch (float) : initial transit epoch
         depth (float) : transit depth (fraction)
@@ -18,7 +19,9 @@ class Planet:
     linear ephemeris fit to those transit times
     """
 
-    def __init__(self, period, epoch, depth, duration, impact):
+    def __init__(self, mission, target, period, epoch, depth, duration, impact):
+        self.mission = mission
+        self.target = target
         self._period = period
         self._epoch = epoch
         self.depth = depth

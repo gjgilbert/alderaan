@@ -2,6 +2,7 @@ __all__ = ["LiteCurve"]
 
 import glob
 import logging
+import os
 
 import lightkurve as lk
 import matplotlib.pyplot as plt
@@ -12,15 +13,15 @@ from alderaan.utils.plotting import label_axes, save_and_close
 
 logger = logging.getLogger(__name__)
 
-# per-cadence arrays carried by every LiteCurve, in __init__ order:
-# name -> (dtype, FITS column format); OBSMODE width is set at write time
+# per-cadence arrays carried by every LiteCurve: name -> FITS column format;
+# OBSMODE width is set at write time
 FIELDS = {
-    "time": (float, "D"),
-    "flux": (float, "D"),
-    "error": (float, "D"),
-    "cadno": (int, "K"),
-    "visit": (int, "K"),
-    "obsmode": (str, None),
+    "time": "D",
+    "flux": "D",
+    "error": "D",
+    "cadno": "K",
+    "visit": "K",
+    "obsmode": None,
 }
 
 
@@ -46,9 +47,12 @@ class LiteCurve:
         self.mission = mission
         self.target = target
 
-        arrays = (time, flux, error, cadno, visit, obsmode)
-        for (k, (dtype, _)), x in zip(FIELDS.items(), arrays):
-            setattr(self, k, np.asarray(x, dtype=dtype))
+        self.time = np.asarray(time, dtype=float)
+        self.flux = np.asarray(flux, dtype=float)
+        self.error = np.asarray(error, dtype=float)
+        self.cadno = np.asarray(cadno, dtype=int)
+        self.visit = np.asarray(visit, dtype=int)
+        self.obsmode = np.asarray(obsmode, dtype=str)
 
         lengths = {len(getattr(self, k)) for k in FIELDS}
         if len(lengths) != 1:
@@ -63,7 +67,7 @@ class LiteCurve:
             return cls(
                 hdu.header["MISSION"],
                 hdu.header["TARGET"],
-                *(hdu.data[k.upper()] for k in FIELDS),
+                **{k: hdu.data[k.upper()] for k in FIELDS},
             )
 
     @classmethod
@@ -92,7 +96,9 @@ class LiteCurve:
             visits = [visits]
 
         # read requested MAST files (visits are Kepler quarters)
-        mast_files = sorted(glob.glob(data_dir + f"kplr{kic_id:09d}*.fits"))
+        mast_files = sorted(
+            glob.glob(os.path.join(data_dir, f"kplr{kic_id:09d}*.fits"))
+        )
         logger.info("found %d MAST files for KIC %d", len(mast_files), kic_id)
 
         raw = []
@@ -208,7 +214,7 @@ class LiteCurve:
             fits.Column(
                 name=k.upper(), format=fmt or f"{width}A", array=getattr(self, k)
             )
-            for k, (_, fmt) in FIELDS.items()
+            for k, fmt in FIELDS.items()
         ]
         hdu = fits.BinTableHDU.from_columns(columns, name="LITECURVE")
         hdu.header["MISSION"] = self.mission
