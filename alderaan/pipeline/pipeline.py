@@ -19,7 +19,6 @@ from alderaan.algorithms.transit_fitting import (
     SampleTransitModel,
 )
 from alderaan.data_models.results import Results
-from alderaan.quicklook import PlotOMC, PlotPhotometry, PlotResults
 from alderaan.utils.kepler import load_kepler_data
 from alderaan.utils.logger import setup_logging
 
@@ -112,23 +111,28 @@ def _run(config, mission, target, run_id, output_dir):
 
     raw_litecurve = copy.deepcopy(litecurve)
 
-    PlotPhotometry(litecurve, planets).plot_litecurve(
-        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_raw.png")
+    # quicklook figures are written to {quicklook_dir}/{target}_*.png
+    ql = os.path.join(quicklook_dir, target)
+
+    litecurve.plot(
+        transit_times=[p.transit_times for p in planets],
+        fig_path=f"{ql}_litecurve_raw.png",
     )
 
     star, planets, litecurve, _, omc = RegularizeOMC(
         star, planets, litecurve, config
     ).perform(method="smooth")
-    PlotOMC(omc).plot_omc(
-        fig_path=os.path.join(quicklook_dir, f"{target}_omc_initial.png")
+    Results(transit_times=omc).plot_omc(
+        show_outliers=True, fig_path=f"{ql}_omc_initial.png"
     )
 
     # 1st pass
     star, planets, litecurve = DetrendVisits(
         star, planets, litecurve, raw_litecurve, config
     ).perform(tight_mask=False, clip_outliers="local_trend")
-    PlotPhotometry(litecurve, planets).plot_litecurve(
-        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_detrended_pass1.png")
+    litecurve.plot(
+        transit_times=[p.transit_times for p in planets],
+        fig_path=f"{ql}_litecurve_detrended_pass1.png",
     )
     star, planets, litecurve = FlagBadTransits(
         star, planets, litecurve, config
@@ -142,16 +146,17 @@ def _run(config, mission, target, run_id, output_dir):
     star, planets, litecurve, ttv_buffer, transit_times = RegularizeOMC(
         star, planets, litecurve, config
     ).perform(method="select")
-    PlotOMC(transit_times).plot_omc(
-        fig_path=os.path.join(quicklook_dir, f"{target}_omc.png")
+    Results(transit_times=transit_times).plot_omc(
+        show_outliers=True, fig_path=f"{ql}_omc.png"
     )
 
     # 2nd pass
     star, planets, litecurve = DetrendVisits(
         star, planets, litecurve, raw_litecurve, config
     ).perform(tight_mask=True, clip_outliers="transit_model", ttv_buffer=ttv_buffer)
-    PlotPhotometry(litecurve, planets).plot_litecurve(
-        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_detrended_pass2.png")
+    litecurve.plot(
+        transit_times=[p.transit_times for p in planets],
+        fig_path=f"{ql}_litecurve_detrended_pass2.png",
     )
     star, planets, litecurve = FlagBadTransits(
         star, planets, litecurve, config
@@ -165,23 +170,10 @@ def _run(config, mission, target, run_id, output_dir):
     results_path = os.path.join(results_dir, f"{target}-results.fits")
     results.to_fits(results_path)
 
-    plot_results = PlotResults(results)
-    plot_results.plot_runplot(
-        fig_path=os.path.join(quicklook_dir, f"{target}_dynesty_runplot.png")
-    )
+    posteriors.plot_runplot(fig_path=f"{ql}_dynesty_runplot.png")
     for n in range(results.npl):
-        plot_results.plot_traceplot(
-            n,
-            fig_path=os.path.join(
-                quicklook_dir, f"{target}_dynesty_traceplot_{n:02d}.png"
-            ),
-        )
-        plot_results.plot_cornerplot(
-            n,
-            fig_path=os.path.join(
-                quicklook_dir, f"{target}_dynesty_cornerplot_{n:02d}.png"
-            ),
-        )
+        posteriors.plot_traceplot(n, fig_path=f"{ql}_dynesty_traceplot_{n:02d}.png")
+        posteriors.plot_cornerplot(n, fig_path=f"{ql}_dynesty_cornerplot_{n:02d}.png")
     logger.info("wrote quicklook plots to %s", quicklook_dir)
 
     return results_path

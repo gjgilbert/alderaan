@@ -5,7 +5,6 @@ import logging
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
-from astropy.stats import mad_std
 
 from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.data_models.litecurve import LiteCurve
@@ -13,6 +12,7 @@ from alderaan.data_models.posteriors import Posteriors
 from alderaan.data_models.transit_times import TransitTimes
 from alderaan.models.transit_model import TransitModel
 from alderaan.utils.astro import bin_data, ld_q_to_u
+from alderaan.utils.plotting import corner_text, label_axes, save_and_close
 from alderaan.utils.stats import weighted_percentile
 
 logger = logging.getLogger(__name__)
@@ -136,78 +136,35 @@ class Results:
     def planet_samples(self, n):
         return self.posteriors.planet_samples(n)
 
-    def plot_lightcurve(self, visit=None):
-        """
-        Plot detrended photometry; all visits if visit is None
-        """
-        lc = self.litecurve
-        use = np.ones(len(lc.time), dtype=bool) if visit is None else lc.visit == visit
-        if not np.any(use):
-            raise ValueError(f"no data for visit {visit}")
+    # plot methods: fig_path saves the figure there and closes it; default leaves
+    # it open
 
-        fig, ax = plt.subplots(1, 1, figsize=(20, 4))
-        ax.plot(lc.time[use], lc.flux[use], "k.", ms=1)
-        ax.tick_params(labelsize=12)
-        ax.set_xlabel("Time [BKJD]", fontsize=24)
-        ax.set_ylabel("Flux", fontsize=24)
-        ax.set_xlim(lc.time[use].min(), lc.time[use].max())
-
-        return fig
-
-    def plot_omc(self, show_outliers=False):
+    def plot_lightcurve(self, visit=None, ax=None, fig_path=None):
         """
-        Plot O-C transit times and regularized model for each planet
+        Plot detrended photometry with transit times marked; returns the Axes
+        (see LiteCurve.plot)
         """
-        fig, ax = plt.subplots(self.npl, figsize=(12, 3 * self.npl))
-        if self.npl == 1:
-            ax = [ax]
+        return self.litecurve.plot(
+            visit=visit, transit_times=self.transit_times, ax=ax, fig_path=fig_path
+        )
+
+    def plot_omc(self, show_outliers=False, fig_path=None):
+        """
+        Plot O-C for each planet, one panel per planet; returns the Figure
+        (see TransitTimes.plot_omc)
+        """
+        fig, ax = plt.subplots(self.npl, figsize=(8, 3 * self.npl), squeeze=False)
+        ax = ax[:, 0]
 
         for n, tt in enumerate(self.transit_times):
-            obs = np.isfinite(tt.ttime_obs)
-            good = obs & ~tt.out_flag
-            bad = obs & tt.out_flag
-            omc_obs = (tt.ttime_obs - tt.linear_ephemeris()) * 24 * 60
-            omc = (tt.ttime_mod - tt.linear_ephemeris()) * 24 * 60
-
-            if show_outliers:
-                ax[n].scatter(
-                    tt.ttime_obs[obs], omc_obs[obs], c=tt.out_prob[obs], cmap="viridis"
-                )
-                ax[n].plot(tt.ttime_obs[bad], omc_obs[bad], "rx")
-                ax[n].plot(tt.ttime_mod, omc, "k")
-            else:
-                ax[n].plot(tt.ttime_obs[good], omc_obs[good], "o", c="lightgrey")
-                ax[n].plot(tt.ttime_mod, omc, c=f"C{n}", lw=3)
-
-            rms = mad_std(omc_obs[good] - omc[good])
-            ax[n].text(
-                0.95,
-                0.10,
-                f"residual RMS = {rms:.1f} min",
-                transform=ax[n].transAxes,
-                ha="right",
-            )
-            ax[n].set_ylabel("O-C [min]", fontsize=20)
-
-        ax[0].set_title(self.target, fontsize=20)
-        ax[-1].set_xlabel("Time [BKJD]", fontsize=20)
+            tt.plot_omc(show_outliers=show_outliers, color=f"C{n}", ax=ax[n])
+        for a in ax[:-1]:
+            a.set_xlabel("")
+        label_axes(ax[0], title=self.target)
+        fig.tight_layout()
+        save_and_close(fig, fig_path)
 
         return fig
-
-    def plot_transit(self, n, index=None, folded=True, max_pts=1000):
-        """
-        Plot photometry and median posterior model for planet n
-
-        folded=True : phase-folded on all model transit times
-        folded=False : single transit at transit index `index`
-        """
-        if folded:
-            return self._plot_phase_folded_transit(n, max_pts)
-
-        if index is None:
-            raise ValueError("index is required when folded=False")
-
-        return self._plot_single_transit(n, index)
 
     def median_transit_params(self, n):
         """
@@ -230,7 +187,11 @@ class Results:
             *ld_q_to_u(median["LD_Q1"], median["LD_Q2"]),
         )
 
-    def _plot_single_transit(self, n, index):
+    def plot_transit(self, n, index, ax=None, fig_path=None):
+        """
+        Plot photometry and median posterior model around one transit of planet n
+        (transit index `index`); returns the Axes
+        """
         tt = self.transit_times[n]
         if not np.any(tt.index == index):
             raise ValueError(f"planet {n} has no transit with index {index}")
@@ -249,18 +210,33 @@ class Results:
         t_mod = np.arange(t_obs.min(), t_obs.max(), KEPLER_SCIT)
         f_mod = (TransitModel.transit_flux(t_mod - tc, *params) - 1.0) * 1000
 
-        fig, ax = plt.subplots(1, 1, figsize=(12, 4))
+        new_figure = ax is None
+        if new_figure:
+            _, ax = plt.subplots(1, 1, figsize=(12, 4))
         ax.plot(t_obs, f_obs, "o", color="lightgrey")
         ax.plot(t_mod, f_mod, color=f"C{n}", lw=2)
         ax.set_xlim(tc - 1.55 * T14, tc + 1.55 * T14)
-        ax.tick_params(labelsize=12)
-        ax.set_xlabel("Time [BKJD]", fontsize=24)
-        ax.set_ylabel("Flux [ppt]", fontsize=24)
-        ax.set_title(f"{self.target} - Planet {n}, transit {index}", fontsize=18)
+        corner_text(ax, f"P = {params[1]:.2f} d", "lower right")
+        label_axes(
+            ax,
+            "Time [BKJD]",
+            "Flux [ppt]",
+            f"{self.target} - Planet {n}, transit {index}",
+        )
+        if new_figure:
+            ax.figure.tight_layout()
+        save_and_close(ax.figure, fig_path)
 
-        return fig
+        return ax
 
-    def _plot_phase_folded_transit(self, n, max_pts=1000):
+    def plot_folded_transit(self, n, max_pts=1000, fig_path=None):
+        """
+        Plot photometry of planet n folded on the model transit times, with the
+        median posterior model and residuals; returns the Figure
+
+        max_pts : int
+            maximum number of unbinned points drawn (deterministic subset)
+        """
         params = self.median_transit_params(n)
         T14 = params[4]
 
@@ -305,20 +281,15 @@ class Results:
         ax[0].plot(t_binned * 24, f_binned, "s", color="w", mec="k", ms=10)
         ax[0].plot(t_mod * 24, f_mod, color=f"C{n}", lw=3)
         ax[0].plot(t_mod * 24, f_mod_lc, "k--", lw=2)
-        ax[0].set_ylabel("Flux", fontsize=24)
-        ax[0].set_title(f"{self.target} - Planet {n}", fontsize=18)
+        label_axes(ax[0], ylabel="Flux", title=f"{self.target} - Planet {n}")
 
         ax[1].plot(t_folded[inds] * 24, residuals[inds], ".", color="lightgrey")
         ax[1].plot(t_binned * 24, r_binned, "s", color="w", mec="k", ms=10)
         ax[1].axhline(0, color="k", ls="--", lw=2)
         ax[1].set_xlim(t_folded.min() * 24, t_folded.max() * 24)
-        ax[1].set_xlabel("Time from mid-transit [hrs]", fontsize=24)
-        ax[1].text(
-            0.02,
-            0.8,
-            f"RMS = {int(np.std(residuals) * 1e6)} ppm",
-            transform=ax[1].transAxes,
-            fontsize=11,
-        )
+        corner_text(ax[1], f"RMS = {int(np.std(residuals) * 1e6)} ppm", "lower left")
+        label_axes(ax[1], xlabel="Time from mid-transit [hrs]")
+        fig.tight_layout()
+        save_and_close(fig, fig_path)
 
         return fig

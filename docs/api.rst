@@ -11,6 +11,5 @@ API Documentation
    litecurve
    planet
    posteriors
-   quicklook
    results
    transit_times

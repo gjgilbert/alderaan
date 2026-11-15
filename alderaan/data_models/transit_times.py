@@ -1,8 +1,11 @@
 __all__ = ["TransitTimes"]
 
+import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
+from astropy.stats import mad_std
 
+from alderaan.utils.plotting import corner_text, label_axes, save_and_close
 from alderaan.utils.stats import robust_polyfit
 
 # name -> (dtype, FITS column format); index, ttime_obs, ttime_mod are always set,
@@ -108,6 +111,69 @@ class TransitTimes:
         arrays = {k: getattr(self, k)[use] for k in self._fields()}
         arrays["index"] = arrays["index"] - arrays["index"][0]
         return TransitTimes(self.mission, self.target, **arrays)
+
+    def plot_omc(self, show_outliers=False, color="C0", ax=None, fig_path=None):
+        """
+        Plot observed and modeled O-C (minutes) relative to linear_ephemeris();
+        returns the Axes
+
+        Parameters
+        ----------
+        show_outliers : bool
+            color observed times by outlier probability and mark flagged times
+            with a red x; default plots only unflagged observed times
+        color : str
+            model line color (black when outlier probabilities are shown)
+        ax : matplotlib Axes, optional
+            draw here; default makes a new figure
+        fig_path : str, optional
+            save the figure here and close it; default leaves it open
+        """
+        new_figure = ax is None
+        if new_figure:
+            _, ax = plt.subplots(1, 1, figsize=(8, 3))
+
+        omc_obs = (self.ttime_obs - self.linear_ephemeris()) * 24 * 60
+        omc_mod = (self.ttime_mod - self.linear_ephemeris()) * 24 * 60
+        obs = np.isfinite(self.ttime_obs)
+        flag = (
+            np.zeros(len(obs), dtype=bool) if self.out_flag is None else self.out_flag
+        )
+        good = obs & ~flag
+
+        line_color = color
+        if show_outliers:
+            prob = None if self.out_prob is None else self.out_prob[obs]
+            if prob is None or np.all(np.isnan(prob)):
+                ax.scatter(self.ttime_obs[obs], omc_obs[obs], c="lightgrey")
+            else:
+                ax.scatter(
+                    self.ttime_obs[obs],
+                    omc_obs[obs],
+                    c=prob,
+                    cmap="viridis",
+                    vmin=0,
+                    vmax=1,
+                )
+                line_color = "k"
+            ax.plot(self.ttime_obs[obs & flag], omc_obs[obs & flag], "rx")
+        else:
+            ax.plot(self.ttime_obs[good], omc_obs[good], "o", c="lightgrey")
+        ax.plot(self.ttime_mod, omc_mod, c=line_color, lw=2)
+
+        rms = mad_std(omc_obs[good] - omc_mod[good])
+        corner_text(ax, f"P = {self.period:.2f} d", "upper right")
+        corner_text(ax, f"residual RMS = {rms:.1f} min", "lower right")
+
+        shown = obs if show_outliers else good
+        yrange = max(5, 1.1 * np.max(np.abs(omc_obs[shown]), initial=0))
+        ax.set_ylim(-yrange, yrange)
+        label_axes(ax, "Time [BKJD]", "O-C [min]")
+        if new_figure:
+            ax.figure.tight_layout()
+        save_and_close(ax.figure, fig_path)
+
+        return ax
 
     def _to_hdu(self, n):
         """

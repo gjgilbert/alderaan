@@ -4,9 +4,14 @@ import dynesty
 import numpy as np
 import pandas as pd
 from astropy.io import fits
+from dynesty import plotting as dyplot
 
 from alderaan.utils.astro import ld_q_to_u
+from alderaan.utils.plotting import save_and_close
 from alderaan.utils.stats import robust_polyfit, weighted_percentile
+
+# per-planet sample columns, for trace and corner plots
+PARAMETER_LABELS = "C0 C1 r b T14".split()
 
 
 class Posteriors:
@@ -291,3 +296,75 @@ class Posteriors:
                 "LN_WT": self.ln_wt,
             }
         )
+
+    def _dynesty_results(self):
+        """
+        dynesty Results for dynesty.plotting; samples_u and samples_id are required
+        by its constructor but unused by these plots
+        """
+        if self.ln_vol is None:
+            raise ValueError("Posteriors is missing ln_vol, ln_zerr, and n_live")
+
+        samples = self.samples.to_numpy()
+        return dynesty.utils.Results(
+            {
+                "samples": samples,
+                "samples_u": samples,
+                "samples_id": np.zeros(len(samples), dtype=int),
+                "samples_n": self.n_live,
+                "logl": self.ln_like,
+                "logwt": self.ln_wt,
+                "logz": self.ln_z,
+                "logzerr": self.ln_zerr,
+                "logvol": self.ln_vol,
+                "niter": self.sampler_info["NITER"],
+                "eff": self.sampler_info["EFF"],
+            }
+        )
+
+    # dynesty plots below return the Figure; fig_path saves it there and closes it
+
+    def plot_runplot(self, fig_path=None):
+        """dynesty run plot"""
+        fig, ax = dyplot.runplot(
+            self._dynesty_results(),
+            logplot=True,
+            label_kwargs={"fontsize": 16},
+            color="#0d0887",
+        )
+        ax[0].set_title(self.target, fontsize=18)
+        fig.tight_layout()
+        save_and_close(fig, fig_path)
+
+        return fig
+
+    def plot_traceplot(self, n, fig_path=None):
+        """dynesty trace plot of planet n parameters"""
+        fig, _ = dyplot.traceplot(
+            self._dynesty_results(),
+            labels=PARAMETER_LABELS,
+            dims=np.arange(5 * n, 5 * (n + 1)),
+            label_kwargs={"fontsize": 14},
+        )
+        self._finish_planet_plot(fig, n, fig_path)
+
+        return fig
+
+    def plot_cornerplot(self, n, fig_path=None):
+        """dynesty corner plot of planet n parameters"""
+        fig, _ = dyplot.cornerplot(
+            self._dynesty_results(),
+            labels=PARAMETER_LABELS,
+            dims=np.arange(5 * n, 5 * (n + 1)),
+            label_kwargs={"fontsize": 14},
+            color=f"C{n}",
+        )
+        self._finish_planet_plot(fig, n, fig_path)
+
+        return fig
+
+    def _finish_planet_plot(self, fig, n, fig_path):
+        # leave the top 4% of the figure for the title
+        fig.suptitle(f"{self.target} - Planet {n}", fontsize=18, y=0.99, va="top")
+        fig.tight_layout(rect=(0, 0, 1, 0.96))
+        save_and_close(fig, fig_path)

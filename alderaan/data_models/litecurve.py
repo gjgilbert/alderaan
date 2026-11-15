@@ -4,8 +4,11 @@ import glob
 import logging
 
 import lightkurve as lk
+import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
+
+from alderaan.utils.plotting import label_axes, save_and_close
 
 logger = logging.getLogger(__name__)
 
@@ -213,3 +216,52 @@ class LiteCurve:
 
         fits.HDUList([primary_hdu, hdu]).writeto(filepath, overwrite=True)
         logger.info("wrote %s", filepath)
+
+    def plot(self, visit=None, transit_times=None, ax=None, fig_path=None):
+        """
+        Plot flux vs time; returns the Axes
+
+        Parameters
+        ----------
+        visit : int, optional
+            plot one visit; default plots all
+        transit_times : list of TransitTimes, optional
+            one per planet; marks ttime_mod below the photometry
+        ax : matplotlib Axes, optional
+            draw here; default makes a new figure
+        fig_path : str, optional
+            save the figure here and close it; default leaves it open
+        """
+        use = (
+            np.ones(len(self.time), dtype=bool)
+            if visit is None
+            else self.visit == visit
+        )
+        if not np.any(use):
+            raise ValueError(f"no data for visit {visit}")
+        time, flux = self.time[use], self.flux[use]
+
+        new_figure = ax is None
+        if new_figure:
+            _, ax = plt.subplots(1, 1, figsize=(20, 4))
+
+        ax.plot(time, flux, "k.", ms=1)
+        ax.set_xlim(time.min(), time.max())
+
+        yrange = 1.3 * np.max(np.abs(1 - np.percentile(flux, [0.1, 99.9])))
+        ymin = 1 - yrange
+        if transit_times is not None:
+            ymin = 1 - yrange * (1.3 + 0.1 * len(transit_times))
+            for n, tt in enumerate(transit_times):
+                tc = tt.ttime_mod
+                tc = tc[(tc >= time.min()) & (tc <= time.max())]
+                y = 1 - (0.9 - 0.1 * n) * (1 - ymin)
+                ax.plot(tc, np.full(len(tc), y), "^", c=f"C{n}")
+        ax.set_ylim(ymin, 1 + yrange)
+
+        label_axes(ax, "Time [BKJD]", "Flux")
+        if new_figure:
+            ax.figure.tight_layout()
+        save_and_close(ax.figure, fig_path)
+
+        return ax
