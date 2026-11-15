@@ -40,7 +40,7 @@ def main(
     pipeline_start_time = time.perf_counter()
 
     log_path = setup_logging(
-        os.path.join(output_dir, "logs"), target, run_id, log_level
+        os.path.join(output_dir, run_id, "logs"), target, log_level
     )
 
     warnings.simplefilter("always", UserWarning)
@@ -83,10 +83,10 @@ def main(
 
 
 def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
-    results_dir = os.path.join(output_dir, "results", run_id, target)
+    results_dir = os.path.join(output_dir, run_id, "results", target)
     os.makedirs(results_dir, exist_ok=True)
 
-    quicklook_dir = os.path.join(output_dir, "quicklook", run_id, target)
+    quicklook_dir = os.path.join(output_dir, run_id, "plots", target)
     os.makedirs(quicklook_dir, exist_ok=True)
 
     # data i/o
@@ -103,12 +103,9 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
 
     raw_litecurve = copy.deepcopy(litecurve)
 
-    # quicklook figures are written to {quicklook_dir}/{target}_*.png
-    ql = os.path.join(quicklook_dir, target)
-
     litecurve.plot(
         mark_times=[p.transit_times.ttime_mod for p in planets],
-        fig_path=f"{ql}_litecurve_raw.png",
+        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_raw.png"),
     )
 
     planets, litecurve = RegularizeOMC(star, planets, litecurve).perform(
@@ -116,7 +113,8 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     )
     for n, p in enumerate(planets):
         p.transit_times.plot_omc(
-            show_outliers=True, fig_path=f"{ql}_omc_initial_{n:02d}.png"
+            show_outliers=True,
+            fig_path=os.path.join(quicklook_dir, f"{target}_omc_initial_{n:02d}.png"),
         )
 
     # 1st pass
@@ -125,7 +123,7 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     )
     litecurve.plot(
         mark_times=[p.transit_times.ttime_mod for p in planets],
-        fig_path=f"{ql}_litecurve_detrended_pass1.png",
+        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_detrended_pass1.png"),
     )
     planets, litecurve = FlagBadTransits(star, planets, litecurve).perform()
     planets, litecurve = QuickFitTransitShape(star, planets, litecurve).perform()
@@ -134,7 +132,10 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
         method="select"
     )
     for n, p in enumerate(planets):
-        p.transit_times.plot_omc(show_outliers=True, fig_path=f"{ql}_omc_{n:02d}.png")
+        p.transit_times.plot_omc(
+            show_outliers=True,
+            fig_path=os.path.join(quicklook_dir, f"{target}_omc_{n:02d}.png"),
+        )
 
     # 2nd pass
     planets, litecurve = DetrendVisits(star, planets, litecurve, raw_litecurve).perform(
@@ -145,7 +146,7 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     litecurve.to_fits(os.path.join(results_dir, f"{target}_{cadence}_detrended.fits"))
     litecurve.plot(
         mark_times=[p.transit_times.ttime_mod for p in planets],
-        fig_path=f"{ql}_litecurve_detrended_pass2.png",
+        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_detrended_pass2.png"),
     )
     planets, litecurve = FlagBadTransits(star, planets, litecurve).perform()
     posteriors = SampleTransitModel(star, planets, litecurve).perform()
@@ -159,10 +160,22 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     results_path = os.path.join(results_dir, f"{target}-results.fits")
     results.to_fits(results_path)
 
-    posteriors.plot_runplot(fig_path=f"{ql}_dynesty_runplot.png")
+    posteriors.plot_runplot(
+        fig_path=os.path.join(quicklook_dir, f"{target}_dynesty_runplot.png")
+    )
     for n in range(results.npl):
-        posteriors.plot_traceplot(n, fig_path=f"{ql}_dynesty_traceplot_{n:02d}.png")
-        posteriors.plot_cornerplot(n, fig_path=f"{ql}_dynesty_cornerplot_{n:02d}.png")
+        posteriors.plot_traceplot(
+            n,
+            fig_path=os.path.join(
+                quicklook_dir, f"{target}_dynesty_traceplot_{n:02d}.png"
+            ),
+        )
+        posteriors.plot_cornerplot(
+            n,
+            fig_path=os.path.join(
+                quicklook_dir, f"{target}_dynesty_cornerplot_{n:02d}.png"
+            ),
+        )
     logger.info("wrote quicklook plots to %s", quicklook_dir)
 
     return results_path

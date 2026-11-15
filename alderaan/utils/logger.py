@@ -38,16 +38,15 @@ _THIRD_PARTY_PINS = [
 _installed_handlers = []
 
 
-def setup_logging(log_dir, target, run_id, level="INFO"):
+def setup_logging(log_dir, target, level="INFO"):
     """
     Log to the console (stderr) and to a new file for this run
 
     Parameters
     ----------
     log_dir : str
-        logs root; the file is {log_dir}/{run_id}/alderaan_{target}_{UTstamp}.log
+        the file is {log_dir}/alderaan_{target}_{UTstamp}.log
     target : str
-    run_id : str
     level : str
         console level: DEBUG, INFO, WARNING, or ERROR; the file records DEBUG
 
@@ -58,10 +57,9 @@ def setup_logging(log_dir, target, run_id, level="INFO"):
     teardown_logging()
 
     stamp = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
-    run_dir = os.path.join(log_dir, run_id)
-    os.makedirs(run_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
     file_handler = _open_file_handler(
-        os.path.join(run_dir, f"alderaan_{target}_{stamp}.log")
+        os.path.join(log_dir, f"alderaan_{target}_{stamp}.log")
     )
 
     formatter = logging.Formatter(LOG_FORMAT, datefmt=LOG_DATEFMT)
