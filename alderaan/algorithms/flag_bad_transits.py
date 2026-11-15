@@ -129,7 +129,6 @@ class FlagBadTransits(BaseAlg):
         """
         Returns
         -------
-        star : Star
         planets : list of Planet
         litecurve : LiteCurve
         """
@@ -160,4 +159,4 @@ class FlagBadTransits(BaseAlg):
 
             p.set_transit_times(p.transit_times.subset(coverage[n] & good_rms[n]))
 
-        return self.star, planets, self.litecurve
+        return planets, self.litecurve

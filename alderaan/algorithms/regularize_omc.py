@@ -699,15 +699,13 @@ class RegularizeOMC(BaseAlg):
 
         Returns
         -------
-        star : Star
         planets : list of Planet
         litecurve : LiteCurve
         ttv_buffer : list of float
             per-planet scatter of OMC residuals about the model
-        transit_times : list of TransitTimes
-            per-planet regularized transit times (also attached to each planet),
-            with OMC diagnostics ttime_obs, out_prob, out_flag; out_prob is NaN
-            for 'smooth'
+
+        Each planet carries its regularized TransitTimes, with OMC diagnostics
+        ttime_obs, out_prob, out_flag; out_prob is NaN for 'smooth'
         """
         if method not in ("smooth", "select"):
             raise ValueError(f"method must be 'smooth' or 'select', got {method!r}")
@@ -725,7 +723,6 @@ class RegularizeOMC(BaseAlg):
 
         ymod = [None] * npl
         ttv_buffer = [None] * npl
-        transit_times = [None] * npl
 
         if method == "select" and check_periodic:
             freq = self._identify_periodic_signals(xtime, yobs, quality)
@@ -764,7 +761,7 @@ class RegularizeOMC(BaseAlg):
                     100 * np.mean(out_class),
                 )
 
-            transit_times[n] = self._regularized_transit_times(
+            transit_times = self._regularized_transit_times(
                 p.transit_times,
                 ymod[n],
                 quality[n],
@@ -773,7 +770,7 @@ class RegularizeOMC(BaseAlg):
                 full=(method == "smooth"),
             )
             try:
-                p.set_transit_times(transit_times[n])
+                p.set_transit_times(transit_times)
             except ValueError as e:
                 raise ValueError(f"planet {n}, OMC method {method!r}: {e}") from e
             ttv_buffer[n] = set_sigma_cutoff(len(yobs[n])) * mad_std(yobs[n] - ymod[n])
@@ -785,4 +782,4 @@ class RegularizeOMC(BaseAlg):
                 ttv_buffer[n] * 1440,
             )
 
-        return self.star, self.planets, self.litecurve, ttv_buffer, transit_times
+        return self.planets, self.litecurve, ttv_buffer

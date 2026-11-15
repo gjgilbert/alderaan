@@ -223,16 +223,16 @@ class LiteCurve:
         fits.HDUList([primary_hdu, hdu]).writeto(filepath, overwrite=True)
         logger.info("wrote %s", filepath)
 
-    def plot(self, visit=None, transit_times=None, ax=None, fig_path=None):
+    def plot(self, visit=None, mark_times=None, ax=None, fig_path=None):
         """
-        Plot flux vs time; returns the Axes
+        Plot flux vs time; returns the Figure
 
         Parameters
         ----------
         visit : int, optional
             plot one visit; default plots all
-        transit_times : list of TransitTimes, optional
-            one per planet; marks ttime_mod below the photometry
+        mark_times : list of ndarray, optional
+            one array of times per planet, marked below the photometry in C{n}
         ax : matplotlib Axes, optional
             draw here; default makes a new figure
         fig_path : str, optional
@@ -256,10 +256,9 @@ class LiteCurve:
 
         yrange = 1.3 * np.max(np.abs(1 - np.percentile(flux, [0.1, 99.9])))
         ymin = 1 - yrange
-        if transit_times is not None:
-            ymin = 1 - yrange * (1.3 + 0.1 * len(transit_times))
-            for n, tt in enumerate(transit_times):
-                tc = tt.ttime_mod
+        if mark_times is not None:
+            ymin = 1 - yrange * (1.3 + 0.1 * len(mark_times))
+            for n, tc in enumerate(mark_times):
                 tc = tc[(tc >= time.min()) & (tc <= time.max())]
                 y = 1 - (0.9 - 0.1 * n) * (1 - ymin)
                 ax.plot(tc, np.full(len(tc), y), "^", c=f"C{n}")
@@ -270,4 +269,4 @@ class LiteCurve:
             ax.figure.tight_layout()
         save_and_close(ax.figure, fig_path)
 
-        return ax
+        return ax.figure

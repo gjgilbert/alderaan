@@ -115,57 +115,55 @@ def _run(config, mission, target, run_id, output_dir):
     ql = os.path.join(quicklook_dir, target)
 
     litecurve.plot(
-        transit_times=[p.transit_times for p in planets],
+        mark_times=[p.transit_times.ttime_mod for p in planets],
         fig_path=f"{ql}_litecurve_raw.png",
     )
 
-    star, planets, litecurve, _, omc = RegularizeOMC(
-        star, planets, litecurve, config
-    ).perform(method="smooth")
-    Results(transit_times=omc).plot_omc(
-        show_outliers=True, fig_path=f"{ql}_omc_initial.png"
+    planets, litecurve, _ = RegularizeOMC(star, planets, litecurve, config).perform(
+        method="smooth"
     )
+    for n, p in enumerate(planets):
+        p.transit_times.plot_omc(
+            show_outliers=True, fig_path=f"{ql}_omc_initial_{n:02d}.png"
+        )
 
     # 1st pass
-    star, planets, litecurve = DetrendVisits(
+    planets, litecurve = DetrendVisits(
         star, planets, litecurve, raw_litecurve, config
     ).perform(tight_mask=False, clip_outliers="local_trend")
     litecurve.plot(
-        transit_times=[p.transit_times for p in planets],
+        mark_times=[p.transit_times.ttime_mod for p in planets],
         fig_path=f"{ql}_litecurve_detrended_pass1.png",
     )
-    star, planets, litecurve = FlagBadTransits(
+    planets, litecurve = FlagBadTransits(star, planets, litecurve, config).perform()
+    planets, litecurve = QuickFitTransitShape(
         star, planets, litecurve, config
     ).perform()
-    star, planets, litecurve = QuickFitTransitShape(
+    planets, litecurve = QuickFitTransitTimes(
         star, planets, litecurve, config
     ).perform()
-    star, planets, litecurve = QuickFitTransitTimes(
-        star, planets, litecurve, config
-    ).perform()
-    star, planets, litecurve, ttv_buffer, transit_times = RegularizeOMC(
+    planets, litecurve, ttv_buffer = RegularizeOMC(
         star, planets, litecurve, config
     ).perform(method="select")
-    Results(transit_times=transit_times).plot_omc(
-        show_outliers=True, fig_path=f"{ql}_omc.png"
-    )
+    for n, p in enumerate(planets):
+        p.transit_times.plot_omc(show_outliers=True, fig_path=f"{ql}_omc_{n:02d}.png")
 
     # 2nd pass
-    star, planets, litecurve = DetrendVisits(
+    planets, litecurve = DetrendVisits(
         star, planets, litecurve, raw_litecurve, config
     ).perform(tight_mask=True, clip_outliers="transit_model", ttv_buffer=ttv_buffer)
     litecurve.plot(
-        transit_times=[p.transit_times for p in planets],
+        mark_times=[p.transit_times.ttime_mod for p in planets],
         fig_path=f"{ql}_litecurve_detrended_pass2.png",
     )
-    star, planets, litecurve = FlagBadTransits(
-        star, planets, litecurve, config
-    ).perform()
+    planets, litecurve = FlagBadTransits(star, planets, litecurve, config).perform()
     posteriors = SampleTransitModel(star, planets, litecurve, config).perform()
 
     # package and save results
     results = Results(
-        posteriors=posteriors, transit_times=transit_times, litecurve=litecurve
+        posteriors=posteriors,
+        transit_times=[p.transit_times for p in planets],
+        litecurve=litecurve,
     )
     results_path = os.path.join(results_dir, f"{target}-results.fits")
     results.to_fits(results_path)

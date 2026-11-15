@@ -12,7 +12,7 @@ from alderaan.data_models.posteriors import Posteriors
 from alderaan.data_models.transit_times import TransitTimes
 from alderaan.models.transit_model import TransitModel
 from alderaan.utils.astro import bin_data, ld_q_to_u
-from alderaan.utils.plotting import corner_text, label_axes, save_and_close
+from alderaan.utils.plotting import annotate, label_axes, save_and_close
 from alderaan.utils.stats import weighted_percentile
 
 logger = logging.getLogger(__name__)
@@ -141,30 +141,21 @@ class Results:
 
     def plot_lightcurve(self, visit=None, ax=None, fig_path=None):
         """
-        Plot detrended photometry with transit times marked; returns the Axes
+        Plot detrended photometry with transit times marked; returns the Figure
         (see LiteCurve.plot)
         """
+        mark_times = [tt.ttime_mod for tt in self.transit_times]
         return self.litecurve.plot(
-            visit=visit, transit_times=self.transit_times, ax=ax, fig_path=fig_path
+            visit=visit, mark_times=mark_times, ax=ax, fig_path=fig_path
         )
 
-    def plot_omc(self, show_outliers=False, fig_path=None):
+    def plot_omc(self, n, show_outliers=False, fig_path=None):
         """
-        Plot O-C for each planet, one panel per planet; returns the Figure
-        (see TransitTimes.plot_omc)
+        Plot O-C for planet n; returns the Figure (see TransitTimes.plot_omc)
         """
-        fig, ax = plt.subplots(self.npl, figsize=(8, 3 * self.npl), squeeze=False)
-        ax = ax[:, 0]
-
-        for n, tt in enumerate(self.transit_times):
-            tt.plot_omc(show_outliers=show_outliers, color=f"C{n}", ax=ax[n])
-        for a in ax[:-1]:
-            a.set_xlabel("")
-        label_axes(ax[0], title=self.target)
-        fig.tight_layout()
-        save_and_close(fig, fig_path)
-
-        return fig
+        return self.transit_times[n].plot_omc(
+            show_outliers=show_outliers, color=f"C{n}", fig_path=fig_path
+        )
 
     def median_transit_params(self, n):
         """
@@ -190,7 +181,7 @@ class Results:
     def plot_transit(self, n, index, ax=None, fig_path=None):
         """
         Plot photometry and median posterior model around one transit of planet n
-        (transit index `index`); returns the Axes
+        (transit index `index`); returns the Figure
         """
         tt = self.transit_times[n]
         if not np.any(tt.index == index):
@@ -216,7 +207,7 @@ class Results:
         ax.plot(t_obs, f_obs, "o", color="lightgrey")
         ax.plot(t_mod, f_mod, color=f"C{n}", lw=2)
         ax.set_xlim(tc - 1.55 * T14, tc + 1.55 * T14)
-        corner_text(ax, f"P = {params[1]:.2f} d", "lower right")
+        annotate(ax, f"P = {params[1]:.2f} d", "lower right")
         label_axes(
             ax,
             "Time [BKJD]",
@@ -227,7 +218,7 @@ class Results:
             ax.figure.tight_layout()
         save_and_close(ax.figure, fig_path)
 
-        return ax
+        return ax.figure
 
     def plot_folded_transit(self, n, max_pts=1000, fig_path=None):
         """
@@ -287,7 +278,7 @@ class Results:
         ax[1].plot(t_binned * 24, r_binned, "s", color="w", mec="k", ms=10)
         ax[1].axhline(0, color="k", ls="--", lw=2)
         ax[1].set_xlim(t_folded.min() * 24, t_folded.max() * 24)
-        corner_text(ax[1], f"RMS = {int(np.std(residuals) * 1e6)} ppm", "lower left")
+        annotate(ax[1], f"RMS = {int(np.std(residuals) * 1e6)} ppm", "lower left")
         label_axes(ax[1], xlabel="Time from mid-transit [hrs]")
         fig.tight_layout()
         save_and_close(fig, fig_path)

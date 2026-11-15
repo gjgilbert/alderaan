@@ -550,7 +550,6 @@ class DetrendVisits(BaseAlg):
 
         Returns
         -------
-        star : Star
         planets : list of Planet
         litecurve : LiteCurve
             detrended litecurve
@@ -635,4 +634,4 @@ class DetrendVisits(BaseAlg):
         cadence = "lc" if obsmodes[0] == "long cadence" else "sc"
         lc.to_fits(os.path.join(results_dir, f"{target}_{cadence}_detrended.fits"))
 
-        return self.star, self.planets, lc
+        return self.planets, lc

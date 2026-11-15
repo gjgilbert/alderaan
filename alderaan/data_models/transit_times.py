@@ -5,7 +5,7 @@ import numpy as np
 from astropy.io import fits
 from astropy.stats import mad_std
 
-from alderaan.utils.plotting import corner_text, label_axes, save_and_close
+from alderaan.utils.plotting import annotate, label_axes, save_and_close
 from alderaan.utils.stats import robust_polyfit
 
 # name -> (dtype, FITS column format); index, ttime_obs, ttime_mod are always set,
@@ -115,7 +115,7 @@ class TransitTimes:
     def plot_omc(self, show_outliers=False, color="C0", ax=None, fig_path=None):
         """
         Plot observed and modeled O-C (minutes) relative to linear_ephemeris();
-        returns the Axes
+        returns the Figure
 
         Parameters
         ----------
@@ -162,8 +162,8 @@ class TransitTimes:
         ax.plot(self.ttime_mod, omc_mod, c=line_color, lw=2)
 
         rms = mad_std(omc_obs[good] - omc_mod[good])
-        corner_text(ax, f"P = {self.period:.2f} d", "upper right")
-        corner_text(ax, f"residual RMS = {rms:.1f} min", "lower right")
+        annotate(ax, f"P = {self.period:.2f} d", "upper right")
+        annotate(ax, f"residual RMS = {rms:.1f} min", "lower right")
 
         shown = obs if show_outliers else good
         yrange = max(5, 1.1 * np.max(np.abs(omc_obs[shown]), initial=0))
@@ -173,7 +173,7 @@ class TransitTimes:
             ax.figure.tight_layout()
         save_and_close(ax.figure, fig_path)
 
-        return ax
+        return ax.figure
 
     def _to_hdu(self, n):
         """

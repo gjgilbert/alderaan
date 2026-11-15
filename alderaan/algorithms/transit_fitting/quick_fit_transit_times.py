@@ -349,7 +349,6 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
         """
         Returns
         -------
-        star : Star
         planets : list of Planet
         litecurve : LiteCurve
         """
@@ -455,4 +454,4 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
                 np.median(error_new) * 1440,
             )
 
-        return self.star, self.planets, self.litecurve
+        return self.planets, self.litecurve

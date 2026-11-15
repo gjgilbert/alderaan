@@ -7,14 +7,15 @@ from scipy.optimize import least_squares
 
 from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
 from alderaan.models.transit_model import TransitModel
-from alderaan.utils.astro import estimate_transit_depth, ld_q_to_u
+from alderaan.utils.astro import estimate_transit_depth
 
 logger = logging.getLogger(__name__)
 
 
 class QuickFitTransitShape(BaseTransitFittingAlg):
     """
-    Fit radius ratio, impact parameter, duration, and limb darkening
+    Fit radius ratio, impact parameter, and duration; limb darkening is fixed
+    at the star's values
 
     Parameters
     ----------
@@ -46,7 +47,7 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
 
         return np.array(bounds)
 
-    def _optimize(self, tm, fix_limbdark=True, niter=3):
+    def _optimize(self, tm, niter=3):
         theta = self._theta_initial(self.star, self.planets)
         bounds = self._theta_bounds()
 
@@ -69,9 +70,9 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
         fix_r_b_T14[i_fix % 5 == 3] = True
         fix_r_b_T14[i_fix % 5 == 4] = True
 
-        # limb darkening
-        fix_C0_C1[-2:] = fix_limbdark
-        fix_r_b_T14[-2:] = fix_limbdark
+        # limb darkening fixed
+        fix_C0_C1[-2:] = True
+        fix_r_b_T14[-2:] = True
 
         # do the optimization
         logp_start = self._ln_likelihood(theta, tm)
@@ -132,23 +133,10 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
                 p.depth * 1e6,
             )
 
-    def _update_star(self, theta):
-        # sampling basis (q1, q2) --> physical (u1, u2), see Kipping 2013
-        q1, q2 = theta[-2], theta[-1]
-        self.star.u1, self.star.u2 = ld_q_to_u(q1, q2)
-        logger.info(
-            "limb darkening: q1 = %.3f, q2 = %.3f (u1 = %.3f, u2 = %.3f)",
-            q1,
-            q2,
-            self.star.u1,
-            self.star.u2,
-        )
-
     def perform(self):
         """
         Returns
         -------
-        star : Star
         planets : list of Planet
         litecurve : LiteCurve
         """
@@ -162,6 +150,5 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
 
         theta = self._optimize(tm)
         self._update_planets(theta)
-        self._update_star(theta)
 
-        return self.star, self.planets, self.litecurve
+        return self.planets, self.litecurve
