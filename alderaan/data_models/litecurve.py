@@ -18,7 +18,6 @@ FIELDS = {
     "cadno": (int, "K"),
     "visit": (int, "K"),
     "obsmode": (str, None),
-    "quality": (bool, "L"),
 }
 
 
@@ -36,26 +35,15 @@ class LiteCurve:
         observing visit (Kepler quarter)
     obsmode : ndarray
         'long cadence' or 'short cadence'
-    quality : ndarray
-        True for good quality cadences
+
+    Bad cadences are removed (select), not flagged
     """
 
-    def __init__(
-        self,
-        mission,
-        target,
-        time,
-        flux,
-        error,
-        cadno,
-        visit,
-        obsmode,
-        quality,
-    ):
+    def __init__(self, mission, target, time, flux, error, cadno, visit, obsmode):
         self.mission = mission
         self.target = target
 
-        arrays = (time, flux, error, cadno, visit, obsmode, quality)
+        arrays = (time, flux, error, cadno, visit, obsmode)
         for (k, (dtype, _)), x in zip(FIELDS.items(), arrays):
             setattr(self, k, np.asarray(x, dtype=dtype))
 
@@ -95,90 +83,59 @@ class LiteCurve:
         Returns:
             LiteCurve
         """
-        # sanitize inputs
         if visits is None:
-            visits = np.arange(18, dtype=int)  # hard coded for Kepler
+            visits = np.arange(18, dtype=int)
         if isinstance(visits, int):
             visits = [visits]
 
-        # load the raw MAST files using lightcurve
-        mast_files = glob.glob(
-            data_dir + f"kplr{kic_id:09d}*.fits"
-        )  # hard-coded for Kepler
-        mast_files.sort()
-
-        mast_data_list = []
+        # read requested MAST files (visits are Kepler quarters)
+        mast_files = sorted(glob.glob(data_dir + f"kplr{kic_id:09d}*.fits"))
         logger.info("found %d MAST files for KIC %d", len(mast_files), kic_id)
-        for mf in mast_files:
-            with fits.open(mf) as hdu_list:
-                if hdu_list[0].header["OBSMODE"] == obsmode and np.isin(
-                    hdu_list[0].header["QUARTER"],
-                    visits,  # hard coded for Kepler
-                ):
-                    mast_data_list.append(lk.read(mf))
-                else:
-                    logger.debug(
-                        "skipped %s (OBSMODE = %s, QUARTER = %d not requested)",
-                        mf,
-                        hdu_list[0].header["OBSMODE"],
-                        hdu_list[0].header["QUARTER"],
-                    )
 
-        if len(mast_data_list) == 0:
+        raw = []
+        for mf in mast_files:
+            header = fits.getheader(mf)
+            if header["OBSMODE"] == obsmode and np.isin(header["QUARTER"], visits):
+                raw.append(lk.read(mf))
+            else:
+                logger.debug(
+                    "skipped %s (OBSMODE = %s, QUARTER = %d not requested)",
+                    mf,
+                    header["OBSMODE"],
+                    header["QUARTER"],
+                )
+
+        if len(raw) == 0:
             raise FileNotFoundError(
                 f"no {obsmode} files for KIC {kic_id} quarters {list(visits)} "
                 f"in {data_dir}"
             )
 
-        lk_col_raw = lk.LightCurveCollection(mast_data_list)
-
-        # clean up the Collection data structure
-        visits = []
-        for lkc in lk_col_raw:
-            visits.append(lkc.quarter)  # hard coded for Kepler
-
-        lk_col_clean = []
-        for v in np.unique(visits):
-            lkc_list = []
-            cadno = []
-
-            for lkc in lk_col_raw:
-                if (lkc.quarter == v) * (
-                    lkc.targetid == kic_id
-                ):  # hard coded for kepler
-                    lkc_list.append(lkc)
-                    cadno.append(lkc.cadenceno.min())
-
-            nmismatch = sum(lkc.quarter == v for lkc in lk_col_raw) - len(lkc_list)
-            if nmismatch > 0:
+        # one normalized, NaN-free light curve per quarter
+        quarters = []
+        for v in np.unique([lkc.quarter for lkc in raw]):
+            in_q = [lkc for lkc in raw if lkc.quarter == v]
+            keep = [lkc for lkc in in_q if lkc.targetid == kic_id]
+            if len(in_q) > len(keep):
                 logger.warning(
                     "KIC %d Q%d: dropped %d files with mismatched TARGETID",
                     kic_id,
                     v,
-                    nmismatch,
+                    len(in_q) - len(keep),
                 )
-
-            order = np.argsort(cadno)
-            lkc_list = [lkc_list[j] for j in order]
+            keep.sort(key=lambda lkc: lkc.cadenceno.min())
 
             # lk.stitch() also normalizes the lightkurves
-            lkc = lk.LightCurveCollection(lkc_list).stitch()
+            lkc = lk.LightCurveCollection(keep).stitch()
             npts = len(lkc.time)
             lkc = lkc.remove_nans()
             logger.debug(
                 "Q%d: removed %d NaN cadences of %d", v, npts - len(lkc.time), npts
             )
+            lkc.quarter = np.full(len(lkc.time), lkc.quarter, dtype=int)
+            quarters.append(lkc)
 
-            lkc.quarter = lkc.quarter * np.ones(
-                len(lkc.time), dtype="int"
-            )  # hard coded for kepler
-
-            lk_col_clean.append(lkc)
-
-        lk_col_clean = lk.LightCurveCollection(lk_col_clean)
-
-        # stitch into a single LightCurve
-        lklc = lk_col_clean.stitch()
+        lklc = lk.LightCurveCollection(quarters).stitch()
 
         # remove cadences flagged by Kepler project pipeline
         qmask = lk.KeplerQualityFlags.create_quality_mask(
@@ -190,17 +147,18 @@ class LiteCurve:
             len(qmask),
         )
 
-        return cls(
+        litecurve = cls(
             "Kepler",
             target,
-            time=np.array(lklc.time.value, dtype=float)[qmask],
-            flux=np.array(lklc.flux.value, dtype=float)[qmask],
-            error=np.array(lklc.flux_err.value, dtype=float)[qmask],
-            cadno=np.array(lklc.cadenceno.value, dtype=int)[qmask],
-            visit=np.array(lklc.quarter, dtype=int)[qmask],  # hard coded for Kepler
-            obsmode=np.array([obsmode] * np.sum(qmask), dtype=str),
-            quality=np.ones(np.sum(qmask), dtype=bool),
+            time=lklc.time.value,
+            flux=lklc.flux.value,
+            error=lklc.flux_err.value,
+            cadno=lklc.cadenceno.value,
+            visit=lklc.quarter,
+            obsmode=np.full(len(qmask), obsmode),
         )
+        litecurve.select(qmask)
+        return litecurve
 
     @classmethod
     def from_k2(cls, data_dir, target_id, obsmode, visits=None):
@@ -217,8 +175,8 @@ class LiteCurve:
 
     def reset(self, raw):
         """
-        Restore flux and error from raw, matched by cadence number; mark all
-        cadences as good quality (in place)
+        Restore raw flux and error for the current cadences, matched by cadence
+        number (in place); removed cadences stay removed
 
         Parameters
         ----------
@@ -235,7 +193,6 @@ class LiteCurve:
 
         self.flux = raw.flux[idx].copy()
         self.error = raw.error[idx].copy()
-        self.quality = np.ones(len(self.time), dtype=bool)
 
     def to_fits(self, filepath):
         """Save as a fits file: PRIMARY (MISSION, TARGET) + LITECURVE table"""
