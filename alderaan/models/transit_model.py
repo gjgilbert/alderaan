@@ -7,7 +7,7 @@ import numpy as np
 from batman import _quadratic_ld, _rsky
 
 from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
-from alderaan.utils.astro import transit_obsmode
+from alderaan.utils.astro import ld_q_to_u, transit_obsmode
 
 logger = logging.getLogger(__name__)
 
@@ -90,12 +90,8 @@ class TransitModel:
         """
         Keep only cadences where mask is True; supersampling is not recomputed
         """
-        lc = self.litecurve
         logger.debug("trimmed litecurve to %d of %d cadences", np.sum(mask), len(mask))
-
-        for k in lc.__dict__.keys():
-            if type(lc.__dict__[k]) is np.ndarray:
-                lc.__setattr__(k, lc.__dict__[k][mask])
+        self.litecurve.select(mask)
 
         self._set_cadence_masks()
         self._set_bins()
@@ -113,8 +109,8 @@ class TransitModel:
         IMPORTANT!!! The warp functions assume zero-indexing on transit indexes
         """
         # track static ephemerides
-        self.static_period = np.array([p.reference_period for p in self.planets])
-        self.static_epoch = np.array([p.reference_epoch for p in self.planets])
+        self.static_period = np.array([p.static_period for p in self.planets])
+        self.static_epoch = np.array([p.static_epoch for p in self.planets])
 
         # set warping bins
         self._set_bins()
@@ -158,11 +154,13 @@ class TransitModel:
         self._update_warps()
 
     def _update_warps(self):
-        for n, p in enumerate(self.planets):
-            index_midpoint = p.transit_index[-1] // 2
+        # Legendre mapping of transit index, legx = (index - index_mid) / index_half
+        self.index_mid = np.array([p.transit_index[-1] // 2 for p in self.planets])
+        self.index_half = np.array([p.transit_index[-1] / 2 for p in self.planets])
 
+        for n in range(self.npl):
             _t, _i = self._warp_times(self.litecurve.time, n, return_inds=True)
-            _x = (_i - index_midpoint) / (p.transit_index[-1] / 2)
+            _x = (_i - self.index_mid[n]) / self.index_half[n]
 
             self.warped_time[n] = _t  # len(self.litecurve.ttime)
             self.warped_legx[n] = _x  # len(self.litecurve.ttime)
@@ -223,9 +221,7 @@ class TransitModel:
 
         Limb darkening is sampled in terms of [q1, q2] (see Kipping 2013)
         """
-        q1, q2 = np.array(theta[-2:])
-        u1 = 2 * np.sqrt(q1) * q2
-        u2 = np.sqrt(q1) * (1 - 2 * q2)
+        u1, u2 = ld_q_to_u(*np.array(theta[-2:]))
 
         flux_mod = None
         for obsmode in self.unique_obsmodes:

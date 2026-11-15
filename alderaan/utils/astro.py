@@ -1,12 +1,28 @@
 __all__ = [
     "bin_data",
     "estimate_transit_depth",
+    "ld_q_to_u",
+    "ld_u_to_q",
     "predict_tc_error",
     "transit_obsmode",
 ]
 
 
 import numpy as np
+
+
+def ld_q_to_u(q1, q2):
+    """Quadratic limb darkening (q1, q2) --> (u1, u2), see Kipping 2013"""
+    u1 = 2 * np.sqrt(q1) * q2
+    u2 = np.sqrt(q1) * (1 - 2 * q2)
+    return u1, u2
+
+
+def ld_u_to_q(u1, u2):
+    """Quadratic limb darkening (u1, u2) --> (q1, q2), see Kipping 2013"""
+    q1 = (u1 + u2) ** 2
+    q2 = u1 / (2 * (u1 + u2))
+    return q1, q2
 
 
 def transit_obsmode(planets, litecurve):

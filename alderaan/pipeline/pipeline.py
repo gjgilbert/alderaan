@@ -109,14 +109,14 @@ def _run(config, mission, target, run_id, output_dir):
     else:
         raise ValueError(f"Unsupported mission : {mission}")
 
-    PlotPhotometry(litecurve, target, planets).plot_litecurve(
+    PlotPhotometry(litecurve, planets).plot_litecurve(
         fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_raw.png")
     )
 
     star, planets, litecurve, _, omc = RegularizeOMC(
         star, planets, litecurve, config
     ).perform(method="smooth")
-    PlotOMC(omc, target).plot_omc(
+    PlotOMC(omc).plot_omc(
         fig_path=os.path.join(quicklook_dir, f"{target}_omc_initial.png")
     )
 
@@ -124,8 +124,8 @@ def _run(config, mission, target, run_id, output_dir):
     star, planets, litecurve = DetrendVisits(star, planets, litecurve, config).perform(
         tight_mask=False, clip_outliers="local_trend"
     )
-    PlotPhotometry(litecurve, target, planets).plot_litecurve(
-        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_detrended.png")
+    PlotPhotometry(litecurve, planets).plot_litecurve(
+        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_detrended_pass1.png")
     )
     star, planets, litecurve = FlagBadTransits(
         star, planets, litecurve, config
@@ -139,7 +139,7 @@ def _run(config, mission, target, run_id, output_dir):
     star, planets, litecurve, ttv_buffer, transit_times = RegularizeOMC(
         star, planets, litecurve, config
     ).perform(method="select")
-    PlotOMC(transit_times, target).plot_omc(
+    PlotOMC(transit_times).plot_omc(
         fig_path=os.path.join(quicklook_dir, f"{target}_omc.png")
     )
 
@@ -147,17 +147,17 @@ def _run(config, mission, target, run_id, output_dir):
     star, planets, litecurve = DetrendVisits(star, planets, litecurve, config).perform(
         tight_mask=True, clip_outliers="transit_model", ttv_buffer=ttv_buffer
     )
-    PlotPhotometry(litecurve, target, planets).plot_litecurve(
-        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_detrended.png")
+    PlotPhotometry(litecurve, planets).plot_litecurve(
+        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_detrended_pass2.png")
     )
     star, planets, litecurve = FlagBadTransits(
         star, planets, litecurve, config
     ).perform()
-    dynesty_results = SampleTransitModel(star, planets, litecurve, config).perform()
+    posteriors = SampleTransitModel(star, planets, litecurve, config).perform()
 
     # package and save results
-    results = Results.from_dynesty(
-        dynesty_results, mission, target, run_id, transit_times
+    results = Results(
+        posteriors=posteriors, transit_times=transit_times, litecurve=litecurve
     )
     results_path = os.path.join(results_dir, f"{target}-results.fits")
     results.to_fits(results_path)

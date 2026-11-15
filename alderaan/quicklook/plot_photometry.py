@@ -16,16 +16,16 @@ class PlotPhotometry:
     Parameters
     ----------
     litecurve : LiteCurve
-    target : str
+        plotted by plot_litecurve
     planets : list of Planet, optional
         marks transit times on plot_litecurve
     results : Results, optional
-        required by plot_transit
+        required by plot_transit, which plots results.litecurve
     """
 
-    def __init__(self, litecurve, target, planets=None, results=None):
+    def __init__(self, litecurve, planets=None, results=None):
         self.litecurve = litecurve
-        self.target = target
+        self.target = litecurve.target
         self.planets = planets
         self.results = results
 
@@ -72,29 +72,18 @@ class PlotPhotometry:
             plot a single transit; default folds all transits
         """
         results = self.results
-        if results is None:
-            raise ValueError("PlotPhotometry.results is required to plot transits")
+        if results is None or results.litecurve is None:
+            raise ValueError("PlotPhotometry.results with a litecurve is required")
 
-        time = self.litecurve.time
-        flux = self.litecurve.flux
+        time = results.litecurve.time
+        flux = results.litecurve.flux
 
-        # median posterior transit parameters
-        median = results.summary()["median"]
-        q1, q2 = median["LD_Q1"], median["LD_Q2"]
-        T14 = median[f"DUR14_{n}"]
-        params = (
-            0.0,
-            results.linear_ephemeris(n)[1],
-            median[f"ROR_{n}"],
-            median[f"IMPACT_{n}"],
-            T14,
-            2 * np.sqrt(q1) * q2,
-            np.sqrt(q1) * (1 - 2 * q2),
-        )
+        params = results.median_transit_params(n)
+        T14 = params[4]
 
         # fold photometry
         tt = results.transit_times[n]
-        tcs = tt["model"] if index is None else tt["model"][tt["index"] == index]
+        tcs = tt.model if index is None else tt.model[tt.index == index]
 
         t_folded, f_folded = [], []
         for tc in tcs:

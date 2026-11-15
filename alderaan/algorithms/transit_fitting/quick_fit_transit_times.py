@@ -384,8 +384,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
         # update ephemerides (transit errors are set after optimization)
         for n, p in enumerate(planets):
             q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
-            p.transit_times[q] = ttime_cc[n][q]
-            planets[n] = p.refit_period_and_epoch()
+            p.update_transit_times(np.where(q, ttime_cc[n], p.transit_times))
 
         # fit transit times using least squares optimization
         tm = TransitModel(star, planets, litecurve)
@@ -419,11 +418,9 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
                     n,
                 )
 
-            p.transit_times = ttime_new
-            p.transit_errors = error_new
-            planets[n] = p.refit_period_and_epoch()
+            p.update_transit_times(ttime_new, error_new)
 
-            omc = planets[n].transit_times - planets[n].eval_linear_ephemeris()
+            omc = p.transit_times - p.linear_ephemeris()
             logger.info(
                 "planet %d: %d cross-correlation + %d optimized transit times "
                 "(optimized assigned 90th-percentile error %.2f min); "

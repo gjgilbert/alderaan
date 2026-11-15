@@ -8,6 +8,7 @@ import numpy as np
 from dynesty.utils import get_print_fn_args, quantile
 
 from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
+from alderaan.data_models.posteriors import Posteriors
 from alderaan.models.transit_model import TransitModel
 from alderaan.utils.stats import loguniform_ppf, norm_ppf, uniform_ppf
 
@@ -180,7 +181,7 @@ class SampleTransitModel(BaseTransitFittingAlg):
         """
         Returns
         -------
-        results : dynesty.results.Results
+        posteriors : Posteriors
         """
         tm = TransitModel(self.star, self.planets, self.litecurve)
         tm.trim(
@@ -193,4 +194,6 @@ class SampleTransitModel(BaseTransitFittingAlg):
         results = self._sample(tm)
         self._log_posterior_summary(results, tm)
 
-        return results
+        return Posteriors.from_dynesty(
+            self.config["RUN"]["mission"], self.config["RUN"]["target"], results, tm
+        )

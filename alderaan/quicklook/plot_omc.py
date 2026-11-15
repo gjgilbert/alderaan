@@ -5,7 +5,6 @@ import numpy as np
 from astropy.stats import mad_std
 
 from alderaan.quicklook.base import finish
-from alderaan.utils.stats import robust_polyfit
 
 
 class PlotOMC:
@@ -14,15 +13,13 @@ class PlotOMC:
 
     Parameters
     ----------
-    transit_times : list of pd.DataFrame
-        one per planet; columns [index, ttime, model, out_prob, out_flag]
-        (e.g. Results.transit_times); out_prob may be all NaN
-    target : str
+    transit_times : list of TransitTimes
+        one per planet (e.g. Results.transit_times); out_prob may be all NaN
     """
 
-    def __init__(self, transit_times, target):
+    def __init__(self, transit_times):
         self.transit_times = transit_times
-        self.target = target
+        self.target = transit_times[0].target
 
     def plot_omc(self, fig_path=None, show_plot=False):
         npl = len(self.transit_times)
@@ -32,16 +29,14 @@ class PlotOMC:
             ax = [ax]
 
         for n, tt in enumerate(self.transit_times):
-            index = tt["index"].to_numpy()
-            xtime = tt["ttime"].to_numpy()
-            out_prob = tt["out_prob"].to_numpy()
-            out_flag = tt["out_flag"].to_numpy()
+            xtime = tt.ttime
+            out_prob = tt.out_prob
+            out_flag = tt.out_flag
+            period = tt.period
 
             # O-C relative to a linear fit to the model transit times
-            period, epoch = robust_polyfit(index, tt["model"].to_numpy(), 1)
-            linear = epoch + period * index
-            yobs = xtime - linear
-            ymod = tt["model"].to_numpy() - linear
+            yobs = tt.omc_ttime
+            ymod = tt.omc_model
 
             if np.all(np.isnan(out_prob)):
                 marker_color, line_color, cmap = "lightgrey", f"C{n}", None

@@ -5,7 +5,6 @@ import warnings
 
 import aesara_theano_fallback.tensor as T
 import numpy as np
-import pandas as pd
 import pymc3 as pm
 import pymc3_ext as pmx
 from astropy.stats import mad_std
@@ -19,6 +18,7 @@ from scipy.signal import savgol_filter
 from sklearn.cluster import KMeans
 
 from alderaan.algorithms.base import BaseAlg
+from alderaan.data_models.transit_times import TransitTimes
 from alderaan.utils.stats import set_sigma_cutoff
 
 logger = logging.getLogger(__name__)
@@ -641,7 +641,7 @@ class RegularizeOMC(BaseAlg):
         litecurve : LiteCurve
         ttv_buffer : list of float
             per-planet scatter of OMC residuals about the model
-        transit_times : list of pd.DataFrame
+        transit_times : list of TransitTimes
             per-planet [index, ttime, model, out_prob, out_flag] for transits passing
             the initial outlier screen; out_prob is NaN for 'smooth'
         """
@@ -652,7 +652,7 @@ class RegularizeOMC(BaseAlg):
         npl = len(planets)
 
         xtime = [p.transit_times for p in planets]
-        yobs = [p.transit_times - p.eval_linear_ephemeris() for p in planets]
+        yobs = [p.transit_times - p.linear_ephemeris() for p in planets]
         yerr = [p.transit_errors for p in planets]
         quality = [self._flag_outliers(y) for y in yobs]
 
@@ -700,19 +700,18 @@ class RegularizeOMC(BaseAlg):
             # observed and model transit times; OMC is relative to the current
             # linear ephemeris, which update_ephemeris also uses
             q = quality[n]
-            linear_ephemeris = p.eval_linear_ephemeris()[q]
-            transit_times[n] = pd.DataFrame(
-                {
-                    "index": p.transit_index[q],
-                    "ttime": yobs[n][q] + linear_ephemeris,
-                    "model": ymod[n][q] + linear_ephemeris,
-                    "out_prob": out_prob[q],
-                    "out_flag": out_class[q],
-                }
+            transit_times[n] = TransitTimes(
+                self.config["RUN"]["mission"],
+                self.config["RUN"]["target"],
+                p.transit_index[q],
+                p.transit_times[q],
+                (p.linear_ephemeris() + ymod[n])[q],
+                out_prob[q],
+                out_class[q],
             )
 
             try:
-                planets[n] = p.update_ephemeris(
+                p.update_ephemeris(
                     p.transit_index,
                     ymod[n],
                     yerr[n],

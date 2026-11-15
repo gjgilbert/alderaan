@@ -158,7 +158,6 @@ class FlagBadTransits(BaseAlg):
                 np.sum(~good_rms[n] & coverage[n]),
             )
 
-            p.transit_quality = coverage[n] & good_rms[n]
-            planets[n] = p.remove_poor_quality_transits()
+            p.keep_transits(coverage[n] & good_rms[n])
 
         return self.star, planets, self.litecurve

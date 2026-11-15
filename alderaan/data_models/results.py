@@ -2,16 +2,20 @@ __all__ = ["Results"]
 
 import logging
 
-import dynesty
+import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 from astropy.io import fits
+from astropy.stats import mad_std
 
-from alderaan.utils.stats import robust_polyfit, weighted_percentile
+from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
+from alderaan.data_models.litecurve import LiteCurve
+from alderaan.data_models.posteriors import Posteriors
+from alderaan.data_models.transit_times import TransitTimes
+from alderaan.models.transit_model import TransitModel
+from alderaan.utils.astro import bin_data, ld_q_to_u
+from alderaan.utils.stats import weighted_percentile
 
 logger = logging.getLogger(__name__)
-
-TTIMES_COLUMNS = ["index", "ttime", "model", "out_prob", "out_flag"]
 
 
 class Results:
@@ -20,310 +24,300 @@ class Results:
 
     Parameters
     ----------
-    mission, target, run_id : str
-    samples : pd.DataFrame
-        nested samples; columns num_planets * [C0_n, C1_n, ROR_n, IMPACT_n, DUR14_n]
-        + [LD_Q1, LD_Q2]
-    ln_wt, ln_like, ln_z : ndarray
-        log weight, log likelihood, and cumulative log evidence per sample
-    ln_vol, ln_zerr, n_live : ndarray, optional
-        log prior volume, log evidence error, and number of live points per sample;
-        used for sampler diagnostic plots (absent in older results files)
-    transit_times : list of pd.DataFrame
-        one per planet; columns [index, ttime, model, out_prob, out_flag]
-    sampler_info : dict, optional
-        sampler diagnostics written to the SAMPLES header (NITER, NBATCH, NLIVEi, EFF)
+    posteriors : Posteriors, optional
+        nested sampling posteriors
+    transit_times : list of TransitTimes, optional
+        one per planet, in planet order
+    litecurve : LiteCurve, optional
+        final detrended photometry (the data fit by the sampler)
+
+    mission and target are taken from the supplied objects, which must agree
     """
 
-    def __init__(
-        self,
-        mission,
-        target,
-        run_id,
-        samples,
-        ln_wt,
-        ln_like,
-        ln_z,
-        transit_times,
-        sampler_info=None,
-        ln_vol=None,
-        ln_zerr=None,
-        n_live=None,
-    ):
-        self.mission = mission
-        self.target = target
-        self.run_id = run_id
-        self.samples = samples
-        self.ln_wt = np.asarray(ln_wt)
-        self.ln_like = np.asarray(ln_like)
-        self.ln_z = np.asarray(ln_z)
+    def __init__(self, posteriors=None, transit_times=None, litecurve=None):
+        self.posteriors = posteriors
         self.transit_times = transit_times
-        self.sampler_info = {} if sampler_info is None else sampler_info
-        self.ln_vol = None if ln_vol is None else np.asarray(ln_vol)
-        self.ln_zerr = None if ln_zerr is None else np.asarray(ln_zerr)
-        self.n_live = None if n_live is None else np.asarray(n_live)
+        self.litecurve = litecurve
 
-        if samples.shape[1] != 5 * self.npl + 2:
+        components = []
+        if posteriors is not None:
+            components.append(posteriors)
+        if transit_times is not None:
+            components += transit_times
+        if litecurve is not None:
+            components.append(litecurve)
+
+        missions = {c.mission for c in components}
+        targets = {c.target for c in components}
+        if len(missions) > 1 or len(targets) > 1:
             raise ValueError(
-                f"{samples.shape[1]} sample columns inconsistent with npl = {self.npl}"
+                f"inconsistent metadata: missions {missions}, targets {targets}"
             )
+        self.mission = missions.pop() if missions else None
+        self.target = targets.pop() if targets else None
 
-        nsamp = len(samples)
-        if not (len(self.ln_wt) == len(self.ln_like) == len(self.ln_z) == nsamp):
-            raise ValueError("ln_wt, ln_like, ln_z must have one entry per sample")
-
-        for name in ("ln_vol", "ln_zerr", "n_live"):
-            x = getattr(self, name)
-            if x is not None and len(x) != nsamp:
-                raise ValueError(f"{name} must have one entry per sample")
+        if posteriors is not None and transit_times is not None:
+            if posteriors.npl != len(transit_times):
+                raise ValueError(
+                    f"posteriors have {posteriors.npl} planets; "
+                    f"{len(transit_times)} transit time tables"
+                )
 
     @property
     def npl(self):
-        return len(self.transit_times)
+        if self.transit_times is not None:
+            return len(self.transit_times)
+        if self.posteriors is not None:
+            return self.posteriors.npl
+        return None
 
-    @classmethod
-    def from_dynesty(cls, results, mission, target, run_id, transit_times):
+    def to_fits(self, filepath):
         """
-        Package dynesty results with per-planet transit time tables
-
-        Parameters
-        ----------
-        results : dynesty.results.Results
-        mission, target, run_id : str
-        transit_times : list of pd.DataFrame
-            one per planet, in planet order; columns as in TTIMES_COLUMNS
-        """
-        npl = (results.samples.shape[1] - 2) // 5
-
-        if len(transit_times) != npl:
-            raise ValueError(
-                f"{len(transit_times)} transit time tables for {npl} planets"
-            )
-
-        labels = []
-        for n in range(npl):
-            labels += f"C0_{n} C1_{n} ROR_{n} IMPACT_{n} DUR14_{n}".split()
-        labels += ["LD_Q1", "LD_Q2"]
-
-        samples = pd.DataFrame(results.samples, columns=labels)
-
-        sampler_info = {"NITER": results.niter, "NBATCH": len(results.batch_nlive)}
-        for i, nlive in enumerate(results.batch_nlive):
-            sampler_info[f"NLIVE{i}"] = nlive
-        sampler_info["EFF"] = results.eff
-
-        return cls(
-            mission,
-            target,
-            run_id,
-            samples,
-            results.logwt,
-            results.logl,
-            results.logz,
-            transit_times,
-            sampler_info=sampler_info,
-            ln_vol=results.logvol,
-            ln_zerr=results.logzerr,
-            n_live=results.samples_n,
-        )
-
-    @classmethod
-    def from_fits(cls, filepath):
-        """
-        Load a results file written by Results.to_fits
-
-        Parameters
-        ----------
-        filepath : str
-            path to {target}-results.fits
-        """
-        logger.info("reading %s", filepath)
-        with fits.open(filepath) as hdul:
-            header = hdul[0].header
-            npl = header["NPL"]
-
-            samples_hdu = hdul["SAMPLES"]
-            samples = pd.DataFrame(
-                {
-                    k: np.asarray(samples_hdu.data[k], dtype=float)
-                    for k in samples_hdu.columns.names
-                }
-            )
-            ln_wt = samples.pop("LN_WT").to_numpy()
-            ln_like = samples.pop("LN_LIKE").to_numpy()
-            ln_z = samples.pop("LN_Z").to_numpy()
-
-            # sampler diagnostics; absent in older results files
-            names = samples_hdu.columns.names
-            ln_vol = samples.pop("LN_VOL").to_numpy() if "LN_VOL" in names else None
-            ln_zerr = samples.pop("LN_ZERR").to_numpy() if "LN_ZERR" in names else None
-            n_live = (
-                samples.pop("N_LIVE").to_numpy(dtype=int) if "N_LIVE" in names else None
-            )
-
-            sampler_info = {
-                k: samples_hdu.header[k]
-                for k in samples_hdu.header
-                if k in ("NITER", "NBATCH", "EFF") or k.startswith("NLIVE")
-            }
-
-            transit_times = []
-            for n in range(npl):
-                data = hdul[f"TTIMES_{n:02d}"].data
-                transit_times.append(
-                    _ttimes_dataframe(
-                        np.column_stack([data[k.upper()] for k in TTIMES_COLUMNS])
-                    )
-                )
-
-            mission, target, run_id = (
-                header["MISSION"],
-                header["TARGET"],
-                header["RUN_ID"],
-            )
-
-        return cls(
-            mission,
-            target,
-            run_id,
-            samples,
-            ln_wt,
-            ln_like,
-            ln_z,
-            transit_times,
-            sampler_info=sampler_info,
-            ln_vol=ln_vol,
-            ln_zerr=ln_zerr,
-            n_live=n_live,
-        )
-
-    def to_hdulist(self):
-        """
-        Build the standard results HDUList: PRIMARY, SAMPLES, TTIMES_nn
+        Write PRIMARY, SAMPLES + EPHEMERIS (if posteriors), and TTIMES_nn (if
+        transit_times); the detrended litecurve is written by LiteCurve.to_fits
         """
         primary_hdu = fits.PrimaryHDU()
         primary_hdu.header["MISSION"] = self.mission
         primary_hdu.header["TARGET"] = self.target
-        primary_hdu.header["RUN_ID"] = self.run_id
         primary_hdu.header["NPL"] = self.npl
 
-        samples_df = self.samples.assign(
-            LN_WT=self.ln_wt, LN_LIKE=self.ln_like, LN_Z=self.ln_z
-        )
-        if self.ln_vol is not None:
-            samples_df = samples_df.assign(
-                LN_VOL=self.ln_vol, LN_ZERR=self.ln_zerr, N_LIVE=self.n_live
-            )
-        samples_hdu = fits.BinTableHDU(
-            data=samples_df.to_records(index=False), name="SAMPLES"
-        )
-        for k, v in self.sampler_info.items():
-            samples_hdu.header[k] = v
+        hdul = fits.HDUList([primary_hdu])
+        if self.posteriors is not None:
+            hdul += list(self.posteriors.to_hdus())
+        if self.transit_times is not None:
+            for n, tt in enumerate(self.transit_times):
+                hdul.append(tt.to_hdu(n))
 
-        hdul = fits.HDUList([primary_hdu, samples_hdu])
-
-        for n, tt in enumerate(self.transit_times):
-            ttimes_df = tt.astype({"out_flag": int})
-            ttimes_df.columns = [k.upper() for k in ttimes_df.columns]
-            hdul.append(
-                fits.BinTableHDU(
-                    data=ttimes_df.to_records(index=False), name=f"TTIMES_{n:02d}"
-                )
-            )
-
-        return hdul
-
-    def to_fits(self, filepath):
-        self.to_hdulist().writeto(filepath, overwrite=True)
+        hdul.writeto(filepath, overwrite=True)
         logger.info("wrote %s", filepath)
 
-    def weights(self):
+    @classmethod
+    def from_fits(cls, results_filepath, detrended_filepath=None):
         """
-        Normalized posterior weights
-        """
-        wt = np.exp(self.ln_wt - self.ln_z[-1])
-        return wt / np.sum(wt)
+        Load a results file written by Results.to_fits and, optionally, a detrended
+        litecurve written by LiteCurve.to_fits
 
-    def neff(self):
+        Parameters
+        ----------
+        results_filepath : str
+            path to {target}-results.fits
+        detrended_filepath : str, optional
+            path to {target}_*_detrended.fits; litecurve is None if omitted
         """
-        Number of effective samples (Kish ESS)
-        """
-        return dynesty.utils.get_neff_from_logwt(self.ln_wt)
+        logger.info("reading %s", results_filepath)
+        with fits.open(results_filepath) as hdul:
+            npl = hdul[0].header["NPL"]
+
+            if "SAMPLES" in hdul:
+                posteriors = Posteriors.from_hdus(hdul["SAMPLES"], hdul["EPHEMERIS"])
+            else:
+                posteriors = None
+
+            if "TTIMES_00" in hdul:
+                transit_times = [
+                    TransitTimes.from_hdu(hdul[f"TTIMES_{n:02d}"]) for n in range(npl)
+                ]
+            else:
+                transit_times = None
+
+        if detrended_filepath is None:
+            litecurve = None
+        else:
+            litecurve = LiteCurve.from_fits(detrended_filepath)
+
+        return cls(
+            posteriors=posteriors, transit_times=transit_times, litecurve=litecurve
+        )
 
     def summary(self):
-        """
-        Weighted posterior summary statistics for each sampled parameter
-        """
-        weights = self.weights()
-
-        rows = {}
-        for label in self.samples.columns:
-            x = self.samples[label].to_numpy()
-            avg = np.sum(weights * x)
-            rows[label] = {
-                "mean": avg,
-                "stdev": np.sqrt(np.sum(weights * (x - avg) ** 2)),
-                "median": weighted_percentile(x, 50, w=weights),
-                "CI_2.5": weighted_percentile(x, 2.5, w=weights),
-                "CI_16": weighted_percentile(x, 15.9, w=weights),
-                "CI_84": weighted_percentile(x, 84.1, w=weights),
-                "CI_97.5": weighted_percentile(x, 97.5, w=weights),
-            }
-
-        return pd.DataFrame.from_dict(rows, orient="index")
-
-    def linear_ephemeris(self, n):
-        """
-        Least squares (epoch, period) fit to the model transit times of planet n
-        """
-        tt = self.transit_times[n]
-        period, epoch = robust_polyfit(tt["index"], tt["model"], 1)
-        return epoch, period
+        return self.posteriors.summary()
 
     def planet_samples(self, n):
-        """
-        Physical posterior samples for planet n
+        return self.posteriors.planet_samples(n)
 
-        Returns
-        -------
-        pd.DataFrame
-            columns [PERIOD, T0, ROR, IMPACT, DUR14, LD_U1, LD_U2, LN_WT]
+    def plot_lightcurve(self, visit=None):
         """
-        s = self.samples
-        index = self.transit_times[n]["index"].to_numpy()
-        model = self.transit_times[n]["model"].to_numpy()
+        Plot detrended photometry; all visits if visit is None
+        """
+        lc = self.litecurve
+        use = np.ones(len(lc.time), dtype=bool) if visit is None else lc.visit == visit
+        if not np.any(use):
+            raise ValueError(f"no data for visit {visit}")
 
-        # least squares period and epoch of the perturbed ephemeris
-        legx = (index - index[-1] // 2) / (index[-1] / 2)
-        ephem = (
-            model
-            + np.outer(s[f"C0_{n}"], np.ones_like(legx))
-            + np.outer(s[f"C1_{n}"], legx)
+        fig, ax = plt.subplots(1, 1, figsize=(20, 4))
+        ax.plot(lc.time[use], lc.flux[use], "k.", ms=1)
+        ax.tick_params(labelsize=12)
+        ax.set_xlabel("Time [BKJD]", fontsize=24)
+        ax.set_ylabel("Flux", fontsize=24)
+        ax.set_xlim(lc.time[use].min(), lc.time[use].max())
+
+        return fig
+
+    def plot_omc(self, show_outliers=False):
+        """
+        Plot O-C transit times and regularized model for each planet
+        """
+        fig, ax = plt.subplots(self.npl, figsize=(12, 3 * self.npl))
+        if self.npl == 1:
+            ax = [ax]
+
+        for n, tt in enumerate(self.transit_times):
+            out = tt.out_flag
+
+            if show_outliers:
+                ax[n].scatter(
+                    tt.ttime, tt.omc_ttime * 24 * 60, c=tt.out_prob, cmap="viridis"
+                )
+                ax[n].plot(tt.ttime[out], tt.omc_ttime[out] * 24 * 60, "rx")
+                ax[n].plot(tt.ttime, tt.omc_model * 24 * 60, "k")
+            else:
+                ax[n].plot(
+                    tt.ttime[~out], tt.omc_ttime[~out] * 24 * 60, "o", c="lightgrey"
+                )
+                ax[n].plot(
+                    tt.ttime[~out], tt.omc_model[~out] * 24 * 60, c=f"C{n}", lw=3
+                )
+
+            rms = mad_std(tt.omc_ttime[~out] - tt.omc_model[~out]) * 24 * 60
+            ax[n].text(
+                0.95,
+                0.10,
+                f"residual RMS = {rms:.1f} min",
+                transform=ax[n].transAxes,
+                ha="right",
+            )
+            ax[n].set_ylabel("O-C [min]", fontsize=20)
+
+        ax[0].set_title(self.target, fontsize=20)
+        ax[-1].set_xlabel("Time [BKJD]", fontsize=20)
+
+        return fig
+
+    def plot_transit(self, n, index=None, folded=True, max_pts=1000):
+        """
+        Plot photometry and median posterior model for planet n
+
+        folded=True : phase-folded on all model transit times
+        folded=False : single transit at transit index `index`
+        """
+        if folded:
+            return self._plot_phase_folded_transit(n, max_pts)
+
+        if index is None:
+            raise ValueError("index is required when folded=False")
+
+        return self._plot_single_transit(n, index)
+
+    def median_transit_params(self, n):
+        """
+        (t0, period, ror, b, T14, u1, u2) at the posterior median, with t0 = 0;
+        argument order of TransitModel.transit_flux
+        """
+        median = self.summary()["median"]
+        period = weighted_percentile(
+            self.planet_samples(n)["PERIOD"].to_numpy(),
+            50,
+            w=self.posteriors.weights(),
         )
-        period, t0 = robust_polyfit(index, ephem.T, 1)
 
-        # limb darkening (see Kipping 2013)
-        q1, q2 = s["LD_Q1"], s["LD_Q2"]
-        u1 = 2 * np.sqrt(q1) * q2
-        u2 = np.sqrt(q1) * (1 - 2 * q2)
+        return (
+            0.0,
+            period,
+            median[f"ROR_{n}"],
+            median[f"IMPACT_{n}"],
+            median[f"DUR14_{n}"],
+            *ld_q_to_u(median["LD_Q1"], median["LD_Q2"]),
+        )
 
-        data = np.vstack(
-            [
-                period,
-                t0,
-                s[f"ROR_{n}"],
-                s[f"IMPACT_{n}"],
-                s[f"DUR14_{n}"],
-                u1,
-                u2,
-                self.ln_wt,
-            ]
-        ).T
-        labels = "PERIOD T0 ROR IMPACT DUR14 LD_U1 LD_U2 LN_WT".split()
+    def _plot_single_transit(self, n, index):
+        tt = self.transit_times[n]
+        if not np.any(tt.index == index):
+            raise ValueError(f"planet {n} has no transit with index {index}")
 
-        return pd.DataFrame(data, columns=labels)
+        tc = tt.model[tt.index == index][0]
+        params = self.median_transit_params(n)
+        T14 = params[4]
 
+        lc = self.litecurve
+        use = np.abs(lc.time - tc) / T14 < 1.5
+        if not np.any(use):
+            raise ValueError(f"no photometry near planet {n} transit {index}")
 
-def _ttimes_dataframe(data):
-    df = pd.DataFrame(data, columns=TTIMES_COLUMNS)
-    return df.astype({"index": int, "out_flag": bool})
+        t_obs = lc.time[use]
+        f_obs = (lc.flux[use] - 1.0) * 1000
+        t_mod = np.arange(t_obs.min(), t_obs.max(), KEPLER_SCIT)
+        f_mod = (TransitModel.transit_flux(t_mod - tc, *params) - 1.0) * 1000
+
+        fig, ax = plt.subplots(1, 1, figsize=(12, 4))
+        ax.plot(t_obs, f_obs, "o", color="lightgrey")
+        ax.plot(t_mod, f_mod, color=f"C{n}", lw=2)
+        ax.set_xlim(tc - 1.55 * T14, tc + 1.55 * T14)
+        ax.tick_params(labelsize=12)
+        ax.set_xlabel("Time [BKJD]", fontsize=24)
+        ax.set_ylabel("Flux [ppt]", fontsize=24)
+        ax.set_title(f"{self.target} - Planet {n}, transit {index}", fontsize=18)
+
+        return fig
+
+    def _plot_phase_folded_transit(self, n, max_pts=1000):
+        params = self.median_transit_params(n)
+        T14 = params[4]
+
+        time = self.litecurve.time
+        flux = self.litecurve.flux
+
+        # fold photometry on the model transit times
+        t_folded, f_folded = [], []
+        for tc in self.transit_times[n].model:
+            use = np.abs(time - tc) / T14 < 1.5
+            t_folded.append(time[use] - tc)
+            f_folded.append(flux[use])
+
+        t_folded = np.hstack(t_folded)
+        f_folded = np.hstack(f_folded)
+
+        # median models: unbinned and integrated over a long cadence exposure
+        lc_offsets = np.linspace(-KEPLER_LCIT / 2, KEPLER_LCIT / 2, 29)
+        t_mod = np.arange(t_folded.min(), t_folded.max(), KEPLER_SCIT)
+
+        transit_flux = TransitModel.transit_flux
+        f_mod = transit_flux(t_mod, *params)
+        f_mod_lc = transit_flux(t_mod, *params, exptime_offsets=lc_offsets)
+        residuals = f_folded - transit_flux(
+            t_folded, *params, exptime_offsets=lc_offsets
+        )
+
+        t_binned, f_binned = bin_data(t_folded, f_folded, T14 / 11)
+        _, r_binned = bin_data(t_folded, residuals, T14 / 11)
+
+        # deterministic subset of points to plot
+        rng = np.random.default_rng(0)
+        inds = rng.choice(
+            len(t_folded), size=min(max_pts, len(t_folded)), replace=False
+        )
+
+        fig, ax = plt.subplots(
+            2, 1, figsize=(12, 6), sharex=True, gridspec_kw={"height_ratios": [2, 1]}
+        )
+
+        ax[0].plot(t_folded[inds] * 24, f_folded[inds], "o", color="lightgrey")
+        ax[0].plot(t_binned * 24, f_binned, "s", color="w", mec="k", ms=10)
+        ax[0].plot(t_mod * 24, f_mod, color=f"C{n}", lw=3)
+        ax[0].plot(t_mod * 24, f_mod_lc, "k--", lw=2)
+        ax[0].set_ylabel("Flux", fontsize=24)
+        ax[0].set_title(f"{self.target} - Planet {n}", fontsize=18)
+
+        ax[1].plot(t_folded[inds] * 24, residuals[inds], ".", color="lightgrey")
+        ax[1].plot(t_binned * 24, r_binned, "s", color="w", mec="k", ms=10)
+        ax[1].axhline(0, color="k", ls="--", lw=2)
+        ax[1].set_xlim(t_folded.min() * 24, t_folded.max() * 24)
+        ax[1].set_xlabel("Time from mid-transit [hrs]", fontsize=24)
+        ax[1].text(
+            0.02,
+            0.8,
+            f"RMS = {int(np.std(residuals) * 1e6)} ppm",
+            transform=ax[1].transAxes,
+            fontsize=11,
+        )
+
+        return fig

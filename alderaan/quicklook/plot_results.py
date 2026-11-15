@@ -16,32 +16,32 @@ class PlotResults:
     Parameters
     ----------
     results : Results
-        must include ln_vol, ln_zerr, n_live (absent in files written before
-        these columns were added to SAMPLES)
+        results.posteriors must include ln_vol, ln_zerr, n_live
     """
 
     def __init__(self, results):
-        if any(x is None for x in (results.ln_vol, results.ln_zerr, results.n_live)):
-            raise ValueError("Results is missing ln_vol, ln_zerr, or n_live")
+        post = results.posteriors
+        if any(x is None for x in (post.ln_vol, post.ln_zerr, post.n_live)):
+            raise ValueError("Posteriors is missing ln_vol, ln_zerr, or n_live")
 
         self.results = results
 
         # dynesty plotting functions take a dynesty Results; samples_u and
         # samples_id are required by its constructor but unused by these plots
-        samples = results.samples.to_numpy()
+        samples = post.samples.to_numpy()
         self._dynesty_results = DynestyResults(
             {
                 "samples": samples,
                 "samples_u": samples,
                 "samples_id": np.zeros(len(samples), dtype=int),
-                "samples_n": results.n_live,
-                "logl": results.ln_like,
-                "logwt": results.ln_wt,
-                "logz": results.ln_z,
-                "logzerr": results.ln_zerr,
-                "logvol": results.ln_vol,
-                "niter": results.sampler_info["NITER"],
-                "eff": results.sampler_info["EFF"],
+                "samples_n": post.n_live,
+                "logl": post.ln_like,
+                "logwt": post.ln_wt,
+                "logz": post.ln_z,
+                "logzerr": post.ln_zerr,
+                "logvol": post.ln_vol,
+                "niter": post.sampler_info["NITER"],
+                "eff": post.sampler_info["EFF"],
             }
         )
 

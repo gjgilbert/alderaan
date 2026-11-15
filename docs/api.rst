@@ -10,5 +10,7 @@ API Documentation
    ephemeris
    litecurve
    planet
+   posteriors
    quicklook
    results
+   transit_times

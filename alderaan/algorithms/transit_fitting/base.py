@@ -3,6 +3,7 @@
 import numpy as np
 
 from alderaan.algorithms.base import BaseAlg
+from alderaan.utils.astro import ld_q_to_u, ld_u_to_q
 
 
 class BaseTransitFittingAlg(BaseAlg):
@@ -39,9 +40,7 @@ class BaseTransitFittingAlg(BaseAlg):
             theta.append(p.duration)
 
         # physical (u1, u2) --> sampling basis (q1, q2), see Kipping 2013
-        u1, u2 = star.u1, star.u2
-        theta.append((u1 + u2) ** 2)
-        theta.append(u1 / (2 * (u1 + u2)))
+        theta.extend(ld_u_to_q(star.u1, star.u2))
 
         return np.array(theta)
 
@@ -59,9 +58,7 @@ class BaseTransitFittingAlg(BaseAlg):
         lnlike = -0.5 * np.sum(BaseTransitFittingAlg._model_residuals(theta, tm) ** 2)
 
         # enforce prior on physical limb darkening (see Kipping 2013)
-        q1, q2 = theta[-2], theta[-1]
-        u1 = 2 * np.sqrt(q1) * q2
-        u2 = np.sqrt(q1) * (1 - 2 * q2)
+        u1, u2 = ld_q_to_u(theta[-2], theta[-1])
 
         sig_ld_sq = 0.01
         lnlike -= 1.0 / (2 * sig_ld_sq) * (u1 - tm.star.u1) ** 2

@@ -7,7 +7,7 @@ from scipy.optimize import least_squares
 
 from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
 from alderaan.models.transit_model import TransitModel
-from alderaan.utils.astro import estimate_transit_depth
+from alderaan.utils.astro import estimate_transit_depth, ld_q_to_u
 
 logger = logging.getLogger(__name__)
 
@@ -119,10 +119,10 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
 
     def _update_planets(self, theta):
         for n, p in enumerate(self.planets):
-            self.planets[n].ror = theta[2 + n * 5]
-            self.planets[n].impact = theta[3 + n * 5]
-            self.planets[n].duration = theta[4 + n * 5]
-            self.planets[n].depth = estimate_transit_depth(p.ror, p.impact)
+            ror, impact = theta[2 + n * 5], theta[3 + n * 5]
+            p.set_transit_shape(
+                ror, impact, theta[4 + n * 5], estimate_transit_depth(ror, impact)
+            )
             logger.info(
                 "planet %d: ror = %.4f, b = %.3f, T14 = %.3f hr, depth = %.0f ppm",
                 n,
@@ -135,8 +135,7 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
     def _update_star(self, theta):
         # sampling basis (q1, q2) --> physical (u1, u2), see Kipping 2013
         q1, q2 = theta[-2], theta[-1]
-        self.star.u1 = 2 * np.sqrt(q1) * q2
-        self.star.u2 = np.sqrt(q1) * (1 - 2 * q2)
+        self.star.u1, self.star.u2 = ld_q_to_u(q1, q2)
         logger.info(
             "limb darkening: q1 = %.3f, q2 = %.3f (u1 = %.3f, u2 = %.3f)",
             q1,

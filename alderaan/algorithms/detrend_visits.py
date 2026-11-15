@@ -130,10 +130,7 @@ class DetrendVisits(BaseAlg):
                 )
                 bad = np.zeros_like(mask)
 
-            # set attributes
-            for k in lc.__dict__.keys():
-                if type(lc.__dict__[k]) is np.ndarray:
-                    lc.__setattr__(k, lc.__dict__[k][~bad])
+            lc.select(~bad)
 
             # update mask and iterate
             mask = mask[~bad]
@@ -177,9 +174,7 @@ class DetrendVisits(BaseAlg):
             lc.flux - f_mod, sigma_upper=sigma, sigma_lower=sigma, stdfunc=mad_std
         ).mask
 
-        for k in lc.__dict__.keys():
-            if type(lc.__dict__[k]) is np.ndarray:
-                lc.__setattr__(k, lc.__dict__[k][~bad])
+        lc.select(~bad)
 
         return lc
 
@@ -557,7 +552,7 @@ class DetrendVisits(BaseAlg):
         if clip_outliers == "transit_model":
             theta = self._transit_theta()
 
-        for j, lc in enumerate(litecurves):
+        for lc in litecurves:
             npts_initial = len(lc.time)
 
             if clip_outliers == "local_trend":
@@ -574,7 +569,7 @@ class DetrendVisits(BaseAlg):
             elif clip_outliers == "transit_model":
                 lc = self._clip_transit_outliers(lc, theta)
 
-            litecurves[j] = lc.reset()
+            lc.reset()
 
             logger.info(
                 "visit %d: %d of %d cadences rejected as outliers (%s)",
@@ -591,15 +586,14 @@ class DetrendVisits(BaseAlg):
                 lc, oscillation_periods, tight_mask, ttv_buffer
             )
 
-        litecurve = LiteCurve().from_list(litecurves)
+        litecurve = LiteCurve.from_list(litecurves)
 
-        # output cadence follows the last visit
-        obsmode = litecurves[-1].obsmode[0]
-        if obsmode == "long cadence":
-            filename = os.path.join(results_dir, f"{target}_lc_detrended.fits")
-            litecurve.to_fits(target, filename, cadence="LONG")
-        elif obsmode == "short cadence":
-            filename = os.path.join(results_dir, f"{target}_sc_detrended.fits")
-            litecurve.to_fits(target, filename, cadence="SHORT")
+        obsmodes = np.unique(litecurve.obsmode)
+        if len(obsmodes) != 1 or obsmodes[0] not in ("long cadence", "short cadence"):
+            raise ValueError(f"expected a single long or short cadence, got {obsmodes}")
+        cadence = "lc" if obsmodes[0] == "long cadence" else "sc"
+        litecurve.to_fits(
+            os.path.join(results_dir, f"{target}_{cadence}_detrended.fits")
+        )
 
         return self.star, self.planets, litecurve

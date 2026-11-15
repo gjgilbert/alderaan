@@ -186,7 +186,7 @@ def match_holczer16_transit_times(planets, transit_times):
                 periods[k],
             )
             try:
-                planets[n] = p.set_transit_times(index, ttime, error)
+                p.set_transit_times(index, ttime, error)
             except ValueError as e:
                 raise ValueError(f"planet {n}, Holczer+2016 table {k}: {e}") from e
             used.add(k)
@@ -248,8 +248,8 @@ def load_kepler_data(config):
     )
 
     # load lightcurves
-    litecurve = LiteCurve().from_kplr_pdcsap(
-        input_dir, star.kic_id, "long cadence", visits=visits
+    litecurve = LiteCurve.from_kplr_pdcsap(
+        input_dir, target, star.kic_id, "long cadence", visits=visits
     )
 
     t_min = litecurve.time.min()
@@ -326,8 +326,8 @@ def load_kepler_data(config):
     for n, p in enumerate(planets):
         n_before = len(p.transit_times)
         p.clip_range(t_min, t_max)
-        p.set_reference_period_and_epoch()
-        planets[n] = p.refit_period_and_epoch()
+        p.set_static_period_and_epoch()
+        p.refit_period_and_epoch()
 
         logger.info(
             "planet %d: %d of %d transits within litecurve span; "
