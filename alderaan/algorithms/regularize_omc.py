@@ -19,7 +19,6 @@ from sklearn.cluster import KMeans
 
 from alderaan.algorithms.base import BaseAlg
 from alderaan.data_models.transit_times import TransitTimes
-from alderaan.utils.stats import set_sigma_cutoff
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +32,10 @@ class RegularizeOMC(BaseAlg):
     star : Star
     planets : list of Planet
     litecurve : LiteCurve
-    config : ConfigParser
-        pipeline configuration, including RUN and PATHS values set by main
     """
 
-    def __init__(self, star, planets, litecurve, config):
-        super().__init__(star, planets, litecurve, config)
+    def __init__(self, star, planets, litecurve):
+        super().__init__(star, planets, litecurve)
 
     @staticmethod
     def _flag_outliers(yobs, sigma_cut=5.0):
@@ -701,8 +698,6 @@ class RegularizeOMC(BaseAlg):
         -------
         planets : list of Planet
         litecurve : LiteCurve
-        ttv_buffer : list of float
-            per-planet scatter of OMC residuals about the model
 
         Each planet carries its regularized TransitTimes, with OMC diagnostics
         ttime_obs, out_prob, out_flag; out_prob is NaN for 'smooth'
@@ -722,7 +717,6 @@ class RegularizeOMC(BaseAlg):
         quality = [self._flag_outliers(y) for y in yobs]
 
         ymod = [None] * npl
-        ttv_buffer = [None] * npl
 
         if method == "select" and check_periodic:
             freq = self._identify_periodic_signals(xtime, yobs, quality)
@@ -773,13 +767,12 @@ class RegularizeOMC(BaseAlg):
                 p.set_transit_times(transit_times)
             except ValueError as e:
                 raise ValueError(f"planet {n}, OMC method {method!r}: {e}") from e
-            ttv_buffer[n] = set_sigma_cutoff(len(yobs[n])) * mad_std(yobs[n] - ymod[n])
             logger.info(
                 "planet %d: P = %.6f -> %.6f d; ttv_buffer = %.1f min",
                 n,
                 old_period,
                 planets[n].period,
-                ttv_buffer[n] * 1440,
+                transit_times.ttv_buffer() * 1440,
             )
 
-        return self.planets, self.litecurve, ttv_buffer
+        return self.planets, self.litecurve

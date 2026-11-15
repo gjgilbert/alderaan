@@ -6,7 +6,7 @@ from astropy.io import fits
 from astropy.stats import mad_std
 
 from alderaan.utils.plotting import annotate, label_axes, save_and_close
-from alderaan.utils.stats import robust_polyfit
+from alderaan.utils.stats import robust_polyfit, set_sigma_cutoff
 
 # name -> (dtype, FITS column format); index, ttime_obs, ttime_mod are always set,
 # the rest are optional (None)
@@ -94,6 +94,16 @@ class TransitTimes:
 
     def linear_ephemeris(self):
         return self.epoch + self.period * self.index
+
+    def ttv_scatter(self):
+        """Robust scatter (mad_std) of observed about modeled transit times"""
+        obs = np.isfinite(self.ttime_obs)
+        return mad_std(self.ttime_obs[obs] - self.ttime_mod[obs])
+
+    def ttv_buffer(self):
+        """ttv_scatter scaled so not even one normal outlier is expected"""
+        npts = np.sum(np.isfinite(self.ttime_obs))
+        return set_sigma_cutoff(npts) * self.ttv_scatter()
 
     def subset(self, mask):
         """New TransitTimes with only transits where mask is True"""

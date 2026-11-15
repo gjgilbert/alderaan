@@ -39,23 +39,21 @@ def _git_hash():
         return "unknown"
 
 
-def main(config):
+def main(
+    target,
+    mission,
+    run_id,
+    input_dir,
+    output_dir,
+    catalog_dir,
+    visits=None,
+    log_level="INFO",
+):
     """
-    Run the ALDERAAN pipeline on one target
-
-    Parameters
-    ----------
-    config : dict
-        pipeline configuration built by `alderaan run` (alderaan/cli/run.py)
+    Run the ALDERAAN pipeline on one target (see `alderaan run --help`)
     """
     pipeline_start_time = time.perf_counter()
 
-    mission = config["RUN"]["mission"]
-    target = config["RUN"]["target"]
-    run_id = config["RUN"]["run_id"]
-    output_dir = config["PATHS"]["output_dir"]
-
-    log_level = config.get("LOGGING", {}).get("level", "INFO")
     log_path = setup_logging(
         os.path.join(output_dir, "logs"), target, run_id, log_level
     )
@@ -65,13 +63,22 @@ def main(config):
 
     logger.info("alderaan %s (git %s)", alderaan.__version__, _git_hash())
     logger.info("argv: %s", " ".join(sys.argv))
-    for section, values in config.items():
-        logger.info("config [%s]: %s", section, values)
+    logger.info(
+        "target %s, mission %s, run_id %s, visits %s", target, mission, run_id, visits
+    )
+    logger.info(
+        "input_dir %s, output_dir %s, catalog_dir %s",
+        input_dir,
+        output_dir,
+        catalog_dir,
+    )
     logger.info("theano cache: %s", theano.config.compiledir)
     logger.info("log file: %s (console level %s)", log_path, log_level)
 
     try:
-        results_path = _run(config, mission, target, run_id, output_dir)
+        results_path = _run(
+            target, mission, run_id, input_dir, output_dir, catalog_dir, visits
+        )
     except KeyboardInterrupt:
         logger.error(
             "interrupted after %.1f min",
@@ -90,18 +97,18 @@ def main(config):
     )
 
 
-def _run(config, mission, target, run_id, output_dir):
+def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     results_dir = os.path.join(output_dir, "results", run_id, target)
     os.makedirs(results_dir, exist_ok=True)
 
     quicklook_dir = os.path.join(output_dir, "quicklook", run_id, target)
     os.makedirs(quicklook_dir, exist_ok=True)
 
-    config["PATHS"]["results_dir"] = results_dir
-
     # data i/o
     if mission == "Kepler":
-        star, planets, litecurve = load_kepler_data(config)
+        star, planets, litecurve = load_kepler_data(
+            target, input_dir, catalog_dir, visits
+        )
     elif mission == "K2":
         raise NotImplementedError("K2 mission not yet implemented")
     elif mission == "TESS":
@@ -119,7 +126,7 @@ def _run(config, mission, target, run_id, output_dir):
         fig_path=f"{ql}_litecurve_raw.png",
     )
 
-    planets, litecurve, _ = RegularizeOMC(star, planets, litecurve, config).perform(
+    planets, litecurve = RegularizeOMC(star, planets, litecurve).perform(
         method="smooth"
     )
     for n, p in enumerate(planets):
@@ -128,36 +135,35 @@ def _run(config, mission, target, run_id, output_dir):
         )
 
     # 1st pass
-    planets, litecurve = DetrendVisits(
-        star, planets, litecurve, raw_litecurve, config
-    ).perform(tight_mask=False, clip_outliers="local_trend")
+    planets, litecurve = DetrendVisits(star, planets, litecurve, raw_litecurve).perform(
+        tight_mask=False, clip_outliers="local_trend"
+    )
     litecurve.plot(
         mark_times=[p.transit_times.ttime_mod for p in planets],
         fig_path=f"{ql}_litecurve_detrended_pass1.png",
     )
-    planets, litecurve = FlagBadTransits(star, planets, litecurve, config).perform()
-    planets, litecurve = QuickFitTransitShape(
-        star, planets, litecurve, config
-    ).perform()
-    planets, litecurve = QuickFitTransitTimes(
-        star, planets, litecurve, config
-    ).perform()
-    planets, litecurve, ttv_buffer = RegularizeOMC(
-        star, planets, litecurve, config
-    ).perform(method="select")
+    planets, litecurve = FlagBadTransits(star, planets, litecurve).perform()
+    planets, litecurve = QuickFitTransitShape(star, planets, litecurve).perform()
+    planets, litecurve = QuickFitTransitTimes(star, planets, litecurve).perform()
+    planets, litecurve = RegularizeOMC(star, planets, litecurve).perform(
+        method="select"
+    )
     for n, p in enumerate(planets):
         p.transit_times.plot_omc(show_outliers=True, fig_path=f"{ql}_omc_{n:02d}.png")
 
     # 2nd pass
-    planets, litecurve = DetrendVisits(
-        star, planets, litecurve, raw_litecurve, config
-    ).perform(tight_mask=True, clip_outliers="transit_model", ttv_buffer=ttv_buffer)
+    planets, litecurve = DetrendVisits(star, planets, litecurve, raw_litecurve).perform(
+        tight_mask=True, clip_outliers="transit_model"
+    )
+    (obsmode,) = set(litecurve.obsmode)  # fails loudly on mixed cadence
+    cadence = {"long cadence": "lc", "short cadence": "sc"}[obsmode]
+    litecurve.to_fits(os.path.join(results_dir, f"{target}_{cadence}_detrended.fits"))
     litecurve.plot(
         mark_times=[p.transit_times.ttime_mod for p in planets],
         fig_path=f"{ql}_litecurve_detrended_pass2.png",
     )
-    planets, litecurve = FlagBadTransits(star, planets, litecurve, config).perform()
-    posteriors = SampleTransitModel(star, planets, litecurve, config).perform()
+    planets, litecurve = FlagBadTransits(star, planets, litecurve).perform()
+    posteriors = SampleTransitModel(star, planets, litecurve).perform()
 
     # package and save results
     results = Results(

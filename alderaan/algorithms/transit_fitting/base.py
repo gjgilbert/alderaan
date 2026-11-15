@@ -17,8 +17,6 @@ class BaseTransitFittingAlg(BaseAlg):
     star : Star
     planets : list of Planet
     litecurve : LiteCurve
-    config : ConfigParser
-        pipeline configuration, including RUN and PATHS values set by main
     """
 
     @staticmethod

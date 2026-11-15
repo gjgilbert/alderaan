@@ -1,13 +1,9 @@
-"""`alderaan run`: parse arguments, build the config, and run the pipeline"""
+"""`alderaan run`: parse arguments and run the pipeline"""
 
 import argparse
 from pathlib import Path
 
-from alderaan.utils.config import load_config, resolve_config_path
-
 BASE_PATH = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG = str(BASE_PATH / "alderaan" / "configs" / "default_config.toml")
-PATH_KEYS = ["input_dir", "output_dir", "catalog_dir"]
 
 
 def build_parser():
@@ -24,14 +20,23 @@ def build_parser():
     )
     parser.add_argument("--run_id", required=True, help="run identifier")
     parser.add_argument(
-        "-c",
-        "--config",
-        default=DEFAULT_CONFIG,
-        help="TOML config file (default: packaged default_config.toml)",
+        "--input_dir",
+        type=Path,
+        default=BASE_PATH / "tests" / "data" / "MAST_downloads",
+        help="photometry directory (default: %(default)s)",
     )
-    parser.add_argument("--input_dir", help="photometry directory; overrides config")
-    parser.add_argument("--output_dir", help="outputs directory; overrides config")
-    parser.add_argument("--catalog_dir", help="catalog directory; overrides config")
+    parser.add_argument(
+        "--output_dir",
+        type=Path,
+        default=BASE_PATH / "outputs",
+        help="outputs directory (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--catalog_dir",
+        type=Path,
+        default=BASE_PATH / "tests" / "catalogs",
+        help="catalog directory (default: %(default)s)",
+    )
     parser.add_argument(
         "--visits",
         nargs="+",
@@ -40,41 +45,28 @@ def build_parser():
     )
     parser.add_argument(
         "--log_level",
+        default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="console log level (file always logs DEBUG); overrides config",
+        help="console log level (file always logs DEBUG)",
     )
     return parser
 
 
-def build_config(args, parser):
-    run = {"run_id": args.run_id, "mission": args.mission, "target": args.target}
-    if args.visits is not None:
-        run["visits"] = args.visits
-
-    paths = {k: getattr(args, k) for k in PATH_KEYS if getattr(args, k) is not None}
-
-    logging = {"level": args.log_level} if args.log_level is not None else {}
-
-    config = load_config(
-        args.config, overrides={"RUN": run, "PATHS": paths, "LOGGING": logging}
-    )
-
-    for k in PATH_KEYS:
-        if k not in config["PATHS"]:
-            parser.error(f"{k} must be set via --{k} or [PATHS] in {args.config}")
-        config["PATHS"][k] = resolve_config_path(config["PATHS"][k], BASE_PATH)
-
-    return config
-
-
 def main(argv=None):
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    config = build_config(args, parser)
+    args = build_parser().parse_args(argv)
 
     # deferred so --help and argument errors don't pay for the theano/pymc import
     from alderaan.pipeline.pipeline import main as run_pipeline
 
-    run_pipeline(config)
+    run_pipeline(
+        target=args.target,
+        mission=args.mission,
+        run_id=args.run_id,
+        input_dir=str(args.input_dir.resolve()),
+        output_dir=str(args.output_dir.resolve()),
+        catalog_dir=str(args.catalog_dir.resolve()),
+        visits=args.visits,
+        log_level=args.log_level,
+    )
 
     return 0

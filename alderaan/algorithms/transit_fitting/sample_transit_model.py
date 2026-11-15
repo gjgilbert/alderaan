@@ -24,12 +24,10 @@ class SampleTransitModel(BaseTransitFittingAlg):
     star : Star
     planets : list of Planet
     litecurve : LiteCurve
-    config : ConfigParser
-        pipeline configuration, including RUN and PATHS values set by main
     """
 
-    def __init__(self, star, planets, litecurve, config):
-        super().__init__(star, planets, litecurve, config)
+    def __init__(self, star, planets, litecurve):
+        super().__init__(star, planets, litecurve)
 
     @staticmethod
     def _prior_transform(uniform_hypercube, tm):

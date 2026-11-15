@@ -31,7 +31,6 @@ dependencies = [
     "pymc3-ext==0.1.1",
     "rebound==4.4.2",
     "scipy==1.7.3",
-    "tomli>=1.1; python_version < '3.11'",
     "xarray==2022.9.0",
 ]
 
@@ -53,9 +52,6 @@ dev = [
 
 [tool.setuptools.packages]
 find = {}
-
-[tool.setuptools.package-data]
-alderaan = ["configs/*.toml"]
 
 [tool.setuptools.dynamic]
 version = {attr = "alderaan.__version__"}

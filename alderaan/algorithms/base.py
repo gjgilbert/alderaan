@@ -42,8 +42,6 @@ class BaseAlg:
     star : Star
     planets : list of Planet
     litecurve : LiteCurve
-    config : ConfigParser
-        pipeline configuration, including RUN and PATHS values set by main
 
     Notes
     -----
@@ -56,7 +54,7 @@ class BaseAlg:
         if "perform" in cls.__dict__:
             cls.perform = _log_perform(cls.perform, cls.__name__, cls.__module__)
 
-    def __init__(self, star, planets, litecurve, config):
+    def __init__(self, star, planets, litecurve):
         # check inputs
         if not isinstance(litecurve, LiteCurve):
             raise TypeError("litecurve must be a LiteCurve")
@@ -73,7 +71,6 @@ class BaseAlg:
         self.npl = len(planets)
         self.planets = deepcopy(planets)
         self.star = deepcopy(star)
-        self.config = config
 
         self._init_obsmode_tracking()
 

@@ -218,14 +218,20 @@ def match_holczer16_transit_times(planets, transit_times):
     return planets
 
 
-def load_kepler_data(config):
+def load_kepler_data(target, input_dir, catalog_dir, visits=None):
     """
     Load the star, planets, and long cadence litecurve for one Kepler target
 
     Parameters
     ----------
-    config : dict
-        pipeline configuration built by `alderaan run`
+    target : str
+        KOI identifier, e.g. K00137
+    input_dir : str
+        directory of MAST photometry downloads
+    catalog_dir : str
+        directory holding the KOI and Holczer+2016 catalogs
+    visits : list of int, optional
+        quarters to load; default loads all
 
     Returns
     -------
@@ -236,13 +242,9 @@ def load_kepler_data(config):
         raw litecurve, all visits concatenated
     """
     t0 = time.perf_counter()
-    target = config["RUN"]["target"]
-    visits = config["RUN"].get("visits")
     logger.info("start load_kepler_data(target=%r, visits=%r)", target, visits)
-    input_dir = config["PATHS"]["input_dir"]
-    catalog_dir = config["PATHS"]["catalog_dir"]
-    koi_filepath = os.path.join(catalog_dir, config["CATALOGS"]["koi_catalog"])
-    ttv_filepath = os.path.join(catalog_dir, config["CATALOGS"]["ttv_catalog"])
+    koi_filepath = os.path.join(catalog_dir, "kepler_dr25_gaia_dr2_crossmatch.csv")
+    ttv_filepath = os.path.join(catalog_dir, "holczer_2016_kepler_ttvs.txt")
 
     # load KOI catalog
     catalog = parse_koi_catalog(koi_filepath, target)

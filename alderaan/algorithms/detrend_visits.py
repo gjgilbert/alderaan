@@ -1,7 +1,6 @@
 """Detrend each visit of a litecurve with a GP, masking transits"""
 
 import logging
-import os
 
 import aesara_theano_fallback.tensor as T
 import numpy as np
@@ -33,21 +32,20 @@ class DetrendVisits(BaseAlg):
     star : Star
     planets : list of Planet
     litecurve : LiteCurve
-    config : ConfigParser
-        pipeline configuration, including RUN and PATHS values set by main
     """
 
-    def __init__(self, star, planets, litecurve, raw_litecurve, config):
-        super().__init__(star, planets, litecurve, config)
+    def __init__(self, star, planets, litecurve, raw_litecurve):
+        super().__init__(star, planets, litecurve)
         self.raw_litecurve = raw_litecurve
 
         self.durations = np.array([p.duration for p in self.planets])
 
-    def _transit_mask(self, time, obsmode, tight_mask, ttv_buffer):
+    def _transit_mask(self, time, obsmode, tight_mask):
         exptime = self.exptime[obsmode]
 
         if tight_mask:
-            abs_size = 2 * (exptime + np.max(ttv_buffer))
+            ttv_buffer = max(p.transit_times.ttv_buffer() for p in self.planets)
+            abs_size = 2 * (exptime + ttv_buffer)
             return self.make_transit_mask(
                 rel_size=1.0, abs_size=abs_size, mask_type="condensed", time=time
             )
@@ -252,16 +250,6 @@ class DetrendVisits(BaseAlg):
             osc_per_sd,
         )
 
-        filename = os.path.join(
-            self.config["PATHS"]["results_dir"],
-            f"{self.litecurve.target}_stellar_oscillations.txt",
-        )
-        oscillation_period_by_quarter = np.ones(18) * np.nan
-        quarter_indexes = visits
-        oscillation_period_by_quarter[quarter_indexes] = oscillation_periods
-        np.savetxt(filename, np.stack([np.arange(18), oscillation_period_by_quarter]).T)
-        logger.debug("wrote %s", filename)
-
         return oscillation_periods
 
     def _detrend_gp(
@@ -441,7 +429,6 @@ class DetrendVisits(BaseAlg):
         obsmode,
         oscillation_periods,
         tight_mask,
-        ttv_buffer,
     ):
         """
         Detrend one visit, falling back to successively simpler GP models;
@@ -460,7 +447,7 @@ class DetrendVisits(BaseAlg):
             raise ValueError(f"unsuported obsmode: {obsmode}")
 
         min_period = self._min_period(obsmode)
-        mask = self._transit_mask(time, obsmode, tight_mask, ttv_buffer)
+        mask = self._transit_mask(time, obsmode, tight_mask)
         logger.debug(
             "visit %d: %s transit mask covers %d of %d cadences; gap tolerance = %d",
             visit,
@@ -533,17 +520,16 @@ class DetrendVisits(BaseAlg):
             correct_ramp=False,
         )
 
-    def perform(self, tight_mask, clip_outliers, ttv_buffer=None):
+    def perform(self, tight_mask, clip_outliers):
         """
         Parameters
         ----------
         tight_mask : bool
-            True to mask 1 x T14 plus ttv_buffer; False to mask 3 x T14 plus 1 hour
+            True to mask 1 x T14 plus the largest TransitTimes.ttv_buffer();
+            False to mask 3 x T14 plus 1 hour
         clip_outliers : str
             'local_trend' : clip incoming flux about a smoothed trend, sparing transits
             'transit_model' : clip incoming (detrended) flux about the transit model
-        ttv_buffer : list of float
-            per-planet transit time uncertainty buffer; required if tight_mask
 
         Outliers are clipped from the incoming flux; the surviving cadences are
         then reset to raw photometry (LiteCurve.reset) before detrending
@@ -554,16 +540,11 @@ class DetrendVisits(BaseAlg):
         litecurve : LiteCurve
             detrended litecurve
         """
-        target = self.litecurve.target
-        results_dir = self.config["PATHS"]["results_dir"]
-
         if clip_outliers not in ("local_trend", "transit_model"):
             raise ValueError(
                 "clip_outliers must be 'local_trend' or 'transit_model', "
                 f"got {clip_outliers!r}"
             )
-        if tight_mask and ttv_buffer is None:
-            raise ValueError("tight_mask=True requires ttv_buffer (from RegularizeOMC)")
 
         lc = self.litecurve
         visits = np.unique(lc.visit)
@@ -581,7 +562,7 @@ class DetrendVisits(BaseAlg):
 
             if clip_outliers == "local_trend":
                 transit_mask = self._transit_mask(
-                    lc.time[use], lc.obsmode[use][0], tight_mask, ttv_buffer
+                    lc.time[use], lc.obsmode[use][0], tight_mask
                 )
                 keep[use] = self._clip_outliers(
                     lc.flux[use], v, 5, 5, 13, mask=transit_mask
@@ -623,15 +604,8 @@ class DetrendVisits(BaseAlg):
                 lc.obsmode[use][0],
                 oscillation_periods,
                 tight_mask,
-                ttv_buffer,
             )
             lc.flux[use] /= pred
             lc.error[use] /= pred
-
-        obsmodes = np.unique(lc.obsmode)
-        if len(obsmodes) != 1 or obsmodes[0] not in ("long cadence", "short cadence"):
-            raise ValueError(f"expected a single long or short cadence, got {obsmodes}")
-        cadence = "lc" if obsmodes[0] == "long cadence" else "sc"
-        lc.to_fits(os.path.join(results_dir, f"{target}_{cadence}_detrended.fits"))
 
         return self.planets, lc
