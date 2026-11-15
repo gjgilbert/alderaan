@@ -101,9 +101,10 @@ class TransitTimes:
         arrays["index"] = arrays["index"] - arrays["index"][0]
         return TransitTimes(self.mission, self.target, **arrays)
 
-    def to_hdu(self, n):
+    def _to_hdu(self, n):
         """
         BinTableHDU named TTIMES_nn for planet n; unset optional fields are omitted
+        (used by Results.to_fits)
         """
         formats = {
             "index": "K",
@@ -123,7 +124,8 @@ class TransitTimes:
         return hdu
 
     @classmethod
-    def from_hdu(cls, hdu):
+    def _from_hdu(cls, hdu):
+        """Build from a TTIMES_nn table (used by Results.from_fits)"""
         data = hdu.data
         names = data.columns.names
         return cls(

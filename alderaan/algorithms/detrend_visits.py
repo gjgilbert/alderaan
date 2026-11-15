@@ -587,7 +587,7 @@ class DetrendVisits(BaseAlg):
                 lc, oscillation_periods, tight_mask, ttv_buffer
             )
 
-        litecurve = LiteCurve.from_list(litecurves)
+        litecurve = LiteCurve.concatenate_visits(litecurves)
 
         obsmodes = np.unique(litecurve.obsmode)
         if len(obsmodes) != 1 or obsmodes[0] not in ("long cadence", "short cadence"):

@@ -66,8 +66,8 @@ class LiteCurve:
             raise ValueError(f"{', '.join(ARRAY_FIELDS)} must have equal lengths")
 
     @classmethod
-    def from_list(cls, litecurve_list):
-        """Concatenate litecurves"""
+    def concatenate_visits(cls, litecurve_list):
+        """Concatenate per-visit litecurves (inverse of split_visits)"""
         first = litecurve_list[0]
         for lc in litecurve_list:
             if (lc.mission, lc.target) != (first.mission, first.target):
@@ -81,27 +81,23 @@ class LiteCurve:
         return cls(first.mission, first.target, **arrays)
 
     @classmethod
-    def from_hdu(cls, hdu):
-        """Build from a LITECURVE table written by to_hdu"""
-        data = hdu.data
-        return cls(
-            hdu.header["MISSION"],
-            hdu.header["TARGET"],
-            data["TIME"],
-            data["FLUX"],
-            data["ERROR"],
-            data["CADNO"],
-            data["VISIT"],
-            data["OBSMODE"],
-            data["QUALITY"],
-        )
-
-    @classmethod
     def from_fits(cls, filepath):
         """Load a litecurve written by LiteCurve.to_fits"""
         logger.info("reading %s", filepath)
         with fits.open(filepath) as hdul:
-            return cls.from_hdu(hdul["LITECURVE"])
+            hdu = hdul["LITECURVE"]
+            data = hdu.data
+            return cls(
+                hdu.header["MISSION"],
+                hdu.header["TARGET"],
+                data["TIME"],
+                data["FLUX"],
+                data["ERROR"],
+                data["CADNO"],
+                data["VISIT"],
+                data["OBSMODE"],
+                data["QUALITY"],
+            )
 
     @classmethod
     def from_kplr_pdcsap(cls, data_dir, target, kic_id, obsmode, visits=None):
@@ -275,8 +271,12 @@ class LiteCurve:
         self.error = raw.error[idx].copy()
         self.quality = np.ones(len(self.time), dtype=bool)
 
-    def to_hdu(self):
-        """BinTableHDU named LITECURVE"""
+    def to_fits(self, filepath):
+        """Save as a fits file: PRIMARY (MISSION, TARGET) + LITECURVE table"""
+        primary_hdu = fits.PrimaryHDU()
+        primary_hdu.header["MISSION"] = self.mission
+        primary_hdu.header["TARGET"] = self.target
+
         width = max([1, *map(len, self.obsmode)])
         columns = [
             fits.Column(name="TIME", format="D", array=self.time),
@@ -290,13 +290,6 @@ class LiteCurve:
         hdu = fits.BinTableHDU.from_columns(columns, name="LITECURVE")
         hdu.header["MISSION"] = self.mission
         hdu.header["TARGET"] = self.target
-        return hdu
 
-    def to_fits(self, filepath):
-        """Save as a fits file: PRIMARY (MISSION, TARGET) + LITECURVE table"""
-        primary_hdu = fits.PrimaryHDU()
-        primary_hdu.header["MISSION"] = self.mission
-        primary_hdu.header["TARGET"] = self.target
-
-        fits.HDUList([primary_hdu, self.to_hdu()]).writeto(filepath, overwrite=True)
+        fits.HDUList([primary_hdu, hdu]).writeto(filepath, overwrite=True)
         logger.info("wrote %s", filepath)

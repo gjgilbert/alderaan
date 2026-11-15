@@ -269,12 +269,7 @@ def load_kepler_data(config):
             "Lightcurve has negative timestamps...this will cause problems"
         )
 
-    per_visit = litecurve.split_visits()
-    for lc in per_visit:
-        assert len(np.unique(lc.visit)) == 1, "expected one quarter per litecurve"
-        assert len(np.unique(lc.obsmode)) == 1, "expected one obsmode per litecurve"
-
-    loaded = [int(lc.visit[0]) for lc in per_visit]
+    loaded = [int(v) for v in np.unique(litecurve.visit)]
     logger.info(
         "loaded %d long cadence quarters (%s), %d cadences, t = %.1f to %.1f BKJD",
         len(loaded),

@@ -143,9 +143,9 @@ class Posteriors:
             sampler_info=sampler_info,
         )
 
-    def to_hdus(self):
+    def _to_hdus(self):
         """
-        SAMPLES and EPHEMERIS BinTableHDUs
+        SAMPLES and EPHEMERIS BinTableHDUs (used by Results.to_fits)
         """
         samples_df = self.samples.assign(
             LN_WT=self.ln_wt, LN_LIKE=self.ln_like, LN_Z=self.ln_z
@@ -178,7 +178,8 @@ class Posteriors:
         return samples_hdu, ephem_hdu
 
     @classmethod
-    def from_hdus(cls, samples_hdu, ephem_hdu):
+    def _from_hdus(cls, samples_hdu, ephem_hdu):
+        """Build from SAMPLES and EPHEMERIS tables (used by Results.from_fits)"""
         names = samples_hdu.columns.names
         samples = pd.DataFrame(
             {k: np.asarray(samples_hdu.data[k], dtype=float) for k in names}

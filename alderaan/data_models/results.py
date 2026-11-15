@@ -81,12 +81,13 @@ class Results:
         primary_hdu.header["TARGET"] = self.target
         primary_hdu.header["NPL"] = self.npl
 
+        # component HDU builders are private to data_models; Results owns the file
         hdul = fits.HDUList([primary_hdu])
         if self.posteriors is not None:
-            hdul += list(self.posteriors.to_hdus())
+            hdul += list(self.posteriors._to_hdus())
         if self.transit_times is not None:
             for n, tt in enumerate(self.transit_times):
-                hdul.append(tt.to_hdu(n))
+                hdul.append(tt._to_hdu(n))
 
         hdul.writeto(filepath, overwrite=True)
         logger.info("wrote %s", filepath)
@@ -109,13 +110,13 @@ class Results:
             npl = hdul[0].header["NPL"]
 
             if "SAMPLES" in hdul:
-                posteriors = Posteriors.from_hdus(hdul["SAMPLES"], hdul["EPHEMERIS"])
+                posteriors = Posteriors._from_hdus(hdul["SAMPLES"], hdul["EPHEMERIS"])
             else:
                 posteriors = None
 
             if "TTIMES_00" in hdul:
                 transit_times = [
-                    TransitTimes.from_hdu(hdul[f"TTIMES_{n:02d}"]) for n in range(npl)
+                    TransitTimes._from_hdu(hdul[f"TTIMES_{n:02d}"]) for n in range(npl)
                 ]
             else:
                 transit_times = None
