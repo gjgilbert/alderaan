@@ -1,7 +1,6 @@
 import copy
 import logging
 import os
-import subprocess
 import sys
 import time
 import warnings
@@ -23,20 +22,6 @@ from alderaan.utils.kepler import load_kepler_data
 from alderaan.utils.logger import setup_logging
 
 logger = logging.getLogger(__name__)
-
-
-def _git_hash():
-    try:
-        return subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=os.path.dirname(alderaan.__file__),
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError) as e:
-        logger.debug("git hash unavailable: %s", e)
-        return "unknown"
 
 
 def main(
@@ -61,7 +46,7 @@ def main(
     warnings.simplefilter("always", UserWarning)
     warnings.filterwarnings(action="ignore", category=UnitsWarning, module="astropy")
 
-    logger.info("alderaan %s (git %s)", alderaan.__version__, _git_hash())
+    logger.info("alderaan %s (git %s)", alderaan.__version__, alderaan._git_hash())
     logger.info("argv: %s", " ".join(sys.argv))
     logger.info(
         "target %s, mission %s, run_id %s, visits %s", target, mission, run_id, visits
