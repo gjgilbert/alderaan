@@ -122,7 +122,7 @@ class TransitModel:
 
         ttvs = [None] * self.npl
         for n, p in enumerate(self.planets):
-            ttvs[n] = np.zeros_like(p.transit_times)
+            ttvs[n] = np.zeros_like(p.transit_times.ttime_mod)
 
         self._update_bins(ttvs)
 
@@ -131,9 +131,9 @@ class TransitModel:
             n,
             p,
         ) in enumerate(self.planets):
-            index_full = np.arange(0, p.transit_index.max() + 1, dtype=int)
+            index_full = np.arange(0, p.transit_times.index.max() + 1, dtype=int)
             ttime_full = self.static_epoch[n] + self.static_period[n] * index_full
-            ttime_full[p.transit_index] = p.transit_times + ttvs[n]
+            ttime_full[p.transit_times.index] = p.transit_times.ttime_mod + ttvs[n]
 
             self._bin_edges[n] = np.concatenate(
                 [
@@ -155,8 +155,12 @@ class TransitModel:
 
     def _update_warps(self):
         # Legendre mapping of transit index, legx = (index - index_mid) / index_half
-        self.index_mid = np.array([p.transit_index[-1] // 2 for p in self.planets])
-        self.index_half = np.array([p.transit_index[-1] / 2 for p in self.planets])
+        self.index_mid = np.array(
+            [p.transit_times.index[-1] // 2 for p in self.planets]
+        )
+        self.index_half = np.array(
+            [p.transit_times.index[-1] / 2 for p in self.planets]
+        )
 
         for n in range(self.npl):
             _t, _i = self._warp_times(self.litecurve.time, n, return_inds=True)

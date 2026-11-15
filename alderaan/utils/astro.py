@@ -40,8 +40,10 @@ def transit_obsmode(planets, litecurve):
     obsmode = [None] * len(planets)
     for n, p in enumerate(planets):
         # nearest cadence; ties go to the earlier cadence
-        i = np.clip(np.searchsorted(time, p.transit_times), 1, len(time) - 1)
-        earlier = (p.transit_times - time[i - 1]) <= (time[i] - p.transit_times)
+        i = np.clip(np.searchsorted(time, p.transit_times.ttime_mod), 1, len(time) - 1)
+        earlier = (p.transit_times.ttime_mod - time[i - 1]) <= (
+            time[i] - p.transit_times.ttime_mod
+        )
         obsmode[n] = litecurve.obsmode[i - earlier]
 
     return obsmode, np.unique(np.hstack(obsmode))

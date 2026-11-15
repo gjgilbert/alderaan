@@ -14,7 +14,8 @@ class PlotOMC:
     Parameters
     ----------
     transit_times : list of TransitTimes
-        one per planet (e.g. Results.transit_times); out_prob may be all NaN
+        one per planet, with OMC diagnostics (e.g. Results.transit_times);
+        out_prob may be all NaN
     """
 
     def __init__(self, transit_times):
@@ -29,14 +30,15 @@ class PlotOMC:
             ax = [ax]
 
         for n, tt in enumerate(self.transit_times):
-            xtime = tt.ttime
-            out_prob = tt.out_prob
-            out_flag = tt.out_flag
+            obs = np.isfinite(tt.ttime_obs)
+            xtime = tt.ttime_obs[obs]
+            out_prob = tt.out_prob[obs]
+            out_flag = tt.out_flag[obs]
             period = tt.period
 
-            # O-C relative to a linear fit to the model transit times
-            yobs = tt.omc_ttime
-            ymod = tt.omc_model
+            # O-C relative to a linear fit to the regularized transit times
+            yobs = (tt.ttime_obs - tt.linear_ephemeris())[obs]
+            ymod = (tt.ttime_mod - tt.linear_ephemeris())[obs]
 
             if np.all(np.isnan(out_prob)):
                 marker_color, line_color, cmap = "lightgrey", f"C{n}", None
@@ -47,7 +49,11 @@ class PlotOMC:
                 xtime, yobs * 24 * 60, c=marker_color, cmap=cmap, label="Observed TTVs"
             )
             ax[n].plot(
-                xtime, ymod * 24 * 60, lw=2, c=line_color, label="Regularized Model"
+                tt.ttime_mod,
+                (tt.ttime_mod - tt.linear_ephemeris()) * 24 * 60,
+                lw=2,
+                c=line_color,
+                label="Regularized Model",
             )
             ax[n].plot(xtime[out_flag], yobs[out_flag] * 24 * 60, "rx")
 

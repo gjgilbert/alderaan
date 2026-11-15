@@ -528,7 +528,8 @@ class RegularizeOMC(BaseAlg):
 
             for i in range(npl):
                 df_min = 1 / (
-                    planets[i].transit_times.max() - planets[i].transit_times.min()
+                    planets[i].transit_times.ttime_obs.max()
+                    - planets[i].transit_times.ttime_obs.min()
                 )
 
                 for j in range(i + 1, npl):
@@ -624,6 +625,68 @@ class RegularizeOMC(BaseAlg):
 
         return self._select_best_model(yobs, yerr, quality, traces, dofs)
 
+    @staticmethod
+    def _regularized_transit_times(tt, ymod, screen, out_prob, out_class, full):
+        """
+        Regularized transit times: OMC model added to the current linear ephemeris,
+        linearly interpolated over transits failing the initial outlier screen
+
+        Args:
+            tt (TransitTimes) : current transit times
+            ymod (ndarray) : OMC model relative to tt.linear_ephemeris()
+            screen (ndarray) : True for transits passing the initial outlier screen
+            out_prob (ndarray) : outlier probability (NaN if not computed)
+            out_class (ndarray) : True for model-based outliers
+            full (bool) : True to also interpolate missing transit indexes
+
+        Returns:
+            TransitTimes : ttime_obs and error_obs are NaN where a transit was
+            added; out_flag is True for transits failing the screen or flagged by
+            the model
+        """
+        assert tt.index[0] == 0, (
+            f"transit index[0] = {tt.index[0]}, expected zero-indexing"
+        )
+        ttime_mod = tt.linear_ephemeris() + ymod
+
+        interpolator = interp1d(
+            tt.index[screen],
+            ttime_mod[screen],
+            kind="linear",
+            fill_value="extrapolate",
+        )
+        index_full = np.arange(0, tt.index.max() + 1, dtype=int)
+        ttime_mod_full = interpolator(index_full)
+
+        error_obs_full = None
+        if tt.error_obs is not None:
+            error_obs_full = np.full(len(index_full), np.nan)
+            error_obs_full[tt.index] = tt.error_obs
+
+        ttime_obs_full = np.full(len(index_full), np.nan)
+        ttime_obs_full[tt.index] = tt.ttime_obs
+        out_prob_full = np.full(len(index_full), np.nan)
+        out_prob_full[tt.index] = out_prob
+        out_flag_full = np.zeros(len(index_full), dtype=bool)
+        out_flag_full[tt.index] = ~screen | out_class
+
+        keep = (
+            np.ones(len(index_full), dtype=bool)
+            if full
+            else np.isin(index_full, tt.index)
+        )
+
+        return TransitTimes(
+            tt.mission,
+            tt.target,
+            index_full[keep],
+            ttime_obs=ttime_obs_full[keep],
+            error_obs=None if error_obs_full is None else error_obs_full[keep],
+            ttime_mod=ttime_mod_full[keep],
+            out_prob=out_prob_full[keep],
+            out_flag=out_flag_full[keep],
+        )
+
     def perform(self, method, check_periodic=True):
         """
         Parameters
@@ -642,8 +705,9 @@ class RegularizeOMC(BaseAlg):
         ttv_buffer : list of float
             per-planet scatter of OMC residuals about the model
         transit_times : list of TransitTimes
-            per-planet [index, ttime, model, out_prob, out_flag] for transits passing
-            the initial outlier screen; out_prob is NaN for 'smooth'
+            per-planet regularized transit times (also attached to each planet),
+            with OMC diagnostics ttime_obs, out_prob, out_flag; out_prob is NaN
+            for 'smooth'
         """
         if method not in ("smooth", "select"):
             raise ValueError(f"method must be 'smooth' or 'select', got {method!r}")
@@ -651,9 +715,12 @@ class RegularizeOMC(BaseAlg):
         planets = self.planets
         npl = len(planets)
 
-        xtime = [p.transit_times for p in planets]
-        yobs = [p.transit_times - p.linear_ephemeris() for p in planets]
-        yerr = [p.transit_errors for p in planets]
+        xtime = [p.transit_times.ttime_obs for p in planets]
+        yobs = [
+            p.transit_times.ttime_obs - p.transit_times.linear_ephemeris()
+            for p in planets
+        ]
+        yerr = [p.transit_times.error_obs for p in planets]
         quality = [self._flag_outliers(y) for y in yobs]
 
         ymod = [None] * npl
@@ -697,27 +764,16 @@ class RegularizeOMC(BaseAlg):
                     100 * np.mean(out_class),
                 )
 
-            # observed and model transit times; OMC is relative to the current
-            # linear ephemeris, which update_ephemeris also uses
-            q = quality[n]
-            transit_times[n] = TransitTimes(
-                self.config["RUN"]["mission"],
-                self.config["RUN"]["target"],
-                p.transit_index[q],
-                p.transit_times[q],
-                (p.linear_ephemeris() + ymod[n])[q],
-                out_prob[q],
-                out_class[q],
+            transit_times[n] = self._regularized_transit_times(
+                p.transit_times,
+                ymod[n],
+                quality[n],
+                out_prob,
+                out_class,
+                full=(method == "smooth"),
             )
-
             try:
-                p.update_ephemeris(
-                    p.transit_index,
-                    ymod[n],
-                    yerr[n],
-                    quality[n],
-                    full=(method == "smooth"),
-                )
+                p.set_transit_times(transit_times[n])
             except ValueError as e:
                 raise ValueError(f"planet {n}, OMC method {method!r}: {e}") from e
             ttv_buffer[n] = set_sigma_cutoff(len(yobs[n])) * mad_std(yobs[n] - ymod[n])

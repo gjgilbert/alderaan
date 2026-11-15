@@ -162,23 +162,23 @@ class Results:
             ax = [ax]
 
         for n, tt in enumerate(self.transit_times):
-            out = tt.out_flag
+            obs = np.isfinite(tt.ttime_obs)
+            good = obs & ~tt.out_flag
+            bad = obs & tt.out_flag
+            omc_obs = (tt.ttime_obs - tt.linear_ephemeris()) * 24 * 60
+            omc = (tt.ttime_mod - tt.linear_ephemeris()) * 24 * 60
 
             if show_outliers:
                 ax[n].scatter(
-                    tt.ttime, tt.omc_ttime * 24 * 60, c=tt.out_prob, cmap="viridis"
+                    tt.ttime_obs[obs], omc_obs[obs], c=tt.out_prob[obs], cmap="viridis"
                 )
-                ax[n].plot(tt.ttime[out], tt.omc_ttime[out] * 24 * 60, "rx")
-                ax[n].plot(tt.ttime, tt.omc_model * 24 * 60, "k")
+                ax[n].plot(tt.ttime_obs[bad], omc_obs[bad], "rx")
+                ax[n].plot(tt.ttime_mod, omc, "k")
             else:
-                ax[n].plot(
-                    tt.ttime[~out], tt.omc_ttime[~out] * 24 * 60, "o", c="lightgrey"
-                )
-                ax[n].plot(
-                    tt.ttime[~out], tt.omc_model[~out] * 24 * 60, c=f"C{n}", lw=3
-                )
+                ax[n].plot(tt.ttime_obs[good], omc_obs[good], "o", c="lightgrey")
+                ax[n].plot(tt.ttime_mod, omc, c=f"C{n}", lw=3)
 
-            rms = mad_std(tt.omc_ttime[~out] - tt.omc_model[~out]) * 24 * 60
+            rms = mad_std(omc_obs[good] - omc[good])
             ax[n].text(
                 0.95,
                 0.10,
@@ -234,7 +234,7 @@ class Results:
         if not np.any(tt.index == index):
             raise ValueError(f"planet {n} has no transit with index {index}")
 
-        tc = tt.model[tt.index == index][0]
+        tc = tt.ttime_mod[tt.index == index][0]
         params = self.median_transit_params(n)
         T14 = params[4]
 
@@ -268,7 +268,7 @@ class Results:
 
         # fold photometry on the model transit times
         t_folded, f_folded = [], []
-        for tc in self.transit_times[n].model:
+        for tc in self.transit_times[n].ttime_mod:
             use = np.abs(time - tc) / T14 < 1.5
             t_folded.append(time[use] - tc)
             f_folded.append(flux[use])

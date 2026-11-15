@@ -53,8 +53,9 @@ class PlotPhotometry:
             ax.set_ylim(ymin, ymax)
             for n, p in enumerate(self.planets):
                 ax.plot(
-                    p.transit_times,
-                    np.ones_like(p.transit_times) - (0.9 - 0.1 * n) * (1 - ymin),
+                    p.transit_times.ttime_mod,
+                    np.ones_like(p.transit_times.ttime_mod)
+                    - (0.9 - 0.1 * n) * (1 - ymin),
                     "^",
                     c=f"C{n}",
                 )
@@ -83,7 +84,7 @@ class PlotPhotometry:
 
         # fold photometry
         tt = results.transit_times[n]
-        tcs = tt.model if index is None else tt.model[tt.index == index]
+        tcs = tt.ttime_mod if index is None else tt.ttime_mod[tt.index == index]
 
         t_folded, f_folded = [], []
         for tc in tcs:

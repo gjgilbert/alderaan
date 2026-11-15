@@ -17,6 +17,7 @@ import pandas as pd
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.planet import Planet
 from alderaan.data_models.star import Star
+from alderaan.data_models.transit_times import TransitTimes
 from alderaan.utils.stats import robust_polyfit
 
 logger = logging.getLogger(__name__)
@@ -135,7 +136,7 @@ def parse_holczer16_catalog(filepath, koi_id, num_planets):
     return transit_times
 
 
-def match_holczer16_transit_times(planets, transit_times):
+def match_holczer16_transit_times(planets, transit_times, target):
     """
     Assign Holczer+2016 transit times to planets by matching periods
 
@@ -147,6 +148,7 @@ def match_holczer16_transit_times(planets, transit_times):
     planets : list of Planet
     transit_times : list of (index, ttime, error) tuples
         output of parse_holczer16_catalog
+    target : str
 
     Returns
     -------
@@ -186,7 +188,15 @@ def match_holczer16_transit_times(planets, transit_times):
                 periods[k],
             )
             try:
-                p.set_transit_times(index, ttime, error)
+                p.set_transit_times(
+                    TransitTimes(
+                        "Kepler",
+                        target,
+                        index - index[0],
+                        ttime_obs=ttime,
+                        error_obs=error,
+                    )
+                )
             except ValueError as e:
                 raise ValueError(f"planet {n}, Holczer+2016 table {k}: {e}") from e
             used.add(k)
@@ -287,8 +297,16 @@ def load_kepler_data(config):
             catalog.depth[n],
             catalog.duration[n],
             catalog.impact[n],
-            t_min,
-            t_max,
+        )
+        planets[n].set_transit_times(
+            TransitTimes.from_linear_ephemeris(
+                "Kepler",
+                target,
+                catalog.period[n],
+                catalog.epoch[n],
+                t_min,
+                t_max,
+            )
         )
 
     logger.info(
@@ -320,29 +338,28 @@ def load_kepler_data(config):
         ttv_filepath,
     )
 
-    planets = match_holczer16_transit_times(planets, holczer_transit_times)
+    planets = match_holczer16_transit_times(planets, holczer_transit_times, target)
 
     # clip planet transit times to the litecurve time range and refit ephemerides
     for n, p in enumerate(planets):
-        n_before = len(p.transit_times)
-        p.clip_range(t_min, t_max)
+        n_before = len(p.transit_times.ttime_obs)
+        p.set_transit_times(p.transit_times.clip(t_min, t_max))
         p.set_static_period_and_epoch()
-        p.refit_period_and_epoch()
 
         logger.info(
             "planet %d: %d of %d transits within litecurve span; "
             "P = %.6f d, epoch = %.4f BKJD",
             n,
-            len(planets[n].transit_times),
+            len(planets[n].transit_times.ttime_obs),
             n_before,
             planets[n].period,
             planets[n].epoch,
         )
-        if len(planets[n].transit_times) < 3:
+        if len(planets[n].transit_times.ttime_obs) < 3:
             logger.warning(
                 "planet %d: only %d transits within litecurve span",
                 n,
-                len(planets[n].transit_times),
+                len(planets[n].transit_times.ttime_obs),
             )
 
     logger.info("done load_kepler_data in %.1f s", time.perf_counter() - t0)

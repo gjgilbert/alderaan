@@ -117,7 +117,7 @@ class BaseAlg:
 
         for n, p in enumerate(self.planets):
             half_width = 0.5 * np.max([rel_size * p.duration, abs_size])
-            for tc in p.transit_times:
+            for tc in p.transit_times.ttime_mod:
                 mask[n] += np.abs(time - tc) < half_width
 
         if mask_type == "standard":
@@ -141,13 +141,15 @@ class BaseAlg:
         overlap = [None] * self.npl
 
         for i in range(self.npl):
-            overlap[i] = np.zeros(len(self.planets[i].transit_times), dtype=bool)
-            ttime_i = self.planets[i].transit_times
+            overlap[i] = np.zeros(
+                len(self.planets[i].transit_times.ttime_mod), dtype=bool
+            )
+            ttime_i = self.planets[i].transit_times.ttime_mod
 
             for j in range(self.npl):
                 if j == i:
                     continue
-                for tc_j in self.planets[j].transit_times:
+                for tc_j in self.planets[j].transit_times.ttime_mod:
                     if rtol is not None:
                         overlap[i] |= np.abs(ttime_i - tc_j) < rtol * 0.5 * (
                             self.planets[i].duration + self.planets[j].duration

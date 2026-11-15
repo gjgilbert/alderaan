@@ -42,9 +42,9 @@ class FlagBadTransits(BaseAlg):
             exptime = np.array([self.exptime[om] for om in obsmode[n]])
             count_expected = np.maximum(1, np.array(p.duration / exptime, dtype=int))
 
-            quality[n] = np.zeros(len(p.transit_times), dtype="bool")
+            quality[n] = np.zeros(len(p.transit_times.ttime_mod), dtype="bool")
 
-            for i, tc in enumerate(p.transit_times):
+            for i, tc in enumerate(p.transit_times.ttime_mod):
                 in_transit = np.abs(lc.time - tc) / p.duration < 0.5
                 near_transit = np.abs(lc.time - tc) / p.duration < 1.5
 
@@ -86,14 +86,14 @@ class FlagBadTransits(BaseAlg):
         obsmode = self.transit_obsmode
 
         for n, p in enumerate(self.planets):
-            rms = np.zeros(len(p.transit_times))
+            rms = np.zeros(len(p.transit_times.ttime_mod))
             half_width = 0.5 * np.max([rel_size * p.duration, abs_size])
 
-            for i, tc in enumerate(p.transit_times):
+            for i, tc in enumerate(p.transit_times.ttime_mod):
                 flux = lc.flux[np.abs(lc.time - tc) < half_width]
                 rms[i] = mad_std(flux, ignore_nan=True)
 
-            quality[n] = np.ones(len(p.transit_times), dtype="bool")
+            quality[n] = np.ones(len(p.transit_times.ttime_mod), dtype="bool")
 
             for om in np.unique(np.array(obsmode[n])):
                 use = (obsmode[n] == om) & ~overlap[n]
@@ -144,10 +144,10 @@ class FlagBadTransits(BaseAlg):
             good_rms = self._check_rms(rel_size=3.0, abs_size=2 / 24, sigma_cut=5.0)
 
         for n, p in enumerate(planets):
-            assert len(coverage[n]) == len(p.transit_times)
-            assert len(good_rms[n]) == len(p.transit_times)
+            assert len(coverage[n]) == len(p.transit_times.ttime_mod)
+            assert len(good_rms[n]) == len(p.transit_times.ttime_mod)
 
-            ntot = len(p.transit_times)
+            ntot = len(p.transit_times.ttime_mod)
 
             logger.info(
                 "planet %d: %d of %d transits rejected for insufficient coverage, "
@@ -158,6 +158,6 @@ class FlagBadTransits(BaseAlg):
                 np.sum(~good_rms[n] & coverage[n]),
             )
 
-            p.keep_transits(coverage[n] & good_rms[n])
+            p.set_transit_times(p.transit_times.subset(coverage[n] & good_rms[n]))
 
         return self.star, planets, self.litecurve

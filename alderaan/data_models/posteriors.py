@@ -123,7 +123,7 @@ class Posteriors:
         ref_epoch = np.zeros(npl)
         for n, p in enumerate(tm.planets):
             ref_period[n], ref_epoch[n] = robust_polyfit(
-                p.transit_index, p.transit_times, 1
+                p.transit_times.index, p.transit_times.ttime_mod, 1
             )
 
         return cls(
