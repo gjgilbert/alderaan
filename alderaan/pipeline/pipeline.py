@@ -1,3 +1,4 @@
+import copy
 import logging
 import os
 import subprocess
@@ -109,6 +110,8 @@ def _run(config, mission, target, run_id, output_dir):
     else:
         raise ValueError(f"Unsupported mission : {mission}")
 
+    raw_litecurve = copy.deepcopy(litecurve)
+
     PlotPhotometry(litecurve, planets).plot_litecurve(
         fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_raw.png")
     )
@@ -121,9 +124,9 @@ def _run(config, mission, target, run_id, output_dir):
     )
 
     # 1st pass
-    star, planets, litecurve = DetrendVisits(star, planets, litecurve, config).perform(
-        tight_mask=False, clip_outliers="local_trend"
-    )
+    star, planets, litecurve = DetrendVisits(
+        star, planets, litecurve, raw_litecurve, config
+    ).perform(tight_mask=False, clip_outliers="local_trend")
     PlotPhotometry(litecurve, planets).plot_litecurve(
         fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_detrended_pass1.png")
     )
@@ -144,9 +147,9 @@ def _run(config, mission, target, run_id, output_dir):
     )
 
     # 2nd pass
-    star, planets, litecurve = DetrendVisits(star, planets, litecurve, config).perform(
-        tight_mask=True, clip_outliers="transit_model", ttv_buffer=ttv_buffer
-    )
+    star, planets, litecurve = DetrendVisits(
+        star, planets, litecurve, raw_litecurve, config
+    ).perform(tight_mask=True, clip_outliers="transit_model", ttv_buffer=ttv_buffer)
     PlotPhotometry(litecurve, planets).plot_litecurve(
         fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_detrended_pass2.png")
     )

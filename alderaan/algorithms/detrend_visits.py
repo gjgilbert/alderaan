@@ -38,8 +38,9 @@ class DetrendVisits(BaseAlg):
         pipeline configuration, including RUN and PATHS values set by main
     """
 
-    def __init__(self, star, planets, litecurve, config):
+    def __init__(self, star, planets, litecurve, raw_litecurve, config):
         super().__init__(star, planets, litecurve, config)
+        self.raw_litecurve = raw_litecurve
 
         self.durations = np.array([p.duration for p in self.planets])
 
@@ -534,7 +535,7 @@ class DetrendVisits(BaseAlg):
         star : Star
         planets : list of Planet
         litecurve : LiteCurve
-            detrended litecurve; flux_raw and error_raw are retained
+            detrended litecurve
         """
         target = self.config["RUN"]["target"]
         results_dir = self.config["PATHS"]["results_dir"]
@@ -569,7 +570,7 @@ class DetrendVisits(BaseAlg):
             elif clip_outliers == "transit_model":
                 lc = self._clip_transit_outliers(lc, theta)
 
-            lc.reset()
+            lc.reset(self.raw_litecurve)
 
             logger.info(
                 "visit %d: %d of %d cadences rejected as outliers (%s)",

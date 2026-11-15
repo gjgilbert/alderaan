@@ -18,8 +18,6 @@ ARRAY_FIELDS = (
     "visit",
     "obsmode",
     "quality",
-    "flux_raw",
-    "error_raw",
 )
 
 
@@ -39,8 +37,6 @@ class LiteCurve:
         'long cadence' or 'short cadence'
     quality : ndarray
         True for good quality cadences
-    flux_raw, error_raw : ndarray, optional
-        photometry before detrending; None if not available (e.g. loaded from disk)
     """
 
     def __init__(
@@ -54,8 +50,6 @@ class LiteCurve:
         visit,
         obsmode,
         quality,
-        flux_raw=None,
-        error_raw=None,
     ):
         self.mission = mission
         self.target = target
@@ -66,37 +60,29 @@ class LiteCurve:
         self.visit = np.asarray(visit, dtype=int)
         self.obsmode = np.asarray(obsmode, dtype=str)
         self.quality = np.asarray(quality, dtype=bool)
-        self.flux_raw = None if flux_raw is None else np.asarray(flux_raw, dtype=float)
-        self.error_raw = (
-            None if error_raw is None else np.asarray(error_raw, dtype=float)
-        )
 
-        lengths = {len(getattr(self, k)) for k in self._fields()}
+        lengths = {len(getattr(self, k)) for k in ARRAY_FIELDS}
         if len(lengths) != 1:
-            raise ValueError(f"{', '.join(self._fields())} must have equal lengths")
-
-    def _fields(self):
-        """Names of array fields that are set (flux_raw/error_raw may be None)"""
-        return [k for k in ARRAY_FIELDS if getattr(self, k) is not None]
+            raise ValueError(f"{', '.join(ARRAY_FIELDS)} must have equal lengths")
 
     @classmethod
     def from_list(cls, litecurve_list):
-        """Concatenate litecurves; flux_raw/error_raw are None if missing from any"""
+        """Concatenate litecurves"""
         first = litecurve_list[0]
         for lc in litecurve_list:
             if (lc.mission, lc.target) != (first.mission, first.target):
                 raise ValueError("litecurves have inconsistent mission/target")
 
-        arrays = {}
-        for k in ARRAY_FIELDS:
-            parts = [getattr(lc, k) for lc in litecurve_list]
-            arrays[k] = None if any(v is None for v in parts) else np.hstack(parts)
+        arrays = {
+            k: np.hstack([getattr(lc, k) for lc in litecurve_list])
+            for k in ARRAY_FIELDS
+        }
 
         return cls(first.mission, first.target, **arrays)
 
     @classmethod
     def from_hdu(cls, hdu):
-        """Build from a LITECURVE table written by to_hdu (no flux_raw/error_raw)"""
+        """Build from a LITECURVE table written by to_hdu"""
         data = hdu.data
         return cls(
             hdu.header["MISSION"],
@@ -232,21 +218,16 @@ class LiteCurve:
             len(qmask),
         )
 
-        flux = np.array(lklc.flux.value, dtype=float)[qmask]
-        error = np.array(lklc.flux_err.value, dtype=float)[qmask]
-
         return cls(
             "Kepler",
             target,
             time=np.array(lklc.time.value, dtype=float)[qmask],
-            flux=flux,
-            error=error,
+            flux=np.array(lklc.flux.value, dtype=float)[qmask],
+            error=np.array(lklc.flux_err.value, dtype=float)[qmask],
             cadno=np.array(lklc.cadenceno.value, dtype=int)[qmask],
             visit=np.array(lklc.quarter, dtype=int)[qmask],  # hard coded for Kepler
             obsmode=np.array([obsmode] * np.sum(qmask), dtype=str),
             quality=np.ones(np.sum(qmask), dtype=bool),
-            flux_raw=flux.copy(),
-            error_raw=error.copy(),
         )
 
     @classmethod
@@ -259,7 +240,7 @@ class LiteCurve:
 
     def select(self, mask):
         """Keep only cadences where mask is True (in place)"""
-        for k in self._fields():
+        for k in ARRAY_FIELDS:
             setattr(self, k, getattr(self, k)[mask])
 
     def split_visits(self):
@@ -267,25 +248,35 @@ class LiteCurve:
         litecurve_list = []
         for v in np.unique(self.visit):
             use = self.visit == v
-            arrays = {
-                k: None if getattr(self, k) is None else getattr(self, k)[use]
-                for k in ARRAY_FIELDS
-            }
+            arrays = {k: getattr(self, k)[use] for k in ARRAY_FIELDS}
             litecurve_list.append(LiteCurve(self.mission, self.target, **arrays))
 
         return litecurve_list
 
-    def reset(self):
-        """Restore raw flux and error; mark all cadences as good quality (in place)"""
-        if self.flux_raw is None or self.error_raw is None:
-            raise ValueError("cannot reset: flux_raw/error_raw not available")
+    def reset(self, raw):
+        """
+        Restore flux and error from raw, matched by cadence number; mark all
+        cadences as good quality (in place)
 
-        self.flux = self.flux_raw.copy()
-        self.error = self.error_raw.copy()
+        Parameters
+        ----------
+        raw : LiteCurve
+            raw photometry containing every cadence of self, sorted by cadno
+        """
+        idx = np.searchsorted(raw.cadno, self.cadno)
+        if (
+            np.any(np.diff(raw.cadno) <= 0)
+            or np.any(idx >= len(raw.cadno))
+            or not np.array_equal(raw.cadno[idx], self.cadno)
+        ):
+            raise ValueError("raw litecurve does not contain all cadences")
+
+        self.flux = raw.flux[idx].copy()
+        self.error = raw.error[idx].copy()
         self.quality = np.ones(len(self.time), dtype=bool)
 
     def to_hdu(self):
-        """BinTableHDU named LITECURVE; flux_raw/error_raw are not stored"""
+        """BinTableHDU named LITECURVE"""
         width = max([1, *map(len, self.obsmode)])
         columns = [
             fits.Column(name="TIME", format="D", array=self.time),
