@@ -71,14 +71,38 @@ Tests check behavior required by the design, not edge cases or development histo
 Revise tests when production code changes: code design drives test design, never the
 reverse.
 
+## Profiling
+
+A "tallest tentpole" suite: only the biggest bottlenecks matter, optimization must never
+cost scientific accuracy, and "no action needed" is a fine result.
+
+```bash
+make profile                    # every per-algorithm report + summary.md ranking them
+make profile-pipeline           # full pipeline run: stages, I/O, plots (repeats all work)
+make profile-detrend_visits     # one algorithm; names mirror tests/regression/test_<x>.py
+```
+
+- Harnesses in `tests/profiling/profile_<x>.py` are not pytest tests; shared logic lives
+  in `_profiling.py`. Each profiles every pipeline invocation of one algorithm on K00137
+  Q4-5 (`VISITS`; two visits are the fewest that give every planet ≥ 8 transits, so
+  RegularizeOMC runs NUTS), starting from the state that precedes it (`STEPS` mirrors
+  `pipeline._run`). `make profile` runs them in one process (`profile_all.py`) so that
+  state is built once; a standalone `make profile-<x>` rebuilds everything ahead of its
+  steps.
+- Library time is attributed to the nearest enclosing ALDERAAN function; a **hotspot**
+  has ≥ 20% attributed time and ≥ 1 s, and gets a `line_profiler` drill-down.
+- Harness-only sampler settings: dynesty capped at `DYNESTY_MAXITER`; NUTS chains run
+  in-process (`cores=1`) so cProfile sees them.
+- Reports print to stdout and write to the gitignored `tests/profiling/reports/`.
+
 
 ## Design Principles
 
 From the project charter — these guide all implementation decisions:
 
 1. No hidden state
-2. No implicit calibration assumptions
-3. Deterministic stacking and wavelength solution
+2. No implicit assumptions
+3. Deterministic behavior
 4. Fail loudly
 6. Prefer clarity over cleverness
 7. Implement everything in the simplest possible way.
