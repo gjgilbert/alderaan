@@ -117,7 +117,7 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     )
     litecurve.reset(raw_litecurve)  # detrend raw photometry for surviving cadences
     planets, litecurve = DetrendVisits(star, planets, litecurve).perform(
-        tight_mask=False
+        method="wide_mask"
     )
     litecurve.plot(
         mark_times=[p.transit_times.ttime_mod for p in planets],
@@ -141,7 +141,7 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     )
     litecurve.reset(raw_litecurve)  # detrend raw photometry for surviving cadences
     planets, litecurve = DetrendVisits(star, planets, litecurve).perform(
-        tight_mask=True
+        method="tight_mask"
     )
     litecurve.to_fits(os.path.join(results_dir, f"{target}_detrended.fits"))
     litecurve.plot(
@@ -160,15 +160,15 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     results_path = os.path.join(results_dir, f"{target}_results.fits")
     results.to_fits(results_path)
 
-    posteriors.plot_runplot(
+    posteriors.dynesty_runplot(
         fig_path=os.path.join(plots_dir, f"{target}_dynesty_runplot.png")
     )
     for n in range(results.npl):
-        posteriors.plot_traceplot(
+        posteriors.dynesty_traceplot(
             n,
             fig_path=os.path.join(plots_dir, f"{target}_dynesty_traceplot_{n:02d}.png"),
         )
-        posteriors.plot_cornerplot(
+        posteriors.dynesty_cornerplot(
             n,
             fig_path=os.path.join(
                 plots_dir, f"{target}_dynesty_cornerplot_{n:02d}.png"

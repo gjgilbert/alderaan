@@ -413,15 +413,16 @@ class DetrendVisits(BaseAlg):
             correct_ramp=False,
         )
 
-    def perform(self, tight_mask):
+    def perform(self, method):
         """
         Detrend the incoming flux of each visit
 
         Parameters
         ----------
-        tight_mask : bool
-            True to mask 1 x T14 plus the largest TransitTimes.ttv_buffer();
-            False to mask 3 x T14 plus 1 hour
+        method : str
+            'wide_mask' : mask transits with 3 x T14 plus 1 hour
+            'tight_mask' : mask transits with 1 x T14 plus the largest
+                TransitTimes.ttv_buffer()
 
         Returns
         -------
@@ -429,6 +430,12 @@ class DetrendVisits(BaseAlg):
         litecurve : LiteCurve
             detrended litecurve
         """
+        if method not in ("wide_mask", "tight_mask"):
+            raise ValueError(
+                f"method must be 'wide_mask' or 'tight_mask', got {method!r}"
+            )
+        tight_mask = method == "tight_mask"
+
         lc = self.litecurve
         visits = np.unique(lc.visit)
 

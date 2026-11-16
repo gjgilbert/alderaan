@@ -327,7 +327,7 @@ class Posteriors:
 
     # dynesty plots below return the Figure; fig_path saves it there and closes it
 
-    def plot_runplot(self, fig_path=None):
+    def dynesty_runplot(self, fig_path=None):
         """dynesty run plot"""
         fig, ax = dyplot.runplot(
             self._dynesty_results(),
@@ -341,7 +341,7 @@ class Posteriors:
 
         return fig
 
-    def plot_traceplot(self, n, fig_path=None):
+    def dynesty_traceplot(self, n, fig_path=None):
         """dynesty trace plot of planet n parameters"""
         fig, _ = dyplot.traceplot(
             self._dynesty_results(),
@@ -353,7 +353,7 @@ class Posteriors:
 
         return fig
 
-    def plot_cornerplot(self, n, fig_path=None):
+    def dynesty_cornerplot(self, n, fig_path=None):
         """dynesty corner plot of planet n parameters"""
         fig, _ = dyplot.cornerplot(
             self._dynesty_results(),
