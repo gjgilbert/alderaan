@@ -1,3 +1,5 @@
+"""Pipeline stages, each a BaseAlg subclass with a perform() method"""
+
 from alderaan.algorithms.clip_outliers import ClipOutliers
 from alderaan.algorithms.detrend_visits import DetrendVisits
 from alderaan.algorithms.flag_bad_transits import FlagBadTransits

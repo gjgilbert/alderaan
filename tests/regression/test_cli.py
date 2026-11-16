@@ -6,7 +6,6 @@ argument parsing. alderaan.pipeline is replaced by a stub; nothing is run.
 import subprocess
 import sys
 import types
-from pathlib import Path
 
 import pytest
 
@@ -76,19 +75,31 @@ class TestRun:
             )
         ]
 
-    def test_defaults(self, pipeline_calls):
-        run.main(["-t", "K00137", "-m", "Kepler", "--run_id", "r1"])
+    @staticmethod
+    def _argv(tmp_path, *extra):
+        dirs = [f"--{d}_dir={tmp_path / d}" for d in ("input", "output", "catalog")]
+        return ["-t", "K00137", "--run_id", "r1", *dirs, *extra]
+
+    def test_defaults(self, pipeline_calls, tmp_path):
+        run.main(self._argv(tmp_path, "-m", "Kepler"))
         (kwargs,) = pipeline_calls
-        base = Path(run.__file__).resolve().parents[2]
-        assert kwargs["input_dir"] == str(base / "tests" / "data" / "MAST_downloads")
-        assert kwargs["output_dir"] == str(base / "outputs")
-        assert kwargs["catalog_dir"] == str(base / "tests" / "catalogs")
         assert kwargs["visits"] is None
         assert kwargs["log_level"] == "INFO"
 
-    def test_unknown_mission_exits_before_pipeline(self, pipeline_calls):
+    @pytest.mark.parametrize("missing", ["input_dir", "output_dir", "catalog_dir"])
+    def test_directories_are_required(self, pipeline_calls, tmp_path, missing):
+        argv = [a for a in self._argv(tmp_path, "-m", "Kepler") if missing not in a]
         with pytest.raises(SystemExit) as exc:
-            run.main(["-t", "K00137", "-m", "Hubble", "--run_id", "r1"])
+            run.main(argv)
+        assert exc.value.code == 2
+        assert pipeline_calls == []
+
+    @pytest.mark.parametrize("mission", ["Hubble", "TESS"])
+    def test_unsupported_mission_exits_before_pipeline(
+        self, pipeline_calls, tmp_path, mission
+    ):
+        with pytest.raises(SystemExit) as exc:
+            run.main(self._argv(tmp_path, "-m", mission))
         assert exc.value.code == 2
         assert pipeline_calls == []
 

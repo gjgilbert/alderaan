@@ -40,8 +40,11 @@ def _tc(planets, i):
 
 
 def _run(star, planets, lc):
+    """Index of transits flagged good; every transit is kept"""
     planets_out, _ = FlagBadTransits(star, planets, lc).perform()
-    return planets_out[0].transit_times.index
+    tt = planets_out[0].transit_times
+    np.testing.assert_array_equal(tt.index, planets[0].transit_times.index)
+    return tt.index[tt.quality]
 
 
 class TestCoverage:
@@ -51,7 +54,7 @@ class TestCoverage:
             _run(star, planets, lc), planets[0].transit_times.index
         )
 
-    def test_drops_transit_in_a_data_gap(self):
+    def test_flags_transit_in_a_data_gap(self):
         star, planets, lc = _system()
         tc = _tc(planets, 5)
         lc.select(np.abs(lc.time - tc) > 2 * DURATION)
@@ -60,7 +63,7 @@ class TestCoverage:
         assert 5 not in index
         assert len(index) == len(planets[0].transit_times.index) - 1
 
-    def test_drops_transit_with_sparse_in_transit_coverage(self):
+    def test_flags_transit_with_sparse_in_transit_coverage(self):
         # in-transit cadences thinned to 1 in 4 (< 50% of expected)
         star, planets, lc = _system()
         tc = _tc(planets, 8)
@@ -79,7 +82,7 @@ class TestCoverage:
 
 
 class TestNoise:
-    def test_drops_transit_with_high_noise(self):
+    def test_flags_transit_with_high_noise(self):
         star, planets, lc = _system()
         tc = _tc(planets, 12)
         window = np.abs(lc.time - tc) < 1.5 * DURATION
@@ -103,7 +106,7 @@ class TestNoise:
         lc.flux[window] = 1 + rng.normal(0, 10 * NOISE, window.sum())
 
         planets_out, _ = FlagBadTransits(star, planets + [p2], lc).perform()
-        assert 12 in planets_out[0].transit_times.index
+        assert planets_out[0].transit_times.quality[12]
 
 
 @pytest.mark.slow
@@ -115,8 +118,9 @@ class TestFlagBadTransitsK00137:
         np.testing.assert_array_equal(lc_out.flux, lc.flux)
         for p, p_out in zip(planets, planets_out):
             tt = p_out.transit_times
-            assert len(tt.index) >= 0.8 * len(p.transit_times.index)
-            assert np.all(np.isin(tt.index, p.transit_times.index))
-            # every kept transit has photometry at its midpoint
-            dt = np.min(np.abs(lc.time[:, None] - tt.ttime_mod[None, :]), axis=0)
+            np.testing.assert_array_equal(tt.index, p.transit_times.index)
+            assert np.mean(tt.quality) >= 0.8
+            # every good transit has photometry at its midpoint
+            tc = tt.ttime_mod[tt.quality]
+            dt = np.min(np.abs(lc.time[:, None] - tc[None, :]), axis=0)
             assert np.all(dt < 0.5 * p.duration)

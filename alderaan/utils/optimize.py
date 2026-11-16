@@ -1,7 +1,11 @@
 """Staged MAP optimization of a log-probability function"""
 
+import logging
+
 import numpy as np
 from scipy.optimize import minimize
+
+logger = logging.getLogger(__name__)
 
 
 def optimize(logp, x0, stages):
@@ -31,7 +35,7 @@ def optimize(logp, x0, stages):
     """
     x = np.array(x0, dtype=float)
 
-    for idx in stages:
+    for i, idx in enumerate(stages):
 
         def objective(xs, idx=idx):
             trial = x.copy()
@@ -39,10 +43,22 @@ def optimize(logp, x0, stages):
             return -logp(trial)
 
         start = x[idx].copy()
+        logp_start = -objective(start)
         info = minimize(objective, start, method="BFGS")
-        if np.isfinite(info.fun) and info.fun < objective(start):
+        improved = np.isfinite(info.fun) and -info.fun > logp_start
+        if improved:
             x[idx] = info.x
         else:
             info.x = start
+        logger.debug(
+            "stage %d/%d (%d parameters): logp %.6g -> %.6g, %s (%s)",
+            i + 1,
+            len(stages),
+            len(idx),
+            logp_start,
+            -info.fun,
+            "kept" if improved else "rejected",
+            info.message,
+        )
 
     return x, info

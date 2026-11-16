@@ -51,6 +51,13 @@ class TestLogging:
         logging.getLogger("alderaan").warning("after teardown")
         assert "after teardown" not in open(log_path).read()
 
+    def test_teardown_restores_warning_filters(self, tmp_path, root_logger):
+        filters_before = list(warnings.filters)
+        setup_logging(str(tmp_path), "K00137")
+        assert warnings.filters != filters_before
+        teardown_logging()
+        assert warnings.filters == filters_before
+
     def test_setup_replaces_previous_handlers(self, tmp_path, root_logger):
         n_before = len(root_logger.handlers)
         setup_logging(str(tmp_path / "a"), "K00137")

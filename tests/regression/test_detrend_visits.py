@@ -2,7 +2,8 @@
 Tests for alderaan/algorithms/detrend_visits.py
 
 Fast tier: segment identification, GP trend model (mean function ramp origin,
-finite log posterior), Lomb-Scargle period estimate, method check.
+finite log posterior), Lomb-Scargle period estimate, method check, GP
+fallback chain.
 Slow tier: GP detrending of a synthetic two-visit litecurve with a slow stellar
 trend, a data gap, and injected transits.
 """
@@ -11,6 +12,7 @@ import copy
 
 import numpy as np
 import pytest
+from celerite2.driver import LinAlgError
 
 from alderaan.algorithms import DetrendVisits
 from alderaan.algorithms.detrend_visits import _GPTrendModel
@@ -178,6 +180,31 @@ class TestPerform:
         star, planets, litecurve, _ = _synthetic_system()
         with pytest.raises(ValueError, match="wide_mask"):
             DetrendVisits(star, planets, litecurve).perform(method="none")
+
+    @pytest.mark.parametrize("n_fail", [2, 3])
+    def test_falls_back_to_simpler_gp_on_linalg_error(self, monkeypatch, n_fail):
+        # the first n_fail models of the fallback chain fail; 3 fails them all
+        tried = []
+
+        def fake_fit(model, visit):
+            tried.append((model.gp_term, model.correct_ramp))
+            if len(tried) <= n_fail:
+                raise LinAlgError("not positive definite")
+            return np.ones_like(model.time)
+
+        monkeypatch.setattr(DetrendVisits, "_fit", staticmethod(fake_fit))
+        star, planets, litecurve, _ = _synthetic_system()
+        litecurve.select(litecurve.visit == 1)
+        alg = DetrendVisits(star, planets, litecurve)
+
+        chain = [("RotationTerm", True), ("RotationTerm", False), ("SHOTerm", False)]
+        if n_fail < 3:
+            alg.perform(method="wide_mask")
+            assert tried == chain
+        else:
+            with pytest.raises(LinAlgError):
+                alg.perform(method="wide_mask")
+            assert tried == chain
 
     @pytest.mark.slow
     @pytest.mark.parametrize("method", ["wide_mask", "tight_mask"])

@@ -1,7 +1,7 @@
 """
-Tests for alderaan/pipeline.py: main()'s mission check, logging, and error
-handling. The pipeline stages (_run) are replaced by stubs; nothing runs end
-to end.
+Tests for alderaan/pipeline.py: main()'s mission check, logging, error
+handling, and the guard against mixing two runs' outputs. The pipeline stages
+(_run) are replaced by stubs; nothing runs end to end.
 """
 
 import glob
@@ -53,3 +53,12 @@ class TestMain:
         assert "pipeline aborted" in text
         assert "Traceback" in text and "stage exploded" in text
         assert alderaan_logger._installed_handlers == []
+
+    def test_refuses_to_mix_outputs_of_two_runs(self, tmp_path):
+        results_dir = tmp_path / "test" / "results" / "K00137"
+        results_dir.mkdir(parents=True)
+        (results_dir / "K00137_results.fits").touch()
+
+        with pytest.raises(FileExistsError, match="not empty"):
+            pipeline.main(mission="Kepler", output_dir=str(tmp_path), **ARGS)
+        assert "pipeline aborted" in _log_text(tmp_path)

@@ -1,11 +1,10 @@
+"""ALDERAAN: transit photometry pipeline for TTVs and transit shapes"""
+
 import logging
 import os
 import subprocess
 
-__version__ = "0.2.2"
-
-# random seed for every stochastic step, so runs are reproducible (Kepler's birth date)
-SEED = 15711227
+__version__ = "0.3.0"
 
 logger = logging.getLogger(__name__)
 

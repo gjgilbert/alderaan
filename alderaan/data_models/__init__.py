@@ -1,3 +1,5 @@
+"""Data containers passed between pipeline stages and written to disk"""
+
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.planet import Planet
 from alderaan.data_models.posteriors import Posteriors

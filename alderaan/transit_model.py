@@ -1,3 +1,5 @@
+"""Transit forward model (quadratic limb darkening via batman primitives)"""
+
 __all__ = [
     "TRANSIT_PARAMETER_LABELS",
     "TransitModel",
@@ -85,7 +87,9 @@ class TransitModel:
         self.transit_obsmode = [
             self.litecurve.obsmode_at(p.transit_times.ttime_mod) for p in self.planets
         ]
-        self.unique_obsmodes = np.unique(np.hstack(self.transit_obsmode))
+        # from the cadences themselves, so every cadence is modeled even where a
+        # transit straddles an obsmode boundary
+        self.unique_obsmodes = np.unique(self.litecurve.obsmode)
 
         self._init_supersampling()
         self._set_cadence_masks()
@@ -99,9 +103,6 @@ class TransitModel:
         depth = np.array([p.depth for p in self.planets])
         tau12 = (13 / 24) * (period / 365.25) ** (1 / 3) * np.sqrt(depth)
 
-        # sigma so binning error is < 0.1% of photometric uncertainty
-        sigma = np.nanmean(lc.error / lc.flux) * 0.04
-
         # supersample factor (forced odd, minimum 7) following Kipping 2010,
         # and exposure time integration offsets; short cadence is not supersampled
         self.supersample = {}
@@ -113,6 +114,10 @@ class TransitModel:
                 continue
 
             exptime = EXPTIME[om]
+            # sigma so binning error is < 0.1% of this obsmode's photometric
+            # uncertainty
+            use = lc.obsmode == om
+            sigma = np.nanmean(lc.error[use] / lc.flux[use]) * 0.04
             supersample = np.array(
                 np.ceil(np.sqrt((depth / tau12) * (exptime / 8 / sigma))), dtype=int
             )
@@ -139,6 +144,7 @@ class TransitModel:
         """
         logger.debug("trimmed litecurve to %d of %d cadences", np.sum(mask), len(mask))
         self.litecurve.select(mask)
+        self.unique_obsmodes = np.unique(self.litecurve.obsmode)
 
         self._set_cadence_masks()
         self._build_warps()
@@ -152,8 +158,9 @@ class TransitModel:
           * warped_time = time - (transit k's time), so the transit is at 0
           * warped_legx = legendre_p1(ref_epoch + ref_period * k, (t_start, t_end)),
             used by the linear ephemeris perturbation C0 + C1 * warped_legx
-        Missing transit indexes fall back to the static ephemeris, and cadences
-        before the first or after the last transit join those transits.
+        Missing transit indexes fall back to the least squares ephemeris of the
+        transit times, and cadences before the first or after the last transit
+        join those transits.
 
         Transit indexes must be zero-based.
         """
@@ -168,11 +175,11 @@ class TransitModel:
         self.warped_legx = [None] * self.npl
 
         for n, p in enumerate(self.planets):
-            period = self.static_period[n]
+            period = self.ref_period[n]
 
-            # transit time for every index 0..max; observed where available
+            # transit time for every index 0..max; modeled where available
             index_full = np.arange(0, p.transit_times.index.max() + 1, dtype=int)
-            ttime_full = self.static_epoch[n] + period * index_full
+            ttime_full = self.ref_epoch[n] + period * index_full
             ttime_full[p.transit_times.index] = p.transit_times.ttime_mod
 
             # bins halfway between transits, plus one end bin on each side

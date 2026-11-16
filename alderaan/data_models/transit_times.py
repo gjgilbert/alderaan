@@ -1,3 +1,5 @@
+"""TransitTimes: observed and modeled transit times for one planet"""
+
 __all__ = ["TransitTimes"]
 
 import matplotlib.pyplot as plt
@@ -16,6 +18,7 @@ FIELDS = {
     "error_obs": (float, "D"),
     "out_prob": (float, "D"),
     "out_flag": (bool, "L"),
+    "quality": (bool, "L"),
 }
 
 
@@ -41,6 +44,10 @@ class TransitTimes:
     out_flag : ndarray, optional
         True for observed transit times flagged as outliers (RegularizeOMC);
         default all False
+    quality : ndarray, optional
+        False for transits with poor photometric coverage or high noise
+        (FlagBadTransits); they stay in masks and models but are not fit or
+        measured; default all True
 
     Attributes
     ----------
@@ -58,6 +65,7 @@ class TransitTimes:
         ttime_mod=None,
         out_prob=None,
         out_flag=None,
+        quality=None,
     ):
         self.mission = mission
         self.target = target
@@ -74,6 +82,7 @@ class TransitTimes:
             "error_obs": np.full(npts, np.nan) if error_obs is None else error_obs,
             "out_prob": np.full(npts, np.nan) if out_prob is None else out_prob,
             "out_flag": np.zeros(npts, dtype=bool) if out_flag is None else out_flag,
+            "quality": np.ones(npts, dtype=bool) if quality is None else quality,
         }
         for k, (dtype, _) in FIELDS.items():
             setattr(self, k, np.asarray(arrays[k], dtype=dtype))
@@ -106,14 +115,6 @@ class TransitTimes:
         """ttv_scatter scaled so not even one normal outlier is expected"""
         npts = np.sum(np.isfinite(self.ttime_obs))
         return sigma_cutoff(npts) * self.ttv_scatter()
-
-    def subset(self, mask):
-        """New TransitTimes with only transits where mask is True"""
-        return TransitTimes(
-            self.mission,
-            self.target,
-            **{k: getattr(self, k)[mask] for k in FIELDS},
-        )
 
     def clip(self, t_min, t_max):
         """

@@ -114,8 +114,10 @@ class QuickFitTransitTimes(BaseAlg):
 
         _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).ravel()
 
-        # remove any residual out-of-transit trend
-        use = ~in_transit[in_window]
+        # remove any residual out-of-transit trend, excluding +/- T14 (as legacy)
+        # so ingress/egress stays out of the baseline when tc is off by < T14/2
+        near_transit = np.abs(lc.time - tc) < duration
+        use = ~near_transit[in_window]
         if np.any(use):
             _slope, _intercept = robust_polyfit(_t[use], _f_obs[use], 1)
             _f_obs /= _intercept + _slope * _t
@@ -295,16 +297,25 @@ class QuickFitTransitTimes(BaseAlg):
     def _optimize_times(self, tm, planet_no, overlap, relative_window_size=3.0):
         """
         Fit each transit time independently using least squares optimization
+
+        Each varied transit time has a Normal(start, T14/3) prior (as legacy) and
+        is bounded to the fit window. Returns NaN where the fit failed, did not
+        improve the likelihood, or the transit is low quality
         """
         lc = tm.litecurve
         overlap = overlap[planet_no]
         obsmode = tm.transit_obsmode[planet_no]
 
         ttime_old = tm.planets[planet_no].transit_times.ttime_mod
-        ttime_new = np.zeros_like(ttime_old)
+        quality = tm.planets[planet_no].transit_times.quality
+        ttime_new = np.full_like(ttime_old, np.nan)
+        prior_sd = np.array([p.duration / 3 for p in tm.planets])
         nfail = 0
 
         for i, tc in enumerate(ttime_old):
+            if not quality[i]:
+                continue
+
             if not overlap[i]:
                 transit_window_size = (
                     relative_window_size * tm.planets[planet_no].duration
@@ -341,12 +352,16 @@ class QuickFitTransitTimes(BaseAlg):
             def _fxn(x, x0, fix, tm, obsmode, t_obs, f_obs, f_err):
                 _x = x0.copy()
                 _x[~fix] = x
-                return self._window_residuals(_x, tm, obsmode, t_obs, f_obs, f_err)
+                resid = self._window_residuals(_x, tm, obsmode, t_obs, f_obs, f_err)
+                prior = (x - x0[~fix]) / prior_sd[~fix]
+                return np.concatenate([resid, prior])
 
+            half_window = transit_window_size / 2
             result = least_squares(
                 _fxn,
                 theta[~fix],
                 method="trf",
+                bounds=(theta[~fix] - half_window, theta[~fix] + half_window),
                 args=(
                     theta,
                     fix,
@@ -358,8 +373,8 @@ class QuickFitTransitTimes(BaseAlg):
                 ),
             )
 
+            theta_start = theta.copy()
             theta[~fix] = result.x
-            ttime_new[i] = theta[planet_no]
             logp_final = self._window_ln_likelihood(
                 theta, tm, obsmode[i], t_obs, f_obs, f_err
             )
@@ -370,21 +385,24 @@ class QuickFitTransitTimes(BaseAlg):
                 planet_no,
                 i,
                 tc,
-                ttime_new[i],
-                (ttime_new[i] - tc) * 1440,
+                theta[planet_no],
+                (theta[planet_no] - theta_start[planet_no]) * 1440,
                 logp_initial,
                 logp_final,
                 result.nfev,
             )
-            if not result.success or logp_final < logp_initial:
+            if result.success and logp_final >= logp_initial:
+                ttime_new[i] = theta[planet_no]
+            else:
                 nfail += 1
 
         if nfail > 0:
             logger.warning(
-                "planet %d: optimizer failed or decreased logp for %d of %d transits",
+                "planet %d: optimizer failed or decreased logp for %d of %d transits "
+                "(left unmeasured unless cross-correlation succeeded)",
                 planet_no,
                 nfail,
-                len(ttime_old),
+                np.sum(quality),
             )
 
         return ttime_new
@@ -422,6 +440,10 @@ class QuickFitTransitTimes(BaseAlg):
 
             assert len(ttime_cc[n]) == len(p.transit_times.ttime_mod)
 
+            # low quality transits (FlagBadTransits) are not measured
+            ttime_cc[n][~p.transit_times.quality] = np.nan
+            error_cc[n][~p.transit_times.quality] = np.nan
+
             # discard fits with outsized errors; they fall back to the optimizer
             large = error_cc[n] > 8 * np.nanmedian(error_cc[n])
             if np.any(large):
@@ -447,6 +469,7 @@ class QuickFitTransitTimes(BaseAlg):
                     ttime_obs=np.where(q, ttime_cc[n], np.nan),
                     error_obs=np.where(q, error_cc[n], np.nan),
                     ttime_mod=np.where(q, ttime_cc[n], tt.ttime_mod),
+                    quality=tt.quality,
                 )
             )
 
@@ -459,8 +482,11 @@ class QuickFitTransitTimes(BaseAlg):
             ttime_opt[n] = self._optimize_times(tm, n, overlap)
 
         # measured transit times, prioritizing cross-correlation over optimization;
-        # no model yet (ttime_mod = ttime_obs) until RegularizeOMC
+        # no model yet (ttime_mod = ttime_obs) until RegularizeOMC, except where
+        # neither method succeeded or the transit is low quality: those stay
+        # unmeasured at their previous model time
         for n, p in enumerate(planets):
+            good = p.transit_times.quality
             error_obs = error_cc[n]
             error_exp = np.zeros_like(error_obs)
 
@@ -472,10 +498,13 @@ class QuickFitTransitTimes(BaseAlg):
                 )
 
             q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
+            measured = good & (q | np.isfinite(ttime_opt[n]))
             ttime_new = np.where(q, ttime_cc[n], ttime_opt[n])
             error_new = np.sqrt(error_obs**2 + error_exp**2)
             error_fill = np.nanpercentile(error_new, 90)
             error_new[~q] = error_fill
+            ttime_new[~measured] = np.nan
+            error_new[~measured] = np.nan
             if not np.isfinite(error_fill):
                 raise RuntimeError(
                     f"planet {n}: no valid cross-correlation errors; "
@@ -490,23 +519,28 @@ class QuickFitTransitTimes(BaseAlg):
                     tt.index,
                     ttime_obs=ttime_new,
                     error_obs=error_new,
+                    ttime_mod=np.where(measured, ttime_new, tt.ttime_mod),
+                    quality=tt.quality,
                 )
             )
 
             omc = p.transit_times.ttime_obs - p.transit_times.linear_ephemeris()
             logger.info(
-                "planet %d: %d cross-correlation + %d optimized transit times "
+                "planet %d: %d cross-correlation + %d optimized transit times, "
+                "%d unmeasured (both fits failed), %d low quality "
                 "(optimized assigned 90th-percentile error %.2f min); "
                 "P = %.6f d, epoch = %.5f BKJD, OMC rms = %.2f min, "
                 "median error = %.2f min",
                 n,
                 np.sum(q),
-                np.sum(~q),
+                np.sum(~q & measured),
+                np.sum(good & ~measured),
+                np.sum(~good),
                 error_fill * 1440,
                 planets[n].period,
                 planets[n].epoch,
-                np.std(omc) * 1440,
-                np.median(error_new) * 1440,
+                np.nanstd(omc) * 1440,
+                np.nanmedian(error_new) * 1440,
             )
 
         return self.planets, self.litecurve

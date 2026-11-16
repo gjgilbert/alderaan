@@ -5,7 +5,10 @@ algorithms
    :maxdepth: 1
 
    base
-   regularize_omc
+   clip_outliers
    detrend_visits
    flag_bad_transits
-   transit_fitting/index
+   quick_fit_transit_shape
+   quick_fit_transit_times
+   regularize_omc
+   sample_transit_model

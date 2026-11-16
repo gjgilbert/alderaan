@@ -270,6 +270,46 @@ class TestTransitModel:
         # short cadence is not integrated over its 1 min exposure (by design)
         npt.assert_allclose(residuals[~is_lc], 0.0, atol=0.1)
 
+    def test_models_short_cadence_inside_a_long_cadence_transit(self):
+        # short cadence covers only the second half of one transit, so no transit
+        # midpoint's nearest cadence is short cadence
+        star, planets, _ = _synthetic_system()
+        ttimes = [p.transit_times.ttime_mod for p in planets]
+        tc = ttimes[0][3]
+        lc_time = np.arange(100.0, 160.0, KEPLER_LCIT)
+        lc_time = lc_time[(lc_time < tc + 0.01) | (lc_time > tc + 0.06)]
+        sc_time = np.arange(tc + 0.01, tc + 0.06, KEPLER_SCIT)
+        time = np.hstack([lc_time, sc_time])
+        order = np.argsort(time)
+        obsmode = np.hstack(
+            [
+                np.full(lc_time.size, "long cadence"),
+                np.full(sc_time.size, "short cadence"),
+            ]
+        )[order]
+        flux = np.hstack(
+            [
+                _transit_signal(lc_time, ttimes, KEPLER_LCIT),
+                _transit_signal(sc_time, ttimes, KEPLER_SCIT),
+            ]
+        )[order]
+        n = time.size
+        litecurve = LiteCurve(
+            "Kepler",
+            "SYN",
+            time[order],
+            flux,
+            np.full(n, 1e-4),
+            np.arange(n),
+            np.full(n, 5),
+            obsmode,
+        )
+        model = TransitModel(star, planets, litecurve)
+
+        is_sc = obsmode == "short cadence"
+        assert np.all(model.model_flux(_theta_true())[is_sc] < 1)
+        npt.assert_allclose(model.residuals(_theta_true())[is_sc], 0.0, atol=0.1)
+
     def test_ln_likelihood_peaks_at_truth(self):
         star, planets, litecurve = _synthetic_system()
         model = TransitModel(star, planets, litecurve)

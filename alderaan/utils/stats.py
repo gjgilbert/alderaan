@@ -1,3 +1,5 @@
+"""Statistical helpers: ppf transforms, robust fits, sigma cutoffs, binning"""
+
 __all__ = [
     "uniform_ppf",
     "loguniform_ppf",

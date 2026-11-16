@@ -1,3 +1,5 @@
+"""Results: posteriors, transit times, and litecurve for one target"""
+
 __all__ = ["Results"]
 
 import logging
@@ -7,8 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
 
-from alderaan import SEED
-from alderaan.constants import EXPTIME, KEPLER_SCIT
+import alderaan
+from alderaan.constants import EXPTIME, KEPLER_SCIT, SEED
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.posteriors import Posteriors
 from alderaan.data_models.transit_times import TransitTimes
@@ -83,15 +85,20 @@ class Results:
             return self.posteriors.npl
         return None
 
-    def to_fits(self, filepath):
+    def to_fits(self, filepath, run_id):
         """
         Write PRIMARY, SAMPLES + EPHEMERIS (if posteriors), and TTIMES_nn (if
         transit_times); the detrended litecurve is written by LiteCurve.to_fits
+
+        The PRIMARY header records the run_id, ALDERAAN version, and git hash
         """
         primary_hdu = fits.PrimaryHDU()
         primary_hdu.header["MISSION"] = self.mission
         primary_hdu.header["TARGET"] = self.target
         primary_hdu.header["NPL"] = self.npl
+        primary_hdu.header["RUN_ID"] = run_id
+        primary_hdu.header["VERSION"] = alderaan.__version__
+        primary_hdu.header["GIT_HASH"] = alderaan.git_hash()
 
         # component HDU builders are private to data_models; Results owns the file
         hdul = fits.HDUList([primary_hdu])
@@ -117,7 +124,7 @@ class Results:
         results_filepath : str
             path to {target}_results.fits
         detrended_filepath : str, optional
-            path to {target}_*_detrended.fits; litecurve is None if omitted
+            path to {target}_detrended.fits; litecurve is None if omitted
         """
         logger.info("reading %s", results_filepath)
         with fits.open(results_filepath) as hdul:

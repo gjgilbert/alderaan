@@ -39,6 +39,7 @@ class TestConstructor:
         assert np.all(np.isnan(tt.error_obs))
         assert np.all(np.isnan(tt.out_prob))
         assert tt.out_flag.dtype == bool and not tt.out_flag.any()
+        assert tt.quality.dtype == bool and tt.quality.all()
 
     def test_ephemeris_is_least_squares_fit_to_ttime_mod(self):
         rng = np.random.default_rng(1)
@@ -92,15 +93,7 @@ class TestTTVScatter:
         assert np.isclose(tt_missing.ttv_buffer(), sigma_cutoff(18) * expected)
 
 
-class TestSubsetAndClip:
-    def test_subset_keeps_masked_transits(self):
-        tt = _tt()
-        mask = tt.index % 3 == 0
-        sub = tt.subset(mask)
-        assert_array_equal(sub.index, tt.index[mask])
-        assert_array_equal(sub.ttime_obs, tt.ttime_obs[mask])
-        assert_array_equal(sub.error_obs, tt.error_obs[mask])
-
+class TestClip:
     def test_clip_rezeroes_index_and_ephemeris(self):
         tt = _tt()
         t_min, t_max = tt.ttime_mod[5], tt.ttime_mod[12]

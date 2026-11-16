@@ -3,7 +3,7 @@
 Harnesses run in order of the last pipeline step each profiles, so each step's
 profiled output is the next harness's input: setup builds only the steps ahead
 of quick_fit_transit_shape, once, instead of every harness rebuilding the
-pipeline (two DetrendVisits passes and NUTS) from scratch.
+pipeline (two DetrendVisits passes and RegularizeOMC) from scratch.
 
 Ends with a summary report ranking algorithms by profiled wall-clock (both
 pipeline passes combined; data I/O and plots are in ``profile_pipeline.py``).

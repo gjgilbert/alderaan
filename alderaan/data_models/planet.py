@@ -1,3 +1,5 @@
+"""Planet: physical parameters plus attached TransitTimes"""
+
 __all__ = ["Planet"]
 
 import numpy as np

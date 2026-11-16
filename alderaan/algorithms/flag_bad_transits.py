@@ -8,13 +8,15 @@ from astropy.stats import mad_std
 
 from alderaan.algorithms.base import BaseAlg
 from alderaan.constants import EXPTIME
+from alderaan.data_models.transit_times import FIELDS, TransitTimes
 
 logger = logging.getLogger(__name__)
 
 
 class FlagBadTransits(BaseAlg):
     """
-    Set transit quality flags and remove low quality transits
+    Set transit quality flags (TransitTimes.quality) for transits with poor
+    photometric coverage or high noise; every transit is kept
 
     Parameters
     ----------
@@ -161,6 +163,11 @@ class FlagBadTransits(BaseAlg):
                 np.sum(~good_rms[n] & coverage[n]),
             )
 
-            p.set_transit_times(p.transit_times.subset(coverage[n] & good_rms[n]))
+            # flag rather than drop: rejected transits stay in transit masks,
+            # overlap checks, and the transit model, but are not fit or measured
+            tt = p.transit_times
+            fields = {k: getattr(tt, k) for k in FIELDS}
+            fields["quality"] = coverage[n] & good_rms[n]
+            p.set_transit_times(TransitTimes(tt.mission, tt.target, **fields))
 
         return planets, self.litecurve

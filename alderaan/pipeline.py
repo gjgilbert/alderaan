@@ -1,3 +1,5 @@
+"""Run every ALDERAAN stage on one target (`alderaan run`)"""
+
 import copy
 import logging
 import os
@@ -58,6 +60,13 @@ def main(
         catalog_dir,
     )
     logger.info("log file: %s (console level %s)", log_path, log_level)
+    logger.info(
+        "threads: %s",
+        ", ".join(
+            f"{v}={os.environ.get(v, 'unset')}"
+            for v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
+        ),
+    )
 
     try:
         results_path = _run(
@@ -86,10 +95,13 @@ def main(
 
 def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     results_dir = os.path.join(output_dir, run_id, "results", target)
-    os.makedirs(results_dir, exist_ok=True)
-
     plots_dir = os.path.join(output_dir, run_id, "plots", target)
-    os.makedirs(plots_dir, exist_ok=True)
+
+    # never mix outputs of two runs: a rerun needs a new run_id or an empty directory
+    for d in (results_dir, plots_dir):
+        if os.path.isdir(d) and os.listdir(d):
+            raise FileExistsError(f"{d} is not empty; use a new run_id")
+        os.makedirs(d, exist_ok=True)
 
     # data i/o (Kepler only; main() rejects other missions)
     star, planets, litecurve = load_kepler_data(target, input_dir, catalog_dir, visits)
@@ -157,7 +169,7 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
         litecurve=litecurve,
     )
     results_path = os.path.join(results_dir, f"{target}_results.fits")
-    results.to_fits(results_path)
+    results.to_fits(results_path, run_id)
 
     posteriors.dynesty_runplot(
         fig_path=os.path.join(plots_dir, f"{target}_dynesty_runplot.png")

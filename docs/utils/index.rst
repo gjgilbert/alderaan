@@ -7,3 +7,6 @@ utils
    astro
    kepler
    logger
+   optimize
+   plotting
+   stats

@@ -24,7 +24,7 @@ Avoid: rebuilding a hidden framework unintentionally, adding implicit global sta
 
 - **Python 3.12**
 - **Conda env**: `alderaan` — set up via `conda env create -f environment.yml`
-- **Install package**: `pip install -e alderaan` (editable install)
+- **Install package**: `pip install -e .` from the repo root (editable install)
 
 ## Commands
 

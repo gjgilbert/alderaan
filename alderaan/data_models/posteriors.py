@@ -1,3 +1,5 @@
+"""Posteriors: transit-model posterior samples and the sampling ephemeris"""
+
 __all__ = ["Posteriors"]
 
 import dynesty

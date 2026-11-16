@@ -13,6 +13,7 @@ import pytest
 
 from alderaan.data_models import Planet, TransitTimes
 from alderaan.utils.kepler import (
+    load_kepler_data,
     match_holczer16_transit_times,
     parse_holczer16_catalog,
     parse_koi_catalog,
@@ -124,3 +125,8 @@ class TestLoadKeplerData:
             assert tt.ttime_mod.max() <= litecurve.t_end
             # Holczer+2016 measured most transits of all three planets
             assert np.mean(np.isfinite(tt.ttime_obs)) > 0.5
+
+    def test_missing_requested_quarter_raises(self):
+        data_dir = Path(__file__).resolve().parents[1] / "data" / "MAST_downloads"
+        with pytest.raises(FileNotFoundError, match=r"quarters \[99\] not found"):
+            load_kepler_data(TARGET, str(data_dir), str(CATALOG_DIR), visits=[4, 99])

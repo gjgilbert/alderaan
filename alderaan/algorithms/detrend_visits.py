@@ -6,7 +6,7 @@ import celerite2
 import numpy as np
 from astropy.stats import mad_std
 from astropy.timeseries import LombScargle
-from celerite2 import terms
+from celerite2 import terms as GPterms
 from celerite2.driver import LinAlgError
 from scipy.ndimage import median_filter
 from scipy.special import expit, logit
@@ -135,7 +135,7 @@ class _GPTrendModel:
     def _gp(self, p):
         period, Q0, sigma = self.hyperparameters(p)
         if self.rotation:
-            kernel = terms.RotationTerm(
+            kernel = GPterms.RotationTerm(
                 sigma=sigma,
                 period=period,
                 Q0=Q0,
@@ -143,7 +143,7 @@ class _GPTrendModel:
                 f=expit(p["logit_mix"][0]),
             )
         else:
-            kernel = terms.SHOTerm(sigma=sigma, w0=2 * np.pi / period, Q=0.5 + Q0)
+            kernel = GPterms.SHOTerm(sigma=sigma, w0=2 * np.pi / period, Q=0.5 + Q0)
         gp = celerite2.GaussianProcess(kernel)
         diag = np.full(np.sum(self.oot), np.exp(p["log_var"][0]))
         gp.compute(self.time[self.oot], diag=diag)
@@ -299,8 +299,8 @@ class DetrendVisits(BaseAlg):
     @staticmethod
     def _fit(model, visit):
         """
-        Optimize a _GPTrendModel in stages; returns the predicted trend (same
-        length as model.time)
+        Optimize a _GPTrendModel in stages, ending with all parameters jointly;
+        returns the predicted trend (same length as model.time)
         """
         gp_vars = ["log_var", "flux0", "log_sigma", "log_P", "log_Q0"]
         if model.rotation:
@@ -311,6 +311,9 @@ class DetrendVisits(BaseAlg):
             stages.append(gp_vars)
             if model.correct_ramp:
                 stages.append(["log_var", "flux0", "ramp_amp", "log_tau"])
+        # final joint stage over every parameter, so correlated blocks (e.g.
+        # ramp and GP) are not left at a block-coordinate optimum
+        stages.append(list(model.ix))
 
         stage_ix = [np.concatenate([model.ix[n] for n in s]) for s in stages]
         x, info = optimize(model.logp, model.x0, stage_ix)

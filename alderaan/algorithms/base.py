@@ -65,7 +65,9 @@ class BaseAlg:
         self.planets = deepcopy(planets)
         self.star = deepcopy(star)
 
-    def make_transit_mask(self, rel_size=0.0, abs_size=0.0, buffer=0.0, time=None):
+    def make_transit_mask(
+        self, rel_size=0.0, abs_size=0.0, buffer=0.0, time=None, quality_only=False
+    ):
         """
         Mask cadences near a transit of any planet
 
@@ -81,6 +83,9 @@ class BaseAlg:
             extra full width in days added after the floor (e.g. cadence + TTVs)
         time : ndarray
             cadence times to mask (default = self.litecurve.time)
+        quality_only : bool
+            mask only transits with TransitTimes.quality True, e.g. to select
+            the photometry a fit uses (default False: every transit)
 
         Returns
         -------
@@ -97,7 +102,9 @@ class BaseAlg:
 
         for n, p in enumerate(self.planets):
             half_width = 0.5 * (np.max([rel_size * p.duration, abs_size]) + buffer)
-            for tc in p.transit_times.ttime_mod:
+            tt = p.transit_times
+            ttime = tt.ttime_mod[tt.quality] if quality_only else tt.ttime_mod
+            for tc in ttime:
                 mask[n] += np.abs(time - tc) < half_width
 
         return np.sum(mask, axis=0).astype(bool)

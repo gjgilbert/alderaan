@@ -1,3 +1,5 @@
+"""Star: stellar identifiers and limb darkening coefficients"""
+
 __all__ = ["Star"]
 
 from alderaan.utils.astro import ld_u_to_q

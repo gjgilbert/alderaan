@@ -36,6 +36,7 @@ _THIRD_PARTY_PINS = [
 ]
 
 _installed_handlers = []
+_warning_filters = []  # catch_warnings context restoring filters at teardown
 
 
 def setup_logging(log_dir, target, level="INFO"):
@@ -80,19 +81,25 @@ def setup_logging(log_dir, target, level="INFO"):
         logging.getLogger(name).setLevel(logging.WARNING)
 
     # astropy can't parse Kepler FITS unit strings ('e-/s', 'BJD - 2454833');
-    # alderaan doesn't use astropy units, so these are noise
+    # alderaan doesn't use astropy units, so these are noise; teardown restores
+    # the caller's warning filters
+    context = warnings.catch_warnings()
+    context.__enter__()
+    _warning_filters.append(context)
     warnings.filterwarnings("ignore", category=UnitsWarning, module="astropy")
     logging.captureWarnings(True)
     return file_handler.baseFilename
 
 
 def teardown_logging():
-    """Remove and close handlers installed by setup_logging"""
+    """Remove and close handlers installed by setup_logging; restore warning filters"""
     root = logging.getLogger()
     while _installed_handlers:
         handler = _installed_handlers.pop()
         root.removeHandler(handler)
         handler.close()
+    while _warning_filters:
+        _warning_filters.pop().__exit__(None, None, None)
     logging.captureWarnings(False)
 
 

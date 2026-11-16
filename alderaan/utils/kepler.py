@@ -260,7 +260,9 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
     if visits is not None:
         missing = sorted(set(visits) - set(loaded))
         if missing:
-            logger.warning("requested quarters %s not found in %s", missing, input_dir)
+            raise FileNotFoundError(
+                f"requested quarters {missing} not found in {input_dir}"
+            )
 
     # initialize planets
     planets = []
@@ -296,7 +298,20 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
             logger.warning(
                 "planet %d: only %d transits within litecurve span", n, n_after
             )
+        logger.info(
+            "planet %d (catalog): P = %.6f d, epoch = %.5f BKJD, depth = %.0f ppm, "
+            "T14 = %.2f hr, b = %.2f; %d transits, %d with Holczer+2016 times",
+            n,
+            p.period,
+            p.epoch,
+            p.depth * 1e6,
+            p.duration * 24,
+            p.impact,
+            n_after,
+            np.sum(np.isfinite(p.transit_times.error_obs)),
+        )
 
+    logger.info("star: u1 = %.3f, u2 = %.3f (catalog)", star.u1, star.u2)
     logger.info(
         "loaded %s: %d planets, quarters %s, %d cadences",
         target,

@@ -1,3 +1,5 @@
+"""Astrophysical conversions: limb darkening bases, depths, timing errors"""
+
 __all__ = [
     "approx_tc_error",
     "approx_transit_depth",

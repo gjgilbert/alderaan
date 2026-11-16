@@ -1,3 +1,5 @@
+"""LiteCurve: photometry time series with per-cadence visit and obsmode"""
+
 __all__ = ["LiteCurve"]
 
 import glob

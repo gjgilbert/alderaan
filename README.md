@@ -9,42 +9,50 @@ For detailed documentation, see [readthedocs.org](https://alderaan.readthedocs.i
 
 ## Installation instructions
 
-`alderaan` requires a complex set of dependencies in order to run. To create a conda environment capable of running the `alderaan` pipeline, copy environment.yml from the `alderaan` github repository to your local machine:
+`alderaan` pins its dependencies, including a fork of `batman`. Clone the repository and create the conda environment, which is named `alderaan`:
 
 ```
-curl -O https://raw.githubusercontent.com/gjgilbert/alderaan/develop/environment.yml
-```
-
-Then run:
-
-```
+git clone https://github.com/gjgilbert/alderaan.git
+cd alderaan
 conda env create -f environment.yml
+conda activate alderaan
 ```
 
-to creat a conda environment named "alderaan-env".
-
-You can then activate your environment and safely pip install the package:
+Then install the package from the repository root:
 
 ```
-conda activate alderaan-env
-```
-
-then
-
-```
-pip install alderaan
+pip install -e .
 ```
 
 
 ## Running the pipeline
 
-To run the pipeline, navigate into the `alderaan` source directory and run the following commmand:
+Run the pipeline on one target with:
 
 ```
-alderaan run -m Kepler -t K00137 --run_id develop
+alderaan run -m Kepler -t K00137 --run_id my_run \
+    --input_dir /path/to/MAST_downloads \
+    --output_dir /path/to/outputs \
+    --catalog_dir /path/to/catalogs
 ```
 
-The flags -m (mission) -t (target) and -c (config) are required and set the pipeline run conditions.
+Required flags:
+* `-t/--target`: KOI identifier, e.g. K00137
+* `-m/--mission`: observing mission (currently only Kepler)
+* `--run_id`: run identifier; outputs of different runs never mix, so a rerun needs a new run_id
+* `--input_dir`: directory of MAST photometry downloads (`kplr*_llc.fits`)
+* `--output_dir`: directory for outputs
+* `--catalog_dir`: directory holding `kepler_dr25_gaia_dr2_crossmatch.csv` and `holczer_2016_kepler_ttvs.txt`
+
+Optional flags: `--visits` (Kepler quarters to load; default all) and `--log_level` (console level; the log file always records DEBUG).
+
+Outputs, under `{output_dir}/{run_id}/`:
+* `results/{target}/{target}_results.fits`: posterior samples (SAMPLES, EPHEMERIS) and transit times (TTIMES_nn); the PRIMARY header records RUN_ID, VERSION, and GIT_HASH
+* `results/{target}/{target}_detrended.fits`: the detrended litecurve
+* `plots/{target}/`: litecurves, O-C diagrams, and dynesty diagnostics
+* `logs/`: one log file per run
+
+When running many targets in parallel, set `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, and `MKL_NUM_THREADS` to 1 so thread pools do not oversubscribe the cores; the log records their values.
 
 
 ## Attribution
@@ -57,8 +65,7 @@ Foundational work on transit modeling which informed the development of `alderaa
 The `alderaan` pipeline relies on the following core dependencies:
 * `astropy` [Astropy Collaboration et al. (2022)](https://ui.adsabs.harvard.edu/abs/2022ApJ...935..167A/abstract)
 * `batman` [Kreidberg (2015)](https://ui.adsabs.harvard.edu/abs/2015ascl.soft10002K/abstract)
-* `celerite` [Foreman-Mackey (2018)](https://ui.adsabs.harvard.edu/abs/2018RNAAS...2...31F/abstract)
+* `celerite2` [Foreman-Mackey (2018)](https://ui.adsabs.harvard.edu/abs/2018RNAAS...2...31F/abstract)
 * `dynesty` [Speagle (2020)](https://ui.adsabs.harvard.edu/abs/2020MNRAS.493.3132S/abstract)
 * `numpy` [Harris et al, (2020)](https://ui.adsabs.harvard.edu/abs/2020Natur.585..357H/abstract)
-* `PyMC` [Abril-Pla et al. (2023)](https://doi.org/10.7717/peerj-cs.1516)
-* `scipy` [Virtanen et al. (2020)](https://ui.adsabs.harvard.edu/abs/2016ascl.soft10016S/abstract)
+* `scipy` [Virtanen et al. (2020)](https://ui.adsabs.harvard.edu/abs/2020NatMe..17..261V/abstract)

@@ -8,7 +8,7 @@ import dynesty
 import numpy as np
 from astropy.stats import mad_std
 from astropy.timeseries import LombScargle
-from celerite2 import terms
+from celerite2 import terms as GPterms
 from scipy import signal, stats
 from scipy.interpolate import make_interp_spline
 from scipy.ndimage import median_filter, uniform_filter
@@ -16,8 +16,8 @@ from scipy.signal import savgol_filter
 from scipy.special import expit
 from sklearn.cluster import KMeans
 
-from alderaan import SEED
 from alderaan.algorithms.base import BaseAlg
+from alderaan.constants import SEED
 from alderaan.data_models import TransitTimes
 from alderaan.utils.stats import legendre_p1, norm_ppf, uniform_ppf
 
@@ -174,7 +174,7 @@ class RegularizeOMC(BaseAlg):
 
         def make_gp(theta):
             log_sigma, rho, mean = theta
-            kernel = terms.Matern32Term(sigma=np.exp(log_sigma), rho=rho)
+            kernel = GPterms.Matern32Term(sigma=np.exp(log_sigma), rho=rho)
             gp = celerite2.GaussianProcess(kernel, mean=mean)
             gp.compute(xtime[q], yerr=yerr[q])
             return gp
@@ -674,6 +674,7 @@ class RegularizeOMC(BaseAlg):
             ttime_mod=interpolator(tt.index),
             out_prob=out_prob_full,
             out_flag=out_flag_full,
+            quality=tt.quality,
         )
 
     def perform(self, method, check_periodic=True):

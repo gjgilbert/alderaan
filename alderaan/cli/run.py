@@ -3,8 +3,6 @@
 import argparse
 from pathlib import Path
 
-BASE_PATH = Path(__file__).resolve().parents[2]
-
 
 def build_parser():
     parser = argparse.ArgumentParser(
@@ -15,27 +13,27 @@ def build_parser():
         "-m",
         "--mission",
         required=True,
-        choices=["Kepler", "K2", "TESS"],
+        choices=["Kepler"],
         help="observing mission",
     )
     parser.add_argument("--run_id", required=True, help="run identifier")
     parser.add_argument(
         "--input_dir",
         type=Path,
-        default=BASE_PATH / "tests" / "data" / "MAST_downloads",
-        help="photometry directory (default: %(default)s)",
+        required=True,
+        help="photometry directory",
     )
     parser.add_argument(
         "--output_dir",
         type=Path,
-        default=BASE_PATH / "outputs",
-        help="outputs directory (default: %(default)s)",
+        required=True,
+        help="outputs directory",
     )
     parser.add_argument(
         "--catalog_dir",
         type=Path,
-        default=BASE_PATH / "tests" / "catalogs",
-        help="catalog directory (default: %(default)s)",
+        required=True,
+        help="catalog directory",
     )
     parser.add_argument(
         "--visits",
