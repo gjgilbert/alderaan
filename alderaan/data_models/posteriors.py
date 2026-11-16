@@ -11,7 +11,17 @@ from alderaan.utils.astro import ld_q_to_u
 from alderaan.utils.plotting import save_and_close
 from alderaan.utils.stats import legendre_p1, weighted_percentile
 
-# per-planet sample columns, for trace and corner plots
+# dynesty run outputs kept by Posteriors: per-sample arrays, mapped to their FITS
+# SAMPLES columns (names as in legacy); niter, eff, batch_nlive go in the header
+SAMPLE_COLUMNS = {
+    "logwt": "LN_WT",
+    "logl": "LN_LIKE",
+    "logz": "LN_Z",
+    "logzerr": "LN_ZERR",
+    "logvol": "LN_VOL",
+    "samples_n": "N_LIVE",
+}
+SAMPLER_KEYS = (*SAMPLE_COLUMNS, "niter", "eff", "batch_nlive")
 
 
 class Posteriors:
@@ -24,8 +34,13 @@ class Posteriors:
     samples : pd.DataFrame
         nested samples; columns npl * [C0_n, C1_n, ROR_n, IMPACT_n, DUR14_n]
         + [LD_Q1, LD_Q2]
-    ln_wt, ln_like, ln_z : ndarray
-        log weight, log likelihood, and cumulative log evidence per sample
+    sampler_info : dict
+        dynesty run outputs, keyed by their dynesty.results.Results names:
+        logwt, logl, logz, logzerr, logvol, samples_n : ndarray, one entry per
+            sample (log weight, log likelihood, cumulative log evidence and its
+            error, log prior volume, number of live points)
+        niter, eff : number of iterations, sampling efficiency (%)
+        batch_nlive : list of live points per batch
     ref_period, ref_epoch : ndarray
         per planet; least squares linear ephemeris of the transit times the sampler
         perturbed with (C0, C1)
@@ -33,11 +48,6 @@ class Posteriors:
         photometry span of the Legendre mapping used by the sampler,
         legx = legendre_p1(ref_epoch + ref_period * index, (t_start, t_end))
         (see TransitModel._build_warps)
-    ln_vol, ln_zerr, n_live : ndarray, optional
-        log prior volume, log evidence error, and number of live points per sample;
-        used for sampler diagnostic plots
-    sampler_info : dict, optional
-        sampler diagnostics written to the SAMPLES header (NITER, NBATCH, NLIVEi, EFF)
     """
 
     def __init__(
@@ -45,32 +55,20 @@ class Posteriors:
         mission,
         target,
         samples,
-        ln_wt,
-        ln_like,
-        ln_z,
+        sampler_info,
         ref_period,
         ref_epoch,
         t_start,
         t_end,
-        ln_vol=None,
-        ln_zerr=None,
-        n_live=None,
-        sampler_info=None,
     ):
         self.mission = mission
         self.target = target
         self.samples = samples
-        self.ln_wt = np.asarray(ln_wt)
-        self.ln_like = np.asarray(ln_like)
-        self.ln_z = np.asarray(ln_z)
+        self.sampler_info = sampler_info
         self.ref_period = np.asarray(ref_period, dtype=float)
         self.ref_epoch = np.asarray(ref_epoch, dtype=float)
         self.t_start = float(t_start)
         self.t_end = float(t_end)
-        self.ln_vol = None if ln_vol is None else np.asarray(ln_vol)
-        self.ln_zerr = None if ln_zerr is None else np.asarray(ln_zerr)
-        self.n_live = None if n_live is None else np.asarray(n_live)
-        self.sampler_info = {} if sampler_info is None else sampler_info
 
         if len(self.ref_epoch) != self.npl:
             raise ValueError("ref_epoch must have one entry per planet")
@@ -80,16 +78,11 @@ class Posteriors:
                 f"{samples.shape[1]} sample columns inconsistent with npl = {self.npl}"
             )
 
-        nsamp = len(samples)
-        if not (len(self.ln_wt) == len(self.ln_like) == len(self.ln_z) == nsamp):
-            raise ValueError("ln_wt, ln_like, ln_z must have one entry per sample")
-
-        if len({x is None for x in (self.ln_vol, self.ln_zerr, self.n_live)}) != 1:
-            raise ValueError("ln_vol, ln_zerr, n_live must be all set or all None")
-        for name in ("ln_vol", "ln_zerr", "n_live"):
-            x = getattr(self, name)
-            if x is not None and len(x) != nsamp:
-                raise ValueError(f"{name} must have one entry per sample")
+        if set(sampler_info) != set(SAMPLER_KEYS):
+            raise ValueError(f"sampler_info keys must be {SAMPLER_KEYS}")
+        for k in SAMPLE_COLUMNS:
+            if len(sampler_info[k]) != len(samples):
+                raise ValueError(f"sampler_info[{k!r}] must have one entry per sample")
 
     @property
     def npl(self):
@@ -118,47 +111,37 @@ class Posteriors:
         labels += ["LD_Q1", "LD_Q2"]
 
         samples = pd.DataFrame(results.samples, columns=labels)
-
-        sampler_info = {"NITER": results.niter, "NBATCH": len(results.batch_nlive)}
-        for i, nlive in enumerate(results.batch_nlive):
-            sampler_info[f"NLIVE{i}"] = nlive
-        sampler_info["EFF"] = results.eff
+        sampler_info = {k: getattr(results, k) for k in SAMPLER_KEYS}
 
         return cls(
             mission,
             target,
             samples,
-            results.logwt,
-            results.logl,
-            results.logz,
+            sampler_info,
             tm.ref_period,
             tm.ref_epoch,
             tm.t_start,
             tm.t_end,
-            ln_vol=results.logvol,
-            ln_zerr=results.logzerr,
-            n_live=results.samples_n,
-            sampler_info=sampler_info,
         )
 
     def _to_hdus(self):
         """
         SAMPLES and EPHEMERIS BinTableHDUs (used by Results.to_fits)
         """
+        info = self.sampler_info
         samples_df = self.samples.assign(
-            LN_WT=self.ln_wt, LN_LIKE=self.ln_like, LN_Z=self.ln_z
+            **{col: info[k] for k, col in SAMPLE_COLUMNS.items()}
         )
-        if self.ln_vol is not None:
-            samples_df = samples_df.assign(
-                LN_VOL=self.ln_vol, LN_ZERR=self.ln_zerr, N_LIVE=self.n_live
-            )
         samples_hdu = fits.BinTableHDU(
             data=samples_df.to_records(index=False), name="SAMPLES"
         )
-        for k, v in self.sampler_info.items():
-            samples_hdu.header[k] = v
         samples_hdu.header["MISSION"] = self.mission
         samples_hdu.header["TARGET"] = self.target
+        samples_hdu.header["NITER"] = info["niter"]
+        samples_hdu.header["EFF"] = info["eff"]
+        samples_hdu.header["NBATCH"] = len(info["batch_nlive"])
+        for i, nlive in enumerate(info["batch_nlive"]):
+            samples_hdu.header[f"NLIVE{i}"] = nlive
 
         ephem_hdu = fits.BinTableHDU.from_columns(
             [
@@ -178,43 +161,35 @@ class Posteriors:
     @classmethod
     def _from_hdus(cls, samples_hdu, ephem_hdu):
         """Build from SAMPLES and EPHEMERIS tables (used by Results.from_fits)"""
-        names = samples_hdu.columns.names
+        header = samples_hdu.header
         samples = pd.DataFrame(
-            {k: np.asarray(samples_hdu.data[k], dtype=float) for k in names}
-        )
-        ln_wt = samples.pop("LN_WT").to_numpy()
-        ln_like = samples.pop("LN_LIKE").to_numpy()
-        ln_z = samples.pop("LN_Z").to_numpy()
-
-        ln_vol = samples.pop("LN_VOL").to_numpy() if "LN_VOL" in names else None
-        ln_zerr = samples.pop("LN_ZERR").to_numpy() if "LN_ZERR" in names else None
-        n_live = (
-            samples.pop("N_LIVE").to_numpy(dtype=int) if "N_LIVE" in names else None
+            {
+                k: np.asarray(samples_hdu.data[k], dtype=float)
+                for k in samples_hdu.columns.names
+            }
         )
 
         sampler_info = {
-            k: samples_hdu.header[k]
-            for k in samples_hdu.header
-            if k in ("NITER", "NBATCH", "EFF") or k.startswith("NLIVE")
+            k: samples.pop(col).to_numpy() for k, col in SAMPLE_COLUMNS.items()
         }
+        sampler_info["samples_n"] = sampler_info["samples_n"].astype(int)
+        sampler_info["niter"] = header["NITER"]
+        sampler_info["eff"] = header["EFF"]
+        sampler_info["batch_nlive"] = [
+            header[f"NLIVE{i}"] for i in range(header["NBATCH"])
+        ]
 
         ephem = ephem_hdu.data
 
         return cls(
-            samples_hdu.header["MISSION"],
-            samples_hdu.header["TARGET"],
+            header["MISSION"],
+            header["TARGET"],
             samples,
-            ln_wt,
-            ln_like,
-            ln_z,
+            sampler_info,
             ephem["REF_PERIOD"],
             ephem["REF_EPOCH"],
             ephem_hdu.header["T_START"],
             ephem_hdu.header["T_END"],
-            ln_vol=ln_vol,
-            ln_zerr=ln_zerr,
-            n_live=n_live,
-            sampler_info=sampler_info,
         )
 
     @property
@@ -225,13 +200,13 @@ class Posteriors:
         """
         Number of effective samples (Kish ESS)
         """
-        return dynesty.utils.get_neff_from_logwt(self.ln_wt)
+        return dynesty.utils.get_neff_from_logwt(self.sampler_info["logwt"])
 
     def weights(self):
         """
         Normalized posterior weights
         """
-        wt = np.exp(self.ln_wt - self.ln_z[-1])
+        wt = np.exp(self.sampler_info["logwt"] - self.sampler_info["logz"][-1])
         return wt / np.sum(wt)
 
     def summary(self):
@@ -292,7 +267,7 @@ class Posteriors:
                 "DUR14": s[f"DUR14_{n}"].to_numpy(),
                 "LD_U1": u1,
                 "LD_U2": u2,
-                "LN_WT": self.ln_wt,
+                "LN_WT": self.sampler_info["logwt"],
             }
         )
 
@@ -301,23 +276,13 @@ class Posteriors:
         dynesty Results for dynesty.plotting; samples_u and samples_id are required
         by its constructor but unused by these plots
         """
-        if self.ln_vol is None:
-            raise ValueError("Posteriors is missing ln_vol, ln_zerr, and n_live")
-
         samples = self.samples.to_numpy()
         return dynesty.utils.Results(
             {
                 "samples": samples,
                 "samples_u": samples,
                 "samples_id": np.zeros(len(samples), dtype=int),
-                "samples_n": self.n_live,
-                "logl": self.ln_like,
-                "logwt": self.ln_wt,
-                "logz": self.ln_z,
-                "logzerr": self.ln_zerr,
-                "logvol": self.ln_vol,
-                "niter": self.sampler_info["NITER"],
-                "eff": self.sampler_info["EFF"],
+                **self.sampler_info,
             }
         )
 
