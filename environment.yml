@@ -1,4 +1,4 @@
-name: alderaan-env
+name: alderaan
 channels:
   - conda-forge
   - defaults
