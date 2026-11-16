@@ -1,6 +1,7 @@
 __all__ = ["Results"]
 
 import logging
+import os
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -89,7 +90,9 @@ class Results:
             for n, tt in enumerate(self.transit_times):
                 hdul.append(tt._to_hdu(n))
 
-        hdul.writeto(filepath, overwrite=True)
+        # write then rename, so a crash never leaves a partial file at filepath
+        hdul.writeto(filepath + ".tmp", overwrite=True)
+        os.replace(filepath + ".tmp", filepath)
         logger.info("wrote %s", filepath)
 
     @classmethod
@@ -136,8 +139,8 @@ class Results:
     def planet_samples(self, n):
         return self.posteriors.planet_samples(n)
 
-    # plot methods: fig_path saves the figure there and closes it; default leaves
-    # it open
+    # plot methods: fig_path saves the figure there and closes it (unless ax was
+    # given); default leaves it open
 
     def plot_lightcurve(self, visit=None, ax=None, fig_path=None):
         """
@@ -216,7 +219,7 @@ class Results:
         )
         if new_figure:
             ax.figure.tight_layout()
-        save_and_close(ax.figure, fig_path)
+        save_and_close(ax.figure, fig_path, close=new_figure)
 
         return ax.figure
 

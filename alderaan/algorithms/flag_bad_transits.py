@@ -134,11 +134,16 @@ class FlagBadTransits(BaseAlg):
         with warnings.catch_warnings(record=True) as catch:
             warnings.simplefilter("always", category=RuntimeWarning)
             good_rms = self._check_rms(rel_size=3.0, abs_size=2 / 24, sigma_cut=5.0)
-        if len(catch) > 0:
+        runtime = [w for w in catch if issubclass(w.category, RuntimeWarning)]
+        for w in catch:
+            if not issubclass(w.category, RuntimeWarning):
+                # only RuntimeWarnings are expected here; pass anything else on
+                warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)
+        if len(runtime) > 0:
             logger.debug(
                 "%d RuntimeWarnings during noise check (first: %s)",
-                len(catch),
-                catch[0].message,
+                len(runtime),
+                runtime[0].message,
             )
 
         for n, p in enumerate(planets):

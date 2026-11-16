@@ -66,7 +66,8 @@ class TransitTimes:
         arrays = {
             "index": index,
             "ttime_obs": ttime_obs,
-            "ttime_mod": ttime_obs if ttime_mod is None else ttime_mod,
+            # copy so ttime_mod never shares memory with ttime_obs
+            "ttime_mod": np.copy(ttime_obs) if ttime_mod is None else ttime_mod,
             "error_obs": np.full(npts, np.nan) if error_obs is None else error_obs,
             "out_prob": np.full(npts, np.nan) if out_prob is None else out_prob,
             "out_flag": np.zeros(npts, dtype=bool) if out_flag is None else out_flag,
@@ -134,7 +135,8 @@ class TransitTimes:
         ax : matplotlib Axes, optional
             draw here; default makes a new figure
         fig_path : str, optional
-            save the figure here and close it; default leaves it open
+            save the figure here, closing it unless ax was given; default leaves
+            it open
         """
         new_figure = ax is None
         if new_figure:
@@ -176,7 +178,7 @@ class TransitTimes:
         label_axes(ax, "Time [BKJD]", "O-C [min]")
         if new_figure:
             ax.figure.tight_layout()
-        save_and_close(ax.figure, fig_path)
+        save_and_close(ax.figure, fig_path, close=new_figure)
 
         return ax.figure
 

@@ -231,7 +231,9 @@ class LiteCurve:
         hdu.header["MISSION"] = self.mission
         hdu.header["TARGET"] = self.target
 
-        fits.HDUList([primary_hdu, hdu]).writeto(filepath, overwrite=True)
+        # write then rename, so a crash never leaves a partial file at filepath
+        fits.HDUList([primary_hdu, hdu]).writeto(filepath + ".tmp", overwrite=True)
+        os.replace(filepath + ".tmp", filepath)
         logger.info("wrote %s", filepath)
 
     def plot(self, visit=None, mark_times=None, ax=None, fig_path=None):
@@ -247,7 +249,8 @@ class LiteCurve:
         ax : matplotlib Axes, optional
             draw here; default makes a new figure
         fig_path : str, optional
-            save the figure here and close it; default leaves it open
+            save the figure here, closing it unless ax was given; default leaves
+            it open
         """
         use = (
             np.ones(len(self.time), dtype=bool)
@@ -278,6 +281,8 @@ class LiteCurve:
         label_axes(ax, "Time [BKJD]", "Flux")
         if new_figure:
             ax.figure.tight_layout()
-        save_and_close(ax.figure, fig_path)
+        save_and_close(ax.figure, fig_path, close=new_figure)
+
+        return ax.figure
 
         return ax.figure

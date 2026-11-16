@@ -205,12 +205,17 @@ class RegularizeOMC(BaseAlg):
                     progressbar=progressbar,
                     return_inferencedata=False,
                 )
-        if len(catch) > 0:
+        runtime = [w for w in catch if issubclass(w.category, RuntimeWarning)]
+        for w in catch:
+            if not issubclass(w.category, RuntimeWarning):
+                # only RuntimeWarnings are expected here; pass anything else on
+                warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)
+        if len(runtime) > 0:
             logger.debug(
                 "%s model: %d RuntimeWarnings during sampling (first: %s)",
                 name,
-                len(catch),
-                catch[0].message,
+                len(runtime),
+                runtime[0].message,
             )
         return trace
 

@@ -18,7 +18,7 @@ from alderaan.algorithms.transit_fitting import (
 )
 from alderaan.data_models.results import Results
 from alderaan.utils.kepler import load_kepler_data
-from alderaan.utils.logger import setup_logging
+from alderaan.utils.logger import setup_logging, teardown_logging
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +76,15 @@ def main(
         # the one catch-log-reraise point: the traceback reaches the log file
         logger.critical("uncaught exception; pipeline aborted", exc_info=True)
         raise
-
-    logger.info(
-        "pipeline completed in %.1f min; results: %s",
-        (time.perf_counter() - pipeline_start_time) / 60,
-        results_path,
-    )
+    else:
+        logger.info(
+            "pipeline completed in %.1f min; results: %s",
+            (time.perf_counter() - pipeline_start_time) / 60,
+            results_path,
+        )
+    finally:
+        # close the log file and stop capturing warnings, even if the run fails
+        teardown_logging()
 
 
 def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):

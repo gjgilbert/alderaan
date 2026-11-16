@@ -45,10 +45,11 @@ def annotate_plot(ax, text, loc="upper right"):
     )
 
 
-def save_and_close(fig, fig_path, compress_level=6):
+def save_and_close(fig, fig_path, compress_level=6, close=True):
     """
     Write fig to fig_path as an RGB PNG at DPI and close it; no-op if fig_path is
-    None (figure stays open for interactive use)
+    None (figure stays open for interactive use); close=False keeps it open, for
+    figures the caller owns
 
     Writes the Agg buffer's RGB channels directly with Pillow, skipping the opaque
     alpha channel that Figure.savefig would encode (faster, smaller file); dpi is
@@ -63,5 +64,6 @@ def save_and_close(fig, fig_path, compress_level=6):
     Image.fromarray(rgb, "RGB").save(
         fig_path, format="png", dpi=(DPI, DPI), compress_level=compress_level
     )
-    plt.close(fig)
+    if close:
+        plt.close(fig)
     logger.debug("wrote %s", fig_path)
