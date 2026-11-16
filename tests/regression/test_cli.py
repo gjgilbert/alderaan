@@ -100,10 +100,10 @@ class TestRun:
             "    main(['run', '--help'])\n"
             "except SystemExit as e:\n"
             "    assert e.code == 0\n"
-            "print('alderaan.pipeline' in sys.modules, 'pymc' in sys.modules)\n"
+            "print('alderaan.pipeline' in sys.modules)\n"
         )
         out = subprocess.run(
             [sys.executable, "-c", code], capture_output=True, text=True, check=True
         ).stdout
         assert "--target" in out
-        assert out.strip().endswith("False False")
+        assert out.strip().endswith("False")

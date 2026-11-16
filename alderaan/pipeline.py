@@ -4,8 +4,6 @@ import os
 import sys
 import time
 
-import pytensor
-
 import alderaan
 from alderaan.algorithms import (
     ClipOutliers,
@@ -59,7 +57,6 @@ def main(
         output_dir,
         catalog_dir,
     )
-    logger.info("pytensor cache: %s", pytensor.config.compiledir)
     logger.info("log file: %s (console level %s)", log_path, log_level)
 
     try:

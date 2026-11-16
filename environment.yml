@@ -8,14 +8,11 @@ dependencies:
   # core; versions match pyproject.toml
   - astropy==7.2.0
   - dynesty==3.2.0
-  - jax==0.12.0.1  # imported by celerite2.pymc
   - lightkurve==2.6.0
   - matplotlib==3.11.2
   - numpy==2.4.6
   - pandas==2.3.3
   - pillow==13.0.0
-  - pymc==5.28.5
-  - pytensor==2.38.3  # brings its own C/C++ compilers
   - rebound==5.0.1
   - scikit-learn==1.9.1
   - scipy==1.18.1

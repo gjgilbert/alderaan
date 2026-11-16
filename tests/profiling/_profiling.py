@@ -24,9 +24,8 @@ pipeline, starting from the pipeline state that precedes it (:data:`STEPS`
 mirrors ``alderaan.pipeline._run``); building that state is excluded from the
 profile. ``run_profile`` returns the profiled wall-clock seconds.
 
-Harness-only sampler settings (:func:`patch_samplers`): dynesty stops after
-:data:`DYNESTY_MAXITER` iterations, and pymc runs its NUTS chains in-process
-(``cores=1``), because cProfile cannot see forked worker processes.
+Harness-only sampler setting (:func:`patch_samplers`): the transit-model
+dynesty run stops after :data:`DYNESTY_MAXITER` iterations.
 """
 
 import ast
@@ -71,7 +70,7 @@ REPORTS_DIR = Path(__file__).resolve().parent / "reports"
 TARGET = "K00137"
 MISSION = "Kepler"
 # Two visits: the fewest that give planet d (P ~ 15 d) >= 8 transits, so
-# RegularizeOMC runs its full model selection (NUTS) for every planet.
+# RegularizeOMC runs its full model selection for every planet.
 VISITS = [4, 5]
 
 # --- thresholds (fractions are of the total own-time budget) -----------------
@@ -108,9 +107,8 @@ REMAINDER_LABEL = "(plots + orchestration)"
 
 
 def patch_samplers():
-    """Cap dynesty iterations and run NUTS chains in-process (harness only)."""
+    """Cap the transit-model dynesty iterations (harness only)."""
     import dynesty
-    import pymc
 
     run_nested = dynesty.DynamicNestedSampler.run_nested
 
@@ -120,7 +118,6 @@ def patch_samplers():
         return run_nested(self, *args, **kwargs)
 
     dynesty.DynamicNestedSampler.run_nested = capped
-    pymc.sample = functools.partial(pymc.sample, cores=1)
 
 
 def require_data():
@@ -211,7 +208,7 @@ def _attributed(stats):
     with no hint of which ALDERAAN function drives it. Push every non-ALDERAAN
     function's own time up the caller graph, weighted by per-caller cumulative
     time, until it lands on an ALDERAAN function. Recursive callers (cycles in
-    the caller graph, e.g. pytensor graph rewrites) are skipped and the
+    the caller graph, e.g. recursive library calls) are skipped and the
     remaining weights renormalized, so time is not lost at a cycle. Returns
     ``{func_key: attributed_seconds}`` (``func_key`` is cProfile's
     ``(filename, lineno, funcname)``).
@@ -426,8 +423,8 @@ def _line_drilldown(call, args, funcs):
 # --- rendering ---------------------------------------------------------------
 
 _SAMPLERS_NOTE = (
-    f"Harness-only sampler settings: dynesty stops at {DYNESTY_MAXITER} "
-    "iterations; NUTS chains run in-process (`cores=1`)."
+    f"Harness-only sampler setting: the transit-model dynesty run stops at "
+    f"{DYNESTY_MAXITER} iterations."
 )
 
 

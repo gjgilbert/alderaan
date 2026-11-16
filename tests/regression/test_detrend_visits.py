@@ -1,9 +1,10 @@
 """
 Tests for alderaan/algorithms/detrend_visits.py
 
-Fast tier: segment identification, Lomb-Scargle period estimate, method check.
-Slow tier: GP mean function ramp origin; GP detrending of a synthetic two-visit
-litecurve with a slow stellar trend, a data gap, and injected transits.
+Fast tier: segment identification, GP trend model (mean function ramp origin,
+finite log posterior), Lomb-Scargle period estimate, method check.
+Slow tier: GP detrending of a synthetic two-visit litecurve with a slow stellar
+trend, a data gap, and injected transits.
 """
 
 import copy
@@ -12,6 +13,7 @@ import numpy as np
 import pytest
 
 from alderaan.algorithms import DetrendVisits
+from alderaan.algorithms.detrend_visits import _GPTrendModel
 from alderaan.constants import EXPTIME
 from alderaan.data_models import LiteCurve, Planet, Star, TransitTimes
 from alderaan.transit_model import exposure_offsets, transit_flux
@@ -114,17 +116,44 @@ class TestIdentifyBreaks:
         assert "fully masked" in caplog.text
 
 
-class TestMeanFunction:
-    @pytest.mark.slow
+class TestGPTrendModel:
     def test_ramp_origin_independent_of_evaluated_cadences(self):
         # segment 1 starts at t=10; drop its first cadences, as a transit mask would
-        time = np.arange(20.0)
+        time = np.arange(0.0, 20.0, 0.1)
+        flux = 1 + 1e-3 * np.random.default_rng(1).normal(size=time.size)
         seg_id = (time >= 10).astype(int)
-        args = (np.array([0.0, 10.0]), np.ones(2), np.full(2, 0.1), np.zeros(2))
         oot = (time < 10) | (time > 12)
-        full = DetrendVisits._mean_fxn(time, seg_id, *args).eval()
-        sub = DetrendVisits._mean_fxn(time[oot], seg_id[oot], *args).eval()
-        np.testing.assert_allclose(sub, full[oot])
+        model = _GPTrendModel(
+            time, flux, oot, seg_id, np.array([0.0, 10.0]), "SHOTerm", True, 2.0, 1.0
+        )
+        p = {"flux0": np.ones(2), "ramp_amp": np.full(2, 0.1), "log_tau": np.zeros(2)}
+        np.testing.assert_allclose(model._mean(p, oot), model._mean(p)[oot])
+
+    @pytest.mark.parametrize(
+        "gp_term, correct_ramp",
+        [("RotationTerm", True), ("RotationTerm", False), ("SHOTerm", False)],
+    )
+    def test_finite_logp_and_full_length_prediction(self, gp_term, correct_ramp):
+        rng = np.random.default_rng(2)
+        time = np.arange(0.0, 20.0, EXPTIME[LC])
+        flux = 1 + 1e-3 * np.sin(time / 3) + NOISE * rng.normal(size=time.size)
+        seg_id = (time >= 10).astype(int)
+        oot = np.abs(time - 5) > 0.2
+        model = _GPTrendModel(
+            time,
+            flux,
+            oot,
+            seg_id,
+            np.array([0.0, 10.0]),
+            gp_term,
+            correct_ramp,
+            2.0,
+            1.0,
+        )
+
+        assert np.isfinite(model.logp(model.x0))
+        pred = model.predict(model.x0)
+        assert pred.shape == time.shape and np.all(np.isfinite(pred))
 
 
 class TestOscillationPeriod:

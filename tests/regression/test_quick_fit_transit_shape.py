@@ -2,7 +2,7 @@
 Tests for alderaan/algorithms/quick_fit_transit_shape.py
 
 Least-squares recovery of an injected transit shape (ror, b, T14) from a
-synthetic detrended long cadence litecurve; no pytensor compile, fast tier only.
+synthetic detrended long cadence litecurve; fast tier only.
 """
 
 import numpy as np

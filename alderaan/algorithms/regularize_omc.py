@@ -1,26 +1,25 @@
 """Regularize transit times by modeling observed-minus-calculated (OMC) residuals"""
 
 import logging
-import warnings
+import time
 
+import celerite2
+import dynesty
 import numpy as np
-import pymc as pm
-import pytensor.tensor as T
 from astropy.stats import mad_std
 from astropy.timeseries import LombScargle
-from celerite2.pymc import GaussianProcess
-from celerite2.pymc import terms as GPterms
+from celerite2 import terms
 from scipy import signal, stats
 from scipy.interpolate import make_interp_spline
 from scipy.ndimage import median_filter, uniform_filter
 from scipy.signal import savgol_filter
+from scipy.special import expit
 from sklearn.cluster import KMeans
 
 from alderaan import SEED
 from alderaan.algorithms.base import BaseAlg
 from alderaan.data_models import TransitTimes
-from alderaan.utils.optimize import optimize
-from alderaan.utils.stats import legendre_p1
+from alderaan.utils.stats import legendre_p1, norm_ppf, uniform_ppf
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +76,10 @@ class RegularizeOMC(BaseAlg):
     @staticmethod
     def _poly_model(xtime, yobs, yerr, quality, polyorder):
         """
-        Build a PyMC model to fit TTV observed-minus-calculated data
-        Fits data with a polynomial
+        Fit TTV observed-minus-calculated data with a polynomial
+
+        With Normal(0, 10) priors on the coefficients and a Gaussian likelihood,
+        the posterior is Gaussian, so its median is the closed-form MAP
 
         Parameters
         ----------
@@ -87,7 +88,8 @@ class RegularizeOMC(BaseAlg):
 
         Returns
         -------
-        model : pm.Model()
+        fit : dict
+            'trend' at quality cadences and 'pred' at all xtime
         """
         q = quality
 
@@ -96,22 +98,16 @@ class RegularizeOMC(BaseAlg):
         Xt = np.vander(x[q], N=polyorder + 1, increasing=True)
         Xp = np.vander(x, N=polyorder + 1, increasing=True)
 
-        # build pymc model
-        with pm.Model() as model:
-            C = pm.Normal("C", mu=0, sigma=10, shape=polyorder + 1)
+        w = 1 / yerr[q] ** 2
+        A = Xt.T @ (w[:, None] * Xt) + np.eye(polyorder + 1) / 10**2
+        C = np.linalg.solve(A, Xt.T @ (w * yobs[q]))
 
-            trend = pm.Deterministic("trend", pm.math.dot(Xt, C))
-            pm.Deterministic("pred", pm.math.dot(Xp, C))
-
-            pm.Normal("obs", mu=trend, sigma=yerr[q], observed=yobs[q])
-
-        return model
+        return {"trend": Xt @ C, "pred": Xp @ C}
 
     @staticmethod
     def _sin_model(xtime, yobs, yerr, quality, ttv_period=None):
         """
-        Build a PyMC model to fit TTV observed-minus-calculated data
-        Fits data with a single-frequency sinusoid
+        Fit TTV observed-minus-calculated data with a single-frequency sinusoid
 
         Parameters
         ----------
@@ -120,7 +116,8 @@ class RegularizeOMC(BaseAlg):
 
         Returns
         -------
-        model : pm.Model()
+        fit : dict
+            posterior median 'trend' at quality cadences and 'pred' at all xtime
         """
         q = quality
 
@@ -128,33 +125,44 @@ class RegularizeOMC(BaseAlg):
         if ttv_period is None:
             ttv_period = 2 * (xtime[q].max() - xtime[q].min())
 
-        # convenience function
-        def _sin_fxn(A, B, f, xt):
-            return A * T.sin(2 * np.pi * f * xt) + B * T.cos(2 * np.pi * f * xt)
+        df = 1 / (xtime[q].max() - xtime[q].min())
+        amp_sd = 5 * np.std(yobs[q])
 
-        # build pymc model
-        with pm.Model() as model:
-            df = 1 / (xtime[q].max() - xtime[q].min())
-            f = pm.Normal("f", mu=1 / ttv_period, sigma=df)
-            Ah = pm.Normal("Ah", mu=0, sigma=5 * np.std(yobs[q]))
-            Bk = pm.Normal("Bk", mu=0, sigma=5 * np.std(yobs[q]))
+        def _sin_fxn(theta, xt):
+            f, A, B = theta
+            return A * np.sin(2 * np.pi * f * xt) + B * np.cos(2 * np.pi * f * xt)
 
-            trend = pm.Deterministic("trend", _sin_fxn(Ah, Bk, f, xtime[q]))
-            pm.Deterministic("pred", _sin_fxn(Ah, Bk, f, xtime))
+        # priors: f ~ N(1/ttv_period, df); A, B ~ N(0, 5 * std(yobs))
+        def prior_transform(u):
+            return np.array(
+                [
+                    norm_ppf(u[0], 1 / ttv_period, df),
+                    norm_ppf(u[1], 0.0, amp_sd),
+                    norm_ppf(u[2], 0.0, amp_sd),
+                ]
+            )
 
-            pm.Normal("obs", mu=trend, sigma=yerr[q], observed=yobs[q])
+        def loglike(theta):
+            return -0.5 * np.sum(((yobs[q] - _sin_fxn(theta, xtime[q])) / yerr[q]) ** 2)
 
-        return model
+        draws = RegularizeOMC._sample(loglike, prior_transform, 3, "sinusoid OMC")
+
+        # medians over (at most) the first 500 equal-weight draws
+        return {
+            "trend": np.median([_sin_fxn(d, xtime[q]) for d in draws[:500]], 0),
+            "pred": np.median([_sin_fxn(d, xtime) for d in draws[:500]], 0),
+        }
 
     @staticmethod
     def _matern32_model(xtime, yobs, yerr, quality):
         """
-        Build a PyMC model to fit TTV observed-minus-calculated data
-        Fits data with a regularized Matern-3/2 GP kernel
+        Fit TTV observed-minus-calculated data with a regularized Matern-3/2 GP
 
         Returns
         -------
-        model : pm.Model()
+        fit : dict
+            posterior median 'trend' at quality cadences, 'pred' at all xtime,
+            and 'dof' = sum(predictive variance / yerr^2)
         """
         q = quality
 
@@ -162,73 +170,69 @@ class RegularizeOMC(BaseAlg):
         dx = np.mean(np.diff(xtime))
 
         # maximum GP amplitude
-        ymax = np.sqrt(mad_std(yobs) ** 2 - np.median(yerr) ** 2)
+        log_ymax = np.log(np.sqrt(mad_std(yobs) ** 2 - np.median(yerr) ** 2))
 
-        # pymc model
-        with pm.Model() as model:
-            # build the kernel
-            log_sigma = pm.TruncatedNormal(
-                "log_sigma", mu=np.log(ymax), sigma=5, upper=np.log(ymax)
+        def make_gp(theta):
+            log_sigma, rho, mean = theta
+            kernel = terms.Matern32Term(sigma=np.exp(log_sigma), rho=rho)
+            gp = celerite2.GaussianProcess(kernel, mean=mean)
+            gp.compute(xtime[q], yerr=yerr[q])
+            return gp
+
+        # priors: log_sigma ~ N(log_ymax, 5) truncated above at log_ymax;
+        # rho ~ U(2 dx, baseline); mean ~ N(mean(yobs), std(yobs))
+        def prior_transform(u):
+            return np.array(
+                [
+                    norm_ppf(u[0] / 2, log_ymax, 5.0),
+                    uniform_ppf(u[1], 2 * dx, xtime[q].max() - xtime[q].min()),
+                    norm_ppf(u[2], np.mean(yobs[q]), np.std(yobs[q])),
+                ]
             )
 
-            rho = pm.Uniform("rho", lower=2 * dx, upper=xtime[q].max() - xtime[q].min())
-            kernel = GPterms.Matern32Term(sigma=T.exp(log_sigma), rho=rho)
-            mean = pm.Normal("mean", mu=np.mean(yobs[q]), sigma=np.std(yobs[q]))
+        def loglike(theta):
+            return make_gp(theta).log_likelihood(yobs[q])
 
-            # define the GP and factorize the covariance matrix
-            gp = GaussianProcess(kernel, t=xtime[q], yerr=yerr[q], mean=mean)
-            gp.compute(xtime[q], yerr=yerr[q])
+        draws = RegularizeOMC._sample(loglike, prior_transform, 3, "matern32 OMC")
 
-            # track GP prediction, variance, and degrees of freedom
-            trend, var = gp.predict(yobs[q], xtime[q], return_var=True)
+        # medians over (at most) the first 500 equal-weight draws
+        trend, pred, dof = [], [], []
+        for d in draws[:500]:
+            gp = make_gp(d)
+            mu, var = gp.predict(yobs[q], xtime[q], return_var=True)
+            trend.append(mu)
+            pred.append(gp.predict(yobs[q], xtime))
+            dof.append(np.sum(var / yerr[q] ** 2))
 
-            trend = pm.Deterministic("trend", trend)
-            pm.Deterministic("pred", gp.predict(yobs[q], xtime))
-            pm.Deterministic("dof", T.sum(var / yerr[q] ** 2))
-
-            # add marginal likelihood to model
-            lnlike = gp.log_likelihood(yobs[q])
-            pm.Potential("lnlike", lnlike)
-
-        return model
+        return {
+            "trend": np.median(trend, 0),
+            "pred": np.median(pred, 0),
+            "dof": np.median(dof),
+        }
 
     @staticmethod
-    def _sample(model, name, progressbar=False):
+    def _sample(loglike, prior_transform, ndim, name):
         """
-        MAP-initialized NUTS sampling of a PyMC model; RuntimeWarnings raised
-        during sampling are counted and logged at DEBUG under name
+        Seeded dynesty nested sampling; returns equal-weight posterior draws
         """
-        logger.debug("sampling %s model", name)
-        with warnings.catch_warnings(record=True) as catch:
-            warnings.simplefilter("always", category=RuntimeWarning)
-            with model:
-                map_soln, _ = optimize()
-
-                # dense mass matrix adaptation
-                trace = pm.sample(
-                    tune=2000,
-                    draws=2000,
-                    chains=2,
-                    target_accept=0.95,
-                    init="adapt_full",
-                    initvals=map_soln,
-                    progressbar=progressbar,
-                    return_inferencedata=False,
-                    random_seed=SEED,
-                )
-        runtime = [w for w in catch if issubclass(w.category, RuntimeWarning)]
-        for w in catch:
-            if not issubclass(w.category, RuntimeWarning):
-                # only RuntimeWarnings are expected here; pass anything else on
-                warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)
-        if len(runtime) > 0:
-            logger.debug(
-                "%s model: %d RuntimeWarnings during sampling (first: %s)",
-                name,
-                len(runtime),
-                runtime[0].message,
-            )
-        return trace
+        t0 = time.perf_counter()
+        sampler = dynesty.NestedSampler(
+            loglike,
+            prior_transform,
+            ndim,
+            nlive=200,
+            sample="auto",
+            rstate=np.random.default_rng(SEED),
+        )
+        sampler.run_nested(dlogz=0.5, print_progress=False)
+        results = sampler.results
+        logger.debug(
+            "%s model: dynesty ncall = %d, %.1f s",
+            name,
+            np.sum(results.ncall),
+            time.perf_counter() - t0,
+        )
+        return results.samples_equal(rstate=np.random.default_rng(SEED))
 
     @staticmethod
     def _identify_significant_frequencies(xtime, yobs, quality, critical_fap):
@@ -344,14 +348,14 @@ class RegularizeOMC(BaseAlg):
         return xf_out, yf_out, freqs, faps
 
     @staticmethod
-    def _select_best_model(yobs, yerr, quality, traces, dofs):
+    def _select_best_model(yobs, yerr, quality, fits, dofs):
         """
         Parameters
         ----------
-        traces : dict
-            PyMC MultiTraces, output from _sample()
+        fits : dict
+            model fits ('trend' at quality cadences, 'pred' at all), keyed by name
         dofs : dict
-            degrees-of-freedom corresponding to each model trace
+            degrees-of-freedom corresponding to each model fit
 
         Returns
         -------
@@ -367,9 +371,8 @@ class RegularizeOMC(BaseAlg):
         aic = {}
         bic = {}
 
-        for k in traces.keys():
-            trend = np.nanmedian(traces[k]["trend"], 0)
-            lnlike = -0.5 * np.sum((yobs[q] - trend) ** 2 / yerr[q] ** 2)
+        for k in fits.keys():
+            lnlike = -0.5 * np.sum((yobs[q] - fits[k]["trend"]) ** 2 / yerr[q] ** 2)
 
             aic[k] = 2 * dofs[k] - 2 * lnlike
             bic[k] = dofs[k] * np.log(npts) - 2 * lnlike
@@ -414,9 +417,58 @@ class RegularizeOMC(BaseAlg):
         )
 
         # calculate best model prediction and return
-        ymod = np.nanmedian(traces[best_omc_model_name]["pred"], 0)
+        ymod = fits[best_omc_model_name]["pred"]
 
         return ymod, best_omc_model_name
+
+    @staticmethod
+    def _gibbs_mixture(res):
+        """
+        Seeded Gibbs sampler for a two-component normal mixture with a shared mean
+
+        Priors (all conjugate): weights ~ Dirichlet(1, 1); mu ~ N(0, 1);
+        precisions tau_k ~ Gamma(1, 1). Each draw is labeled so that
+        tau[0] <= tau[1], i.e. component 0 is the broad one
+
+        Returns
+        -------
+        mu : ndarray, shape (ndraw,)
+        tau : ndarray, shape (ndraw, 2)
+            precisions, sorted ascending within each draw
+        """
+        rng = np.random.default_rng(SEED)
+        nburn, ndraw = 2000, 2000
+
+        w, mu, tau = 0.5, 0.0, np.array([0.5, 2.0])
+        mu_draws = np.zeros(ndraw)
+        tau_draws = np.zeros((ndraw, 2))
+
+        for i in range(nburn + ndraw):
+            # component labels; z True for component 0
+            lp0 = np.log(w) + 0.5 * np.log(tau[0]) - 0.5 * tau[0] * (res - mu) ** 2
+            lp1 = np.log1p(-w) + 0.5 * np.log(tau[1]) - 0.5 * tau[1] * (res - mu) ** 2
+            z = rng.random(len(res)) < expit(lp0 - lp1)
+            n0 = np.sum(z)
+
+            w = rng.beta(1 + n0, 1 + len(res) - n0)
+
+            tau_i = np.where(z, tau[0], tau[1])
+            prec = 1 + np.sum(tau_i)
+            mu = rng.normal(np.sum(tau_i * res) / prec, 1 / np.sqrt(prec))
+
+            ss = (res - mu) ** 2
+            tau = np.array(
+                [
+                    rng.gamma(1 + n0 / 2, 1 / (1 + 0.5 * np.sum(ss[z]))),
+                    rng.gamma(1 + (len(res) - n0) / 2, 1 / (1 + 0.5 * np.sum(ss[~z]))),
+                ]
+            )
+
+            if i >= nburn:
+                mu_draws[i - nburn] = mu
+                tau_draws[i - nburn] = np.sort(tau)
+
+        return mu_draws, tau_draws
 
     @staticmethod
     def _calculate_outlier_probability(yobs, ymod):
@@ -445,19 +497,11 @@ class RegularizeOMC(BaseAlg):
         res -= np.mean(res)
 
         # fit gaussian mixture
-        with pm.Model() as model:
-            w = pm.Dirichlet("w", np.array([1.0, 1.0]))
-            mu = pm.Normal("mu", mu=0.0, sigma=1.0, shape=1)
-            tau_latent = pm.Gamma("tau_latent", 1.0, 1.0, shape=2)
-            tau = pm.Deterministic("tau", T.sort(tau_latent))
-
-            pm.NormalMixture("obs", w, mu=mu * T.ones(2), tau=tau, observed=res)
-
-        trace = RegularizeOMC._sample(model, "outlier mixture")
+        mu, tau = RegularizeOMC._gibbs_mixture(res)
 
         # calculate foreground/background probability
-        loc = np.nanmedian(trace["mu"], axis=0)
-        scales = np.nanmedian(1 / np.sqrt(trace["tau"]), axis=0)
+        loc = np.median(mu)
+        scales = np.median(1 / np.sqrt(tau), axis=0)
 
         z_fg = stats.norm(loc=loc, scale=scales.min()).pdf(res)
         z_bg = stats.norm(loc=loc, scale=scales.max()).pdf(res)
@@ -547,15 +591,13 @@ class RegularizeOMC(BaseAlg):
     def _select_model(self, xtime, yobs, yerr, quality, freq):
         npts = np.sum(quality)
 
-        traces = {}
+        fits = {}
         dofs = {}
 
         # Matern-3/2 model | don't use GP on very noisy data
         if (npts >= 8) & (np.median(yerr) <= 0.5 * mad_std(yobs)):
-            traces["matern32"] = self._sample(
-                self._matern32_model(xtime, yobs, yerr, quality), "matern32 OMC"
-            )
-            dofs["matern32"] = np.nanmedian(traces["matern32"]["dof"])
+            fits["matern32"] = self._matern32_model(xtime, yobs, yerr, quality)
+            dofs["matern32"] = fits["matern32"]["dof"]
         else:
             logger.info(
                 "skipping matern32 OMC model (%d transits; median error %.2e d "
@@ -568,23 +610,21 @@ class RegularizeOMC(BaseAlg):
         # Polynomial model | require 2^N transits, at most do 3rd order
         max_polyorder = np.max([1, np.min([3, int(np.log2(npts)) - 1])])
         for polyorder in range(1, max_polyorder + 1):
-            traces[f"poly_{polyorder}"] = self._sample(
-                self._poly_model(xtime, yobs, yerr, quality, polyorder),
-                f"poly_{polyorder} OMC",
+            fits[f"poly_{polyorder}"] = self._poly_model(
+                xtime, yobs, yerr, quality, polyorder
             )
             dofs[f"poly_{polyorder}"] = 1 + polyorder
 
         # Sinusoidal model
         if npts >= 8 and freq is not None:
-            traces["sinusoid"] = self._sample(
-                self._sin_model(xtime, yobs, yerr, quality, ttv_period=1 / freq),
-                "sinusoid OMC",
+            fits["sinusoid"] = self._sin_model(
+                xtime, yobs, yerr, quality, ttv_period=1 / freq
             )
             dofs["sinusoid"] = 3
 
-        logger.info("OMC models sampled: %s", ", ".join(traces))
+        logger.info("OMC models fit: %s", ", ".join(fits))
 
-        return self._select_best_model(yobs, yerr, quality, traces, dofs)
+        return self._select_best_model(yobs, yerr, quality, fits, dofs)
 
     @staticmethod
     def _regularized_transit_times(tt, measured, ymod, screen, out_prob, out_class):

@@ -33,7 +33,7 @@ Avoid: rebuilding a hidden framework unintentionally, adding implicit global sta
 # Run from the repo root.
 
 make test        # full suite, including @pytest.mark.slow
-make test-fast   # fast subset; excludes slow (real data, pytensor compiles, samplers); the default
+make test-fast   # fast subset; excludes slow (real data, samplers); the default
 make test-debug  # iteration loop: rerun only last-failed (--lf), halt at first failure (-x)
 
 # Single file / class / test — append ::Class or ::Class::test_name
@@ -63,8 +63,8 @@ Layout: `tests/regression/test_<module>.py`, one file per module, named for the 
 `tests/conftest.py` registers the `slow` marker and provides the `k00137` fixture
 (Kepler-18, quarters 4-6, from `tests/data` and `tests/catalogs`) and the
 `make_posteriors` factory. Fast tests use small
-synthetic objects built in the test file; anything loading real photometry, compiling
-pytensor models, or running a sampler is `@pytest.mark.slow` (reading a small catalog is fast). A known bug is a
+synthetic objects built in the test file; anything loading real photometry or running
+a sampler is `@pytest.mark.slow` (reading a small catalog is fast). A known bug is a
 `@pytest.mark.xfail(strict=True, reason=...)` test; when it XPASSes, remove the marker.
 
 Tests check behavior required by the design, not edge cases or development history.
@@ -85,14 +85,14 @@ make profile-detrend_visits     # one algorithm; names mirror tests/regression/t
 - Harnesses in `tests/profiling/profile_<x>.py` are not pytest tests; shared logic lives
   in `_profiling.py`. Each profiles every pipeline invocation of one algorithm on K00137
   Q4-5 (`VISITS`; two visits are the fewest that give every planet ≥ 8 transits, so
-  RegularizeOMC runs NUTS), starting from the state that precedes it (`STEPS` mirrors
-  `pipeline._run`). `make profile` runs them in one process (`profile_all.py`) so that
+  RegularizeOMC runs its full model selection), starting from the state that precedes
+  it (`STEPS` mirrors `pipeline._run`). `make profile` runs them in one process (`profile_all.py`) so that
   state is built once; a standalone `make profile-<x>` rebuilds everything ahead of its
   steps.
 - Library time is attributed to the nearest enclosing ALDERAAN function; a **hotspot**
   has ≥ 20% attributed time and ≥ 1 s, and gets a `line_profiler` drill-down.
-- Harness-only sampler settings: dynesty capped at `DYNESTY_MAXITER`; NUTS chains run
-  in-process (`cores=1`) so cProfile sees them.
+- Harness-only sampler setting: the transit-model dynesty run is capped at
+  `DYNESTY_MAXITER`.
 - Reports print to stdout and write to the gitignored `tests/profiling/reports/`.
 
 

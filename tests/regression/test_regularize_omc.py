@@ -96,18 +96,18 @@ class TestSelectBestModel:
     """AIC/BIC model selection on fixed model predictions"""
 
     @staticmethod
-    def _traces(**trends):
-        return {k: {"trend": v[None, :], "pred": v[None, :]} for k, v in trends.items()}
+    def _fits(**trends):
+        return {k: {"trend": v, "pred": v} for k, v in trends.items()}
 
     def test_prefers_model_matching_the_data(self):
         x = np.linspace(-1, 1, 50)
         yobs = 2 * x**2
         yerr = np.full(50, 0.01)
         q = np.ones(50, dtype=bool)
-        traces = self._traces(poly_1=x, poly_2=yobs)
+        fits = self._fits(poly_1=x, poly_2=yobs)
 
         _, name = RegularizeOMC._select_best_model(
-            yobs, yerr, q, traces, {"poly_1": 2, "poly_2": 3}
+            yobs, yerr, q, fits, {"poly_1": 2, "poly_2": 3}
         )
         assert name == "poly_2"
 
@@ -117,33 +117,71 @@ class TestSelectBestModel:
         yobs = np.zeros(npts)
         yerr = np.ones(npts)
         q = np.ones(npts, dtype=bool)
-        traces = self._traces(
-            matern32=np.zeros(npts), poly_1=np.full(npts, np.sqrt(0.06))
-        )
+        fits = self._fits(matern32=np.zeros(npts), poly_1=np.full(npts, np.sqrt(0.06)))
 
         _, name = RegularizeOMC._select_best_model(
-            yobs, yerr, q, traces, {"matern32": 4.0, "poly_1": 2}
+            yobs, yerr, q, fits, {"matern32": 4.0, "poly_1": 2}
         )
         assert name == "poly_1"
 
 
-@pytest.fixture
-def fast_sampling(monkeypatch):
-    """Shorten NUTS runs; selection and outlier logic are unchanged"""
-    from alderaan.algorithms import regularize_omc
+class TestPolyModel:
+    def test_matches_weighted_least_squares_with_prior(self):
+        # Normal(0, 10) prior on each coefficient = one extra data row per coefficient
+        rng = np.random.default_rng(3)
+        xtime = np.sort(rng.uniform(100, 1500, 60))
+        yerr = rng.uniform(0.5, 2.0, 60) * 1e-3
+        yobs = 1e-3 * np.cos(xtime / 300) + yerr * rng.normal(size=60)
+        q = np.ones(60, dtype=bool)
+        q[::9] = False
 
-    sample = regularize_omc.pm.sample
+        fit = RegularizeOMC._poly_model(xtime, yobs, yerr, q, 2)
 
-    def _sample(*args, **kwargs):
-        kwargs.update(tune=500, draws=500)
-        return sample(*args, **kwargs)
+        x = 2 * (xtime - xtime.min()) / (xtime.max() - xtime.min()) - 1
+        X = np.vander(x, N=3, increasing=True)
+        A = np.vstack([X[q] / yerr[q, None], np.eye(3) / 10])
+        b = np.concatenate([yobs[q] / yerr[q], np.zeros(3)])
+        C = np.linalg.lstsq(A, b, rcond=None)[0]
+        np.testing.assert_allclose(fit["pred"], X @ C, rtol=1e-9, atol=1e-15)
+        np.testing.assert_allclose(fit["trend"], (X @ C)[q], rtol=1e-9, atol=1e-15)
 
-    monkeypatch.setattr(regularize_omc.pm, "sample", _sample)
+
+class TestGibbsMixture:
+    def test_recovers_injected_mixture(self):
+        rng = np.random.default_rng(5)
+        n = 500
+        broad = rng.random(n) > 0.9
+        res = np.where(broad, rng.normal(0, 3.0, n), rng.normal(0, 0.3, n))
+
+        mu, tau = RegularizeOMC._gibbs_mixture(res)
+        scales = np.median(1 / np.sqrt(tau), axis=0)
+
+        # compare with each component's realized scatter
+        realized = [np.std(res[broad]), np.std(res[~broad])]
+        np.testing.assert_allclose(scales, realized, rtol=0.15)
+        assert abs(np.median(mu)) < 0.1
+        assert np.all(tau[:, 0] <= tau[:, 1])
+        np.testing.assert_array_equal(RegularizeOMC._gibbs_mixture(res)[0], mu)
+
+
+@pytest.mark.slow
+class TestSample:
+    def test_deterministic(self):
+        def loglike(theta):
+            return -0.5 * np.sum((theta - 0.3) ** 2 / 0.01)
+
+        def prior_transform(u):
+            return 2 * u - 1
+
+        a = RegularizeOMC._sample(loglike, prior_transform, 2, "toy")
+        b = RegularizeOMC._sample(loglike, prior_transform, 2, "toy")
+        np.testing.assert_array_equal(a, b)
+        np.testing.assert_allclose(np.median(a, 0), 0.3, atol=0.03)
 
 
 @pytest.mark.slow
 class TestSelect:
-    def test_recovers_ttv_and_flags_outliers(self, fast_sampling):
+    def test_recovers_ttv_and_flags_outliers(self):
         outliers = [12, 30]
         star, planets, lc, truth = _system(ntransit=48, outliers=outliers, missing=[20])
         planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
