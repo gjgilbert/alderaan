@@ -53,6 +53,18 @@ class TestConstructor:
         assert np.isclose(tt.epoch, epoch, rtol=0, atol=1e-10)
         assert_allclose(tt.linear_ephemeris(), epoch + period * index)
 
+    @pytest.mark.parametrize("index", [[1, 2, 3], [0, 2, 1], [0, 1, 1]])
+    def test_rejects_index_not_zero_based_increasing(self, index):
+        obs = EPOCH + PERIOD * np.arange(3)
+        with pytest.raises(ValueError, match="index must start at 0"):
+            TransitTimes("Kepler", "K00137", index, obs)
+
+    def test_rejects_nonfinite_ttime_mod(self):
+        obs = EPOCH + PERIOD * np.arange(3)
+        obs[1] = np.nan
+        with pytest.raises(ValueError, match="ttime_mod must be finite"):
+            TransitTimes("Kepler", "K00137", np.arange(3), obs)
+
     def test_requires_two_transits(self):
         with pytest.raises(ValueError, match="at least 2"):
             TransitTimes("Kepler", "K00137", [0], [EPOCH])

@@ -1,7 +1,6 @@
 """Flag transits with poor photometric coverage or high noise"""
 
 import logging
-import warnings
 
 import numpy as np
 from astropy.stats import mad_std
@@ -51,21 +50,6 @@ class FlagBadTransits(BaseAlg):
 
                 quality[n][i] = enough_pts_in and enough_pts_near
 
-            if len(quality[n]) == 0:
-                continue
-
-            f_quality = np.sum(quality[n]) / len(quality[n])
-
-            if f_quality < 0.8:
-                logger.warning(
-                    "planet %d: %d of %d transits (%.0f%%) have insufficient "
-                    "photometric coverage",
-                    n,
-                    np.sum(~quality[n]),
-                    len(quality[n]),
-                    (1 - f_quality) * 100,
-                )
-
         return quality
 
     def _check_rms(self, rel_size=0.0, abs_size=0.0, sigma_cut=5.0):
@@ -81,30 +65,34 @@ class FlagBadTransits(BaseAlg):
         obsmode = [lc.obsmode_at(p.transit_times.ttime_mod) for p in self.planets]
 
         for n, p in enumerate(self.planets):
-            rms = np.zeros(len(p.transit_times.ttime_mod))
+            # NaN = unmeasured: no cadences in the window (coverage flags these)
+            rms = np.full(len(p.transit_times.ttime_mod), np.nan)
             half_width = 0.5 * np.max([rel_size * p.duration, abs_size])
 
             for i, tc in enumerate(p.transit_times.ttime_mod):
                 flux = lc.flux[np.abs(lc.time - tc) < half_width]
-                rms[i] = mad_std(flux, ignore_nan=True)
+                if len(flux) > 0:
+                    rms[i] = mad_std(flux)
 
             quality[n] = np.ones(len(p.transit_times.ttime_mod), dtype="bool")
 
             for om in np.unique(np.array(obsmode[n])):
                 use = (obsmode[n] == om) & ~overlap[n]
-                rms_mu = np.nanmedian(rms[use])
-                rms_sd = mad_std(rms[use], ignore_nan=True)
+                measured = use & np.isfinite(rms)
 
                 # too few transits to estimate the noise spread
-                if not rms_sd > 0:
+                if np.sum(measured) < 2 or not mad_std(rms[measured]) > 0:
                     logger.warning(
                         "planet %d (%s): rms spread undefined from %d transits; "
                         "noise check skipped",
                         n,
                         om,
-                        np.sum(use),
+                        np.sum(measured),
                     )
                     continue
+
+                rms_mu = np.median(rms[measured])
+                rms_sd = mad_std(rms[measured])
 
                 logger.debug(
                     "planet %d (%s): median in-window rms = %.2e, spread = %.2e, "
@@ -133,33 +121,23 @@ class FlagBadTransits(BaseAlg):
         coverage = self._check_coverage()
 
         # check for transits with unusually high noise
-        with warnings.catch_warnings(record=True) as catch:
-            warnings.simplefilter("always", category=RuntimeWarning)
-            good_rms = self._check_rms(rel_size=3.0, abs_size=2 / 24, sigma_cut=5.0)
-        runtime = [w for w in catch if issubclass(w.category, RuntimeWarning)]
-        for w in catch:
-            if not issubclass(w.category, RuntimeWarning):
-                # only RuntimeWarnings are expected here; pass anything else on
-                warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)
-        if len(runtime) > 0:
-            logger.debug(
-                "%d RuntimeWarnings during noise check (first: %s)",
-                len(runtime),
-                runtime[0].message,
-            )
+        good_rms = self._check_rms(rel_size=3.0, abs_size=2 / 24, sigma_cut=5.0)
 
         for n, p in enumerate(planets):
             assert len(coverage[n]) == len(p.transit_times.ttime_mod)
             assert len(good_rms[n]) == len(p.transit_times.ttime_mod)
 
             ntot = len(p.transit_times.ttime_mod)
+            n_coverage = np.sum(~coverage[n])
 
-            logger.info(
-                "planet %d: %d of %d transits rejected for insufficient coverage, "
-                "%d more for high photometric noise",
+            logger.log(
+                logging.WARNING if n_coverage > 0.2 * ntot else logging.INFO,
+                "planet %d: %d of %d transits flagged low quality "
+                "(%d insufficient coverage, %d high noise)",
                 n,
-                np.sum(~coverage[n]),
+                n_coverage + np.sum(~good_rms[n] & coverage[n]),
                 ntot,
+                n_coverage,
                 np.sum(~good_rms[n] & coverage[n]),
             )
 

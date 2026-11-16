@@ -90,9 +90,17 @@ class TestFits:
         for k, v in p_in.sampler_info.items():
             assert_array_equal(p_out.sampler_info[k], v)
         assert p_out.sampler_info["samples_n"].dtype.kind == "i"
+        info = p_in.sampler_info
+        samples_header = fits.getheader(path, "SAMPLES")
+        assert samples_header["NCALL"] == np.sum(info["ncall"])
+        assert np.isclose(samples_header["NEFF"], p_in.neff())
+        assert samples_header["LN_Z"] == info["logz"][-1]
+        assert samples_header["LN_ZERR"] == info["logzerr"][-1]
+        assert samples_header["INFO"] == info["information"][-1]
         assert_array_equal(p_out.ref_period, p_in.ref_period)
         assert_array_equal(p_out.ref_epoch, p_in.ref_epoch)
         assert (p_out.t_start, p_out.t_end) == (p_in.t_start, p_in.t_end)
+        assert p_out.supersample == p_in.supersample
         pd.testing.assert_frame_equal(out.summary(), res.summary())
 
         for tt_in, tt_out in zip(res.transit_times, out.transit_times):

@@ -69,6 +69,8 @@ def make_posteriors():
                 "logzerr": np.full(nsamp, 0.1),
                 "logvol": -np.arange(nsamp) / 100,
                 "samples_n": np.full(nsamp, 100),
+                "ncall": np.full(nsamp, 3),
+                "information": np.linspace(0, 5, nsamp),
                 "niter": nsamp,
                 "eff": 12.5,
                 "batch_nlive": [100, 50],
@@ -77,6 +79,7 @@ def make_posteriors():
             ref_epoch=np.array([131.1, 133.4])[:npl],
             t_start=130.0,
             t_end=200.0,
+            supersample={"long cadence": 15, "short cadence": 1},
         )
         args.update(kwargs)
         return Posteriors("Kepler", target, **args)

@@ -117,7 +117,7 @@ class TransitModel:
             # sigma so binning error is < 0.1% of this obsmode's photometric
             # uncertainty
             use = lc.obsmode == om
-            sigma = np.nanmean(lc.error[use] / lc.flux[use]) * 0.04
+            sigma = np.mean(lc.error[use] / lc.flux[use]) * 0.04
             supersample = np.array(
                 np.ceil(np.sqrt((depth / tau12) * (exptime / 8 / sigma))), dtype=int
             )

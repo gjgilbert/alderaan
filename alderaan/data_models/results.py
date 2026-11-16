@@ -22,16 +22,6 @@ from alderaan.utils.stats import bin_data, legendre_p1, weighted_percentile
 logger = logging.getLogger(__name__)
 
 
-def _exposure_offsets(obsmode, n=29):
-    """
-    Plot-model exposure integration offsets (midpoints of n sub-exposures);
-    None for short cadence, which TransitModel does not integrate either
-    """
-    if obsmode == "short cadence":
-        return None
-    return exposure_offsets(EXPTIME[obsmode], n)
-
-
 class Results:
     """
     Packaged pipeline outputs for one target
@@ -234,7 +224,8 @@ class Results:
         t_obs = lc.time[use]
         f_obs = (lc.flux[use] - 1.0) * 1000
         t_mod = np.arange(t_obs.min(), t_obs.max(), KEPLER_SCIT)
-        offsets = _exposure_offsets(lc.obsmode[use][0])
+        om = lc.obsmode[use][0]
+        offsets = exposure_offsets(EXPTIME[om], self.posteriors.supersample[om])
         f_mod = (
             transit_flux(t_mod - tc, *params, exptime_offsets=offsets) - 1.0
         ) * 1000
@@ -285,15 +276,20 @@ class Results:
         f_folded = np.hstack(f_folded)
         om_folded = np.hstack(om_folded)
 
-        exptime_offsets = {om: _exposure_offsets(om) for om in np.unique(om_folded)}
+        # exposure integration as sampled (TransitModel.supersample)
+        supersample = self.posteriors.supersample
+        exptime_offsets = {
+            om: exposure_offsets(EXPTIME[om], supersample[om])
+            for om in np.unique(om_folded)
+        }
 
         # median models: unbinned, and integrated over each obsmode's exposure
         t_mod = np.arange(t_folded.min(), t_folded.max(), KEPLER_SCIT)
         f_mod = transit_flux(t_mod, *params)
         f_mod_integrated = [
             transit_flux(t_mod, *params, exptime_offsets=offsets)
-            for offsets in exptime_offsets.values()
-            if offsets is not None
+            for om, offsets in exptime_offsets.items()
+            if supersample[om] > 1
         ]
 
         residuals = np.empty_like(f_folded)
@@ -303,7 +299,10 @@ class Results:
                 t_folded[q], *params, exptime_offsets=offsets
             )
 
+        # bin the exposure-integrated model at each cadence exactly as the data
+        # are binned, so binned data and binned model are directly comparable
         t_binned, f_binned = bin_data(t_folded, f_folded, T14 / 11)
+        _, m_binned = bin_data(t_folded, f_folded - residuals, T14 / 11)
         _, r_binned = bin_data(t_folded, residuals, T14 / 11)
 
         # deterministic subset of points to plot
@@ -321,6 +320,7 @@ class Results:
         ax[0].plot(t_mod * 24, f_mod, color=f"C{n}", lw=3)
         for f in f_mod_integrated:
             ax[0].plot(t_mod * 24, f, "k--", lw=2)
+        ax[0].plot(t_binned * 24, m_binned, "o", color=f"C{n}", ms=4)
         label_axes(ax[0], ylabel="Flux", title=f"{self.target} - Planet {n}")
 
         ax[1].plot(t_folded[inds] * 24, residuals[inds], ".", color="lightgrey")

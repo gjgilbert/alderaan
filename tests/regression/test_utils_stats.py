@@ -11,6 +11,7 @@ from alderaan.utils.stats import (
     norm_ppf,
     robust_polyfit,
     sigma_cutoff,
+    split_rhat,
     uniform_ppf,
     weighted_percentile,
 )
@@ -88,3 +89,13 @@ class TestLegendreP1:
         domain = (131.5, 625.0)
         x = np.array([domain[0], np.mean(domain), domain[1]])
         npt.assert_allclose(legendre_p1(x, domain), [-1.0, 0.0, 1.0], atol=1e-12)
+
+
+class TestSplitRhat:
+    def test_stationary_near_one_drift_large(self):
+        rng = np.random.default_rng(0)
+        iid = rng.normal(size=(2000, 1))
+        drift = iid + np.linspace(0, 3, 2000)[:, None]
+        rhat = split_rhat(np.hstack([iid, drift]))
+        assert rhat[0] < 1.01
+        assert rhat[1] > 1.1

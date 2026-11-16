@@ -44,11 +44,13 @@ class TestFromDynesty:
             ref_epoch=ref.ref_epoch,
             t_start=ref.t_start,
             t_end=ref.t_end,
+            supersample=ref.supersample,
         )
         post = Posteriors.from_dynesty("Kepler", "K00137", results, tm)
         assert list(post.samples.columns) == list(ref.samples.columns)
         assert_allclose(post.samples.to_numpy(), samples)
         assert post.sampler_info["niter"] == ref.sampler_info["niter"]
+        assert post.supersample == ref.supersample
 
     def test_rejects_planet_count_mismatch(self, make_posteriors):
         ref = make_posteriors()

@@ -19,7 +19,7 @@ from sklearn.cluster import KMeans
 from alderaan.algorithms.base import BaseAlg
 from alderaan.constants import SEED
 from alderaan.data_models import TransitTimes
-from alderaan.utils.stats import legendre_p1, norm_ppf, uniform_ppf
+from alderaan.utils.stats import legendre_p1, norm_ppf, split_rhat, uniform_ppf
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +226,7 @@ class RegularizeOMC(BaseAlg):
         )
         sampler.run_nested(dlogz=0.5, print_progress=False)
         results = sampler.results
-        logger.debug(
+        logger.info(
             "%s model: dynesty ncall = %d, %.1f s",
             name,
             np.sum(results.ncall),
@@ -468,6 +468,14 @@ class RegularizeOMC(BaseAlg):
                 mu_draws[i - nburn] = mu
                 tau_draws[i - nburn] = np.sort(tau)
 
+        rhat = split_rhat(np.column_stack([mu_draws, tau_draws]))
+        if np.any(rhat > 1.1):
+            logger.warning(
+                "outlier mixture Gibbs sampler may not have converged: "
+                "split R-hat (mu, tau0, tau1) = %.3f, %.3f, %.3f",
+                *rhat,
+            )
+
         return mu_draws, tau_draws
 
     @staticmethod
@@ -564,10 +572,9 @@ class RegularizeOMC(BaseAlg):
                 if not np.any(close[i]) and fap[i] > 0.1:
                     # freq is None (fap = 1) when no candidate was found
                     if freq[i] is not None:
-                        logger.info(
-                            "planet %d: candidate TTV period %.1f d "
-                            "(FAP = %.3g) rejected; no matching frequency "
-                            "in other planets",
+                        logger.debug(
+                            "planet %d: candidate TTV period %.1f d (FAP = %.3g) "
+                            "rejected; no matching frequency in other planets",
                             i,
                             1 / freq[i],
                             fap[i],
@@ -599,9 +606,9 @@ class RegularizeOMC(BaseAlg):
             fits["matern32"] = self._matern32_model(xtime, yobs, yerr, quality)
             dofs["matern32"] = fits["matern32"]["dof"]
         else:
-            logger.info(
-                "skipping matern32 OMC model (%d transits; median error %.2e d "
-                "vs 0.5 * mad_std(OMC) = %.2e d)",
+            logger.debug(
+                "matern32 OMC model skipped: %d transits (need 8), median error "
+                "%.2e d (need <= %.2e d = 0.5 mad_std(OMC))",
                 npts,
                 np.median(yerr),
                 0.5 * mad_std(yobs),
@@ -621,8 +628,6 @@ class RegularizeOMC(BaseAlg):
                 xtime, yobs, yerr, quality, ttv_period=1 / freq
             )
             dofs["sinusoid"] = 3
-
-        logger.info("OMC models fit: %s", ", ".join(fits))
 
         return self._select_best_model(yobs, yerr, quality, fits, dofs)
 
@@ -722,34 +727,18 @@ class RegularizeOMC(BaseAlg):
         for n, p in enumerate(planets):
             old_period = p.period
 
-            logger.info(
-                "planet %d: %d of %d measured transit times pass initial outlier "
-                "screen",
-                n,
-                np.sum(quality[n]),
-                len(quality[n]),
-            )
-
             if method == "smooth":
                 ymod[n] = self._smooth(tts[n].index[measured[n]], yobs[n], quality[n])
                 out_prob = np.full(len(yobs[n]), np.nan)
                 out_class = np.zeros(len(yobs[n]), dtype=bool)
+                model_name = "smooth"
 
             elif method == "select":
-                ymod[n], best_omc_model_name = self._select_model(
+                ymod[n], model_name = self._select_model(
                     xtime[n], yobs[n], yerr[n], quality[n], freq[n]
                 )
                 out_prob, out_class = self._calculate_outlier_probability(
                     yobs[n], ymod[n]
-                )
-                logger.info(
-                    "planet %d: adopting %s OMC model; %d of %d (%.1f%%) transit "
-                    "times flagged as outliers",
-                    n,
-                    best_omc_model_name,
-                    np.sum(out_class),
-                    len(out_class),
-                    100 * np.mean(out_class),
                 )
 
             transit_times = self._regularized_transit_times(
@@ -765,8 +754,13 @@ class RegularizeOMC(BaseAlg):
             except ValueError as e:
                 raise ValueError(f"planet {n}, OMC method {method!r}: {e}") from e
             logger.info(
-                "planet %d: P = %.6f -> %.6f d; ttv_buffer = %.1f min",
+                "planet %d: %s OMC model; %d measured, %d fail initial screen, "
+                "%d model outliers; P = %.6f -> %.6f d, ttv_buffer = %.1f min",
                 n,
+                model_name,
+                len(quality[n]),
+                np.sum(~quality[n]),
+                np.sum(out_class),
                 old_period,
                 planets[n].period,
                 transit_times.ttv_buffer() * 1440,

@@ -22,6 +22,8 @@ SAMPLE_COLUMNS = {
     "logzerr": "LN_ZERR",
     "logvol": "LN_VOL",
     "samples_n": "N_LIVE",
+    "ncall": "N_CALL",
+    "information": "INFO",
 }
 SAMPLER_KEYS = (*SAMPLE_COLUMNS, "niter", "eff", "batch_nlive")
 
@@ -38,9 +40,10 @@ class Posteriors:
         + [LD_Q1, LD_Q2]
     sampler_info : dict
         dynesty run outputs, keyed by their dynesty.results.Results names:
-        logwt, logl, logz, logzerr, logvol, samples_n : ndarray, one entry per
-            sample (log weight, log likelihood, cumulative log evidence and its
-            error, log prior volume, number of live points)
+        logwt, logl, logz, logzerr, logvol, samples_n, ncall, information :
+            ndarray, one entry per sample (log weight, log likelihood, cumulative
+            log evidence and its error, log prior volume, number of live points,
+            likelihood calls, cumulative information in nats)
         niter, eff : number of iterations, sampling efficiency (%)
         batch_nlive : list of live points per batch
     ref_period, ref_epoch : ndarray
@@ -50,6 +53,9 @@ class Posteriors:
         photometry span of the Legendre mapping used by the sampler,
         legx = legendre_p1(ref_epoch + ref_period * index, (t_start, t_end))
         (see TransitModel._build_warps)
+    supersample : dict
+        exposure supersample factor per obsmode used by the sampler
+        (TransitModel.supersample; 1 = not integrated)
     """
 
     def __init__(
@@ -62,6 +68,7 @@ class Posteriors:
         ref_epoch,
         t_start,
         t_end,
+        supersample,
     ):
         self.mission = mission
         self.target = target
@@ -71,6 +78,7 @@ class Posteriors:
         self.ref_epoch = np.asarray(ref_epoch, dtype=float)
         self.t_start = float(t_start)
         self.t_end = float(t_end)
+        self.supersample = {str(om): int(ss) for om, ss in supersample.items()}
 
         if len(self.ref_epoch) != self.npl:
             raise ValueError("ref_epoch must have one entry per planet")
@@ -124,6 +132,7 @@ class Posteriors:
             tm.ref_epoch,
             tm.t_start,
             tm.t_end,
+            tm.supersample,
         )
 
     def _to_hdus(self):
@@ -141,6 +150,12 @@ class Posteriors:
         samples_hdu.header["TARGET"] = self.target
         samples_hdu.header["NITER"] = info["niter"]
         samples_hdu.header["EFF"] = info["eff"]
+        # convergence summary (derived from the columns; not read back)
+        samples_hdu.header["NCALL"] = int(np.sum(info["ncall"]))
+        samples_hdu.header["NEFF"] = self.neff()
+        samples_hdu.header["LN_Z"] = info["logz"][-1]
+        samples_hdu.header["LN_ZERR"] = info["logzerr"][-1]
+        samples_hdu.header["INFO"] = info["information"][-1]
         samples_hdu.header["NBATCH"] = len(info["batch_nlive"])
         for i, nlive in enumerate(info["batch_nlive"]):
             samples_hdu.header[f"NLIVE{i}"] = nlive
@@ -157,6 +172,10 @@ class Posteriors:
         ephem_hdu.header["TARGET"] = self.target
         ephem_hdu.header["T_START"] = self.t_start
         ephem_hdu.header["T_END"] = self.t_end
+        ephem_hdu.header["NOBSMODE"] = len(self.supersample)
+        for i, (om, ss) in enumerate(self.supersample.items()):
+            ephem_hdu.header[f"OBSMODE{i}"] = om
+            ephem_hdu.header[f"SUPSAMP{i}"] = ss
 
         return samples_hdu, ephem_hdu
 
@@ -175,6 +194,7 @@ class Posteriors:
             k: samples.pop(col).to_numpy() for k, col in SAMPLE_COLUMNS.items()
         }
         sampler_info["samples_n"] = sampler_info["samples_n"].astype(int)
+        sampler_info["ncall"] = sampler_info["ncall"].astype(int)
         sampler_info["niter"] = header["NITER"]
         sampler_info["eff"] = header["EFF"]
         sampler_info["batch_nlive"] = [
@@ -182,6 +202,10 @@ class Posteriors:
         ]
 
         ephem = ephem_hdu.data
+        eh = ephem_hdu.header
+        supersample = {
+            eh[f"OBSMODE{i}"]: eh[f"SUPSAMP{i}"] for i in range(eh["NOBSMODE"])
+        }
 
         return cls(
             header["MISSION"],
@@ -190,8 +214,9 @@ class Posteriors:
             sampler_info,
             ephem["REF_PERIOD"],
             ephem["REF_EPOCH"],
-            ephem_hdu.header["T_START"],
-            ephem_hdu.header["T_END"],
+            eh["T_START"],
+            eh["T_END"],
+            supersample,
         )
 
     @property

@@ -1,4 +1,4 @@
-"""Statistical helpers: ppf transforms, robust fits, sigma cutoffs, binning"""
+"""Statistical helpers: ppf transforms, robust fits, sigma cutoffs, binning, R-hat"""
 
 __all__ = [
     "uniform_ppf",
@@ -9,6 +9,7 @@ __all__ = [
     "weighted_percentile",
     "bin_data",
     "legendre_p1",
+    "split_rhat",
 ]
 
 
@@ -225,3 +226,22 @@ def legendre_p1(x, domain):
     ndarray
     """
     return Legendre.basis(1, domain=domain)(x)
+
+
+def split_rhat(draws):
+    """
+    Split R-hat of a single chain: first vs second half of the draws
+
+    Parameters
+    ----------
+    draws : ndarray, shape (ndraw, nparam)
+
+    Returns
+    -------
+    rhat : ndarray, shape (nparam,)
+    """
+    m = len(draws) // 2
+    halves = np.stack([draws[:m], draws[m : 2 * m]])
+    within = halves.var(axis=1, ddof=1).mean(axis=0)
+    between = halves.mean(axis=1).var(axis=0, ddof=1)
+    return np.sqrt(((m - 1) / m * within + between) / within)

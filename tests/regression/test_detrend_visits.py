@@ -108,14 +108,13 @@ class TestIdentifyBreaks:
         seg_id = DetrendVisits._identify_breaks(cadno, flux, 13, 5.0, mask)
         assert not seg_id.any()
 
-    def test_fully_masked_segment_merges_into_previous(self, caplog):
+    def test_fully_masked_segment_merges_into_previous(self):
         cadno, flux, mask = self._series()
         cadno[500:] += 50
         cadno[530:] += 50
         mask[500:530] = True
         seg_id = DetrendVisits._identify_breaks(cadno, flux, 13, 5.0, mask)
         np.testing.assert_array_equal(seg_id, np.arange(len(cadno)) >= 530)
-        assert "fully masked" in caplog.text
 
 
 class TestGPTrendModel:

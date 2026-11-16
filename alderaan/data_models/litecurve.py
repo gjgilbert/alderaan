@@ -77,6 +77,9 @@ class LiteCurve:
         if len(lengths) != 1:
             raise ValueError(f"{', '.join(FIELDS)} must have equal lengths")
 
+        if not (np.all(np.isfinite(self.flux)) and np.all(np.isfinite(self.error))):
+            raise ValueError("flux and error must be finite")
+
     @classmethod
     def from_fits(cls, filepath):
         """Load a litecurve written by LiteCurve.to_fits"""

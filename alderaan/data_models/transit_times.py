@@ -90,6 +90,13 @@ class TransitTimes:
         if any(len(getattr(self, k)) != npts for k in FIELDS):
             raise ValueError(f"{', '.join(FIELDS)} must have equal lengths")
 
+        # transit model warps assume index counts epochs from zero
+        if self.index[0] != 0 or np.any(np.diff(self.index) <= 0):
+            raise ValueError("index must start at 0 and be strictly increasing")
+
+        if not np.all(np.isfinite(self.ttime_mod)):
+            raise ValueError("ttime_mod must be finite")
+
         self.period, self.epoch = robust_polyfit(self.index, self.ttime_mod, 1)
 
     @classmethod

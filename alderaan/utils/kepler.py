@@ -99,17 +99,22 @@ def parse_holczer16_catalog(filepath, koi_id):
         one tuple per planet of this KOI found in the table, in planet-number
         order (e.g. 1234.01, 1234.02, ...)
     """
-    data = np.loadtxt(filepath, usecols=[0, 1, 2, 3, 4], dtype=str)
+    # planet ids stay strings: as floats, e.g. 1234.10 would read as 1234.1
+    data = pd.read_csv(
+        filepath,
+        sep=r"\s+",
+        comment="#",
+        header=None,
+        usecols=range(5),
+        names=["planet_id", "index", "ttime", "omc", "error"],
+        dtype={"planet_id": str, "index": int},
+    )
     transit_times = []
 
-    planet_id = data[:, 0]
-    index = np.array(data[:, 1], dtype=int)
-    ttime = (
-        np.array(data[:, 2], dtype=float)
-        + np.array(data[:, 3], dtype=float) / 24 / 60
-        + 67
-    )
-    error = np.array(data[:, 4], dtype=float) / 24 / 60
+    planet_id = data["planet_id"].to_numpy()
+    index = data["index"].to_numpy()
+    ttime = data["ttime"].to_numpy() + data["omc"].to_numpy() / 24 / 60 + 67
+    error = data["error"].to_numpy() / 24 / 60
 
     koi_prefix = f"{int(koi_id[1:])}."
     koi_planets = [pid for pid in np.unique(planet_id) if pid.startswith(koi_prefix)]

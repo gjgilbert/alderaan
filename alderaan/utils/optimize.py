@@ -34,6 +34,7 @@ def optimize(logp, x0, stages):
         result of the last stage
     """
     x = np.array(x0, dtype=float)
+    logp_x0 = logp(x)
 
     for i, idx in enumerate(stages):
 
@@ -60,5 +61,16 @@ def optimize(logp, x0, stages):
             "kept" if improved else "rejected",
             info.message,
         )
+        # BFGS status 1 = iteration limit, 3 = NaN; 2 (precision loss) is routine
+        if info.status in (1, 3):
+            logger.warning(
+                "stage %d/%d did not converge (%s)",
+                i + 1,
+                len(stages),
+                info.message,
+            )
+
+    if not logp(x) > logp_x0:
+        logger.warning("logp did not improve (%.6g)", logp_x0)
 
     return x, info

@@ -239,7 +239,7 @@ class DetrendVisits(BaseAlg):
         # a segment with no unmasked cadences is unconstrained; merge it
         has_oot = np.bincount(seg_id, weights=~mask) > 0
         if not has_oot.all():
-            logger.warning(
+            logger.info(
                 "merging %d fully masked segment(s) into a neighbor",
                 np.sum(~has_oot),
             )
@@ -283,13 +283,11 @@ class DetrendVisits(BaseAlg):
                 1.001 * min_oscillation_period,
             )
 
-        osc_per_mu = np.nanmedian(oscillation_periods)
-        osc_per_sd = np.max(
-            [mad_std(oscillation_periods, ignore_nan=True), 0.1 * osc_per_mu]
-        )
+        osc_per_mu = np.median(oscillation_periods)
+        osc_per_sd = np.max([mad_std(oscillation_periods), 0.1 * osc_per_mu])
 
         logger.info(
-            "nominal stellar oscillation period = %.1f +/- %.1f days",
+            "nominal stellar oscillation period = %.1f +/- %.1f d",
             osc_per_mu,
             osc_per_sd,
         )
@@ -316,17 +314,12 @@ class DetrendVisits(BaseAlg):
         stages.append(list(model.ix))
 
         stage_ix = [np.concatenate([model.ix[n] for n in s]) for s in stages]
-        x, info = optimize(model.logp, model.x0, stage_ix)
+        x, _ = optimize(model.logp, model.x0, stage_ix)
 
-        # "precision loss" non-success is routine here
-        if not info.success:
-            logger.debug(
-                "visit %d: %s GP optimizer: %s", visit, model.gp_term, info.message
-            )
         period, Q0, sigma = model.hyperparameters(model.unpack(x))
         logger.info(
-            "visit %d: %s GP, %d segments, ramp = %s, oscillation P = %.2f d "
-            "(nominal %.2f d), Q0 = %.2f, sigma = %.2e",
+            "visit %d: %s GP (%d segments, ramp = %s): P = %.2f d (nominal %.2f d), "
+            "Q0 = %.2f, sigma = %.2e",
             visit,
             model.gp_term,
             model.n_seg,

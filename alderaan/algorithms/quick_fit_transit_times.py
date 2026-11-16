@@ -144,9 +144,9 @@ class QuickFitTransitTimes(BaseAlg):
             x2_fit = chisq[chisq < chisq.min() + delta_chisq]
 
             # eliminate points far from the local minimum
-            faraway = np.abs(tc_fit - np.median(tc_fit)) / np.median(
-                np.diff(tc_fit)
-            ) > 1 + 0.5 * len(tc_fit)
+            faraway = np.abs(tc_fit - np.median(tc_fit)) / gridstep > 1 + 0.5 * len(
+                tc_fit
+            )
 
             tc_fit = tc_fit[~faraway]
             x2_fit = x2_fit[~faraway]
@@ -170,7 +170,7 @@ class QuickFitTransitTimes(BaseAlg):
         qtc_min = -quad_coeffs[1] / (2 * quad_coeffs[0])
 
         # transit time
-        _tti = np.nanmean([qtc_min, np.mean(tc_fit)])
+        _tti = np.mean([qtc_min, np.mean(tc_fit)])
 
         # check that the fit is well-conditioned
         convex_local_min = quad_coeffs[0] > 0
@@ -243,20 +243,14 @@ class QuickFitTransitTimes(BaseAlg):
                 skipped[skip_reason] += 1
 
         nfit = int(np.sum(~np.isnan(ttime)))
-        logger.info(
+        logger.log(
+            logging.WARNING if nfit < 0.5 * ntransit else logging.INFO,
             "planet %d: cross-correlation fit %d of %d transits (skipped: %s)",
             planet_no,
             nfit,
             ntransit,
             ", ".join(f"{v} {k}" for k, v in skipped.items()),
         )
-        if nfit < 0.5 * ntransit:
-            logger.warning(
-                "planet %d: only %d of %d transits fit by cross-correlation",
-                planet_no,
-                nfit,
-                ntransit,
-            )
 
         return ttime, ttime_err
 
@@ -398,8 +392,8 @@ class QuickFitTransitTimes(BaseAlg):
 
         if nfail > 0:
             logger.warning(
-                "planet %d: optimizer failed or decreased logp for %d of %d transits "
-                "(left unmeasured unless cross-correlation succeeded)",
+                "planet %d: optimizer failed for %d of %d transits "
+                "(unmeasured unless cross-correlation succeeded)",
                 planet_no,
                 nfail,
                 np.sum(quality),
@@ -429,7 +423,7 @@ class QuickFitTransitTimes(BaseAlg):
             if np.any(overlap[n]):
                 logger.info(
                     "planet %d: %d of %d transits overlap another planet "
-                    "(excluded from cross-correlation, fit jointly in optimization)",
+                    "(fit jointly by the optimizer, not cross-correlation)",
                     n,
                     np.sum(overlap[n]),
                     len(overlap[n]),
@@ -492,7 +486,7 @@ class QuickFitTransitTimes(BaseAlg):
 
             for obsmode in tm.unique_obsmodes:
                 exptime = EXPTIME[obsmode]
-                sigma_f = np.nanmedian(litecurve.error[litecurve.obsmode == obsmode])
+                sigma_f = np.median(litecurve.error[litecurve.obsmode == obsmode])
                 error_exp[tm.transit_obsmode[n] == obsmode] = approx_tc_error(
                     p.ror, p.impact, p.duration, exptime, sigma_f
                 )
@@ -526,17 +520,16 @@ class QuickFitTransitTimes(BaseAlg):
 
             omc = p.transit_times.ttime_obs - p.transit_times.linear_ephemeris()
             logger.info(
-                "planet %d: %d cross-correlation + %d optimized transit times, "
-                "%d unmeasured (both fits failed), %d low quality "
-                "(optimized assigned 90th-percentile error %.2f min); "
+                "planet %d: %d cross-correlation + %d optimizer times "
+                "(optimizer error = %.2f min), %d unmeasured, %d low quality; "
                 "P = %.6f d, epoch = %.5f BKJD, OMC rms = %.2f min, "
                 "median error = %.2f min",
                 n,
                 np.sum(q),
                 np.sum(~q & measured),
+                error_fill * 1440,
                 np.sum(good & ~measured),
                 np.sum(~good),
-                error_fill * 1440,
                 planets[n].period,
                 planets[n].epoch,
                 np.nanstd(omc) * 1440,

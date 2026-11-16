@@ -109,5 +109,4 @@ From the project charter — these guide all implementation decisions:
 
 Every major change must: preserve deterministic behavior, run on the truth dataset, and document impact on transit posteriors.
 
-- Keep this file updated as you make mistakes, learn lessons, and learn more efficient ways of coding or answering prompts.
-- Use this file as your long-term memory.
+- Do not modify this file without explicit instructions from the user.

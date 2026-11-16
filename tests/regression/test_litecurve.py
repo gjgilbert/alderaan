@@ -56,6 +56,15 @@ class TestConstructor:
                 lc.obsmode,
             )
 
+    @pytest.mark.parametrize("field", ["flux", "error"])
+    def test_rejects_nonfinite(self, field):
+        lc = _lc()
+        arrays = {k: getattr(lc, k) for k in FIELDS}
+        arrays[field] = arrays[field].copy()
+        arrays[field][3] = np.nan
+        with pytest.raises(ValueError, match="must be finite"):
+            LiteCurve("Kepler", "K00137", **arrays)
+
 
 class TestSelectAndReset:
     def test_select_removes_cadences_but_keeps_span(self):

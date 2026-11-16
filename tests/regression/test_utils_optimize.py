@@ -29,3 +29,14 @@ def test_stage_kept_only_if_improved():
     assert np.isclose(x[0], 1.0, atol=1e-5)
     assert x[1] == x0[1]
     assert info.x[0] == x0[1]
+
+
+def test_warns_on_nan_and_no_improvement(caplog):
+    # NaN everywhere off the start: BFGS status 3, and logp cannot improve
+    def logp(x):
+        return 0.0 if np.all(x == 0) else np.nan
+
+    optimize(logp, np.zeros(2), [np.array([0, 1])])
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("did not converge" in m for m in warnings)
+    assert any("did not improve" in m for m in warnings)
