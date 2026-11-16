@@ -10,7 +10,7 @@ from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.posteriors import Posteriors
 from alderaan.data_models.transit_times import TransitTimes
-from alderaan.models.transit_model import TransitModel
+from alderaan.transit_model import transit_flux
 from alderaan.utils.astro import ld_q_to_u
 from alderaan.utils.plotting import annotate_plot, label_axes, save_and_close
 from alderaan.utils.stats import bin_data, weighted_percentile
@@ -160,7 +160,7 @@ class Results:
     def median_transit_params(self, n):
         """
         (t0, period, ror, b, T14, u1, u2) at the posterior median, with t0 = 0;
-        argument order of TransitModel.transit_flux
+        argument order of transit_flux
         """
         median = self.summary()["median"]
         period = weighted_percentile(
@@ -199,7 +199,7 @@ class Results:
         t_obs = lc.time[use]
         f_obs = (lc.flux[use] - 1.0) * 1000
         t_mod = np.arange(t_obs.min(), t_obs.max(), KEPLER_SCIT)
-        f_mod = (TransitModel.transit_flux(t_mod - tc, *params) - 1.0) * 1000
+        f_mod = (transit_flux(t_mod - tc, *params) - 1.0) * 1000
 
         new_figure = ax is None
         if new_figure:
@@ -248,7 +248,6 @@ class Results:
         lc_offsets = np.linspace(-KEPLER_LCIT / 2, KEPLER_LCIT / 2, 29)
         t_mod = np.arange(t_folded.min(), t_folded.max(), KEPLER_SCIT)
 
-        transit_flux = TransitModel.transit_flux
         f_mod = transit_flux(t_mod, *params)
         f_mod_lc = transit_flux(t_mod, *params, exptime_offsets=lc_offsets)
         residuals = f_folded - transit_flux(

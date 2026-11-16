@@ -7,6 +7,7 @@ import numpy as np
 from astropy.stats import mad_std
 
 from alderaan.algorithms.base import BaseAlg
+from alderaan.constants import EXPTIME
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +32,10 @@ class FlagBadTransits(BaseAlg):
         lc = self.litecurve
 
         quality = [None] * self.npl
-        obsmode = self.transit_obsmode
+        obsmode = [lc.obsmode_at(p.transit_times.ttime_mod) for p in self.planets]
 
         for n, p in enumerate(self.planets):
-            exptime = np.array([self.exptime[om] for om in obsmode[n]])
+            exptime = np.array([EXPTIME[om] for om in obsmode[n]])
             count_expected = np.maximum(1, np.array(p.duration / exptime, dtype=int))
 
             quality[n] = np.zeros(len(p.transit_times.ttime_mod), dtype="bool")
@@ -80,7 +81,7 @@ class FlagBadTransits(BaseAlg):
         overlap = self.identify_overlapping_transits(
             rel_size=rel_size, abs_size=abs_size
         )
-        obsmode = self.transit_obsmode
+        obsmode = [lc.obsmode_at(p.transit_times.ttime_mod) for p in self.planets]
 
         for n, p in enumerate(self.planets):
             rms = np.zeros(len(p.transit_times.ttime_mod))

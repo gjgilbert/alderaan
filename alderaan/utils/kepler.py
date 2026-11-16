@@ -81,7 +81,7 @@ def parse_koi_catalog(filepath, koi_id):
     return catalog
 
 
-def parse_holczer16_catalog(filepath, koi_id, num_planets):
+def parse_holczer16_catalog(filepath, koi_id):
     """
     Read the Holczer+2016 transit time table for one KOI
 
@@ -95,13 +95,12 @@ def parse_holczer16_catalog(filepath, koi_id, num_planets):
         path to Holczer+2016 table
     koi_id : str
         KOI identification number in the format, e.g., K01234
-    num_planets : int
-        total number of planets in the system
 
     Returns
     -------
     transit_times : list of (index, ttime, error) tuples
-        one tuple per planet found in the table (0 to num_planets tuples)
+        one tuple per planet of this KOI found in the table, in planet-number
+        order (e.g. 1234.01, 1234.02, ...)
     """
     data = np.loadtxt(filepath, usecols=[0, 1, 2, 3, 4], dtype=str)
     transit_times = []
@@ -115,10 +114,11 @@ def parse_holczer16_catalog(filepath, koi_id, num_planets):
     )
     error = np.array(data[:, 4], dtype=float) / 24 / 60
 
-    for n in range(num_planets):
-        use = planet_id == f"{int(koi_id[1:])}.{n + 1:02d}"
-        if np.sum(use) > 0:
-            transit_times.append((index[use], ttime[use], error[use]))
+    koi_prefix = f"{int(koi_id[1:])}."
+    koi_planets = [pid for pid in np.unique(planet_id) if pid.startswith(koi_prefix)]
+    for pid in koi_planets:
+        use = planet_id == pid
+        transit_times.append((index[use], ttime[use], error[use]))
 
     return transit_times
 
@@ -266,7 +266,7 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
         planets.append(p)
 
     # load Holczer+2016 transit times
-    holczer_transit_times = parse_holczer16_catalog(ttv_filepath, star.koi_id, npl)
+    holczer_transit_times = parse_holczer16_catalog(ttv_filepath, star.koi_id)
     planets = match_holczer16_transit_times(planets, holczer_transit_times)
 
     # clip planet transit times to the litecurve time range and refit ephemerides

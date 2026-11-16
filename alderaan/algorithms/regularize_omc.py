@@ -616,10 +616,8 @@ class RegularizeOMC(BaseAlg):
         index_full = np.arange(0, tt.index.max() + 1, dtype=int)
         ttime_mod_full = interpolator(index_full)
 
-        error_obs_full = None
-        if tt.error_obs is not None:
-            error_obs_full = np.full(len(index_full), np.nan)
-            error_obs_full[tt.index] = tt.error_obs
+        error_obs_full = np.full(len(index_full), np.nan)
+        error_obs_full[tt.index] = tt.error_obs
 
         ttime_obs_full = np.full(len(index_full), np.nan)
         ttime_obs_full[tt.index] = tt.ttime_obs
@@ -639,7 +637,7 @@ class RegularizeOMC(BaseAlg):
             tt.target,
             index_full[keep],
             ttime_obs=ttime_obs_full[keep],
-            error_obs=None if error_obs_full is None else error_obs_full[keep],
+            error_obs=error_obs_full[keep],
             ttime_mod=ttime_mod_full[keep],
             out_prob=out_prob_full[keep],
             out_flag=out_flag_full[keep],

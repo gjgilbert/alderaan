@@ -6,12 +6,12 @@ import pandas as pd
 from astropy.io import fits
 from dynesty import plotting as dyplot
 
+from alderaan.transit_model import PARAMETER_LABELS
 from alderaan.utils.astro import ld_q_to_u
 from alderaan.utils.plotting import save_and_close
-from alderaan.utils.stats import robust_polyfit, weighted_percentile
+from alderaan.utils.stats import weighted_percentile
 
 # per-planet sample columns, for trace and corner plots
-PARAMETER_LABELS = "C0 C1 r b T14".split()
 
 
 class Posteriors:
@@ -31,7 +31,7 @@ class Posteriors:
         perturbed with (C0, C1)
     index_mid, index_half : ndarray
         per planet; Legendre mapping of transit index used by the sampler,
-        legx = (index - index_mid) / index_half (see TransitModel._update_warps)
+        legx = (index - index_mid) / index_half (see TransitModel._build_warps)
     ln_vol, ln_zerr, n_live : ndarray, optional
         log prior volume, log evidence error, and number of live points per sample;
         used for sampler diagnostic plots
@@ -124,12 +124,9 @@ class Posteriors:
             sampler_info[f"NLIVE{i}"] = nlive
         sampler_info["EFF"] = results.eff
 
-        ref_period = np.zeros(npl)
-        ref_epoch = np.zeros(npl)
-        for n, p in enumerate(tm.planets):
-            ref_period[n], ref_epoch[n] = robust_polyfit(
-                p.transit_times.index, p.transit_times.ttime_mod, 1
-            )
+        # linear ephemeris of the sampled transit times
+        ref_period = np.array([p.period for p in tm.planets])
+        ref_epoch = np.array([p.epoch for p in tm.planets])
 
         return cls(
             mission,

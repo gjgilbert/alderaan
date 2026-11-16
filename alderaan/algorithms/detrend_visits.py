@@ -14,7 +14,7 @@ from celerite2.theano import terms as GPterms
 from scipy.signal import medfilt as median_filter
 
 from alderaan.algorithms.base import BaseAlg
-from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
+from alderaan.constants import EXPTIME
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +37,9 @@ class DetrendVisits(BaseAlg):
 
     def _min_period(self, obsmode):
         if obsmode == "short cadence":
-            return np.max([5 * np.max(self.durations), 91 * KEPLER_SCIT])
+            return np.max([5 * np.max(self.durations), 91 * EXPTIME["short cadence"]])
         if obsmode == "long cadence":
-            return np.max([5 * np.max(self.durations), 13 * KEPLER_LCIT])
+            return np.max([5 * np.max(self.durations), 13 * EXPTIME["long cadence"]])
         raise ValueError(f"unsupported obsmode: {obsmode}")
 
     @staticmethod
@@ -320,11 +320,11 @@ class DetrendVisits(BaseAlg):
 
         if obsmode == "short cadence":
             gap_tolerance_cadences = np.max(
-                [int(np.min(self.durations) / KEPLER_SCIT * 5 / 2), 91]
+                [int(np.min(self.durations) / EXPTIME["short cadence"] * 5 / 2), 91]
             )
         elif obsmode == "long cadence":
             gap_tolerance_cadences = np.max(
-                [int(np.min(self.durations) / KEPLER_LCIT * 5 / 2), 13]
+                [int(np.min(self.durations) / EXPTIME["long cadence"] * 5 / 2), 13]
             )
         else:
             raise ValueError(f"unsupported obsmode: {obsmode}")

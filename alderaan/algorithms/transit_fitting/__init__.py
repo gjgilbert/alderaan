@@ -1,11 +1,9 @@
 __all__ = [
-    "BaseTransitFittingAlg",
     "QuickFitTransitShape",
     "QuickFitTransitTimes",
     "SampleTransitModel",
 ]
 
-from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
 from alderaan.algorithms.transit_fitting.quick_fit_transit_shape import (
     QuickFitTransitShape,
 )

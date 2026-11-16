@@ -5,16 +5,17 @@ import logging
 import numpy as np
 from scipy.optimize import least_squares
 
-from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
+from alderaan.algorithms.base import BaseAlg
+from alderaan.constants import EXPTIME
 from alderaan.data_models.transit_times import TransitTimes
-from alderaan.models.transit_model import TransitModel
+from alderaan.transit_model import TransitModel, transit_flux
 from alderaan.utils.astro import approx_tc_error
 from alderaan.utils.stats import bin_data, robust_polyfit
 
 logger = logging.getLogger(__name__)
 
 
-class QuickFitTransitTimes(BaseTransitFittingAlg):
+class QuickFitTransitTimes(BaseAlg):
     """
     Measure individual transit times for each planet
 
@@ -43,7 +44,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
         # shorthand
         p = tm.planets[planet_no]
 
-        exptime = tm.exptime[obsmode]
+        exptime = EXPTIME[obsmode]
         supersample = tm.supersample[obsmode]
 
         time_template = np.arange(
@@ -51,7 +52,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
         )
         time_template = np.hstack([-time_template[:-1][::-1], time_template])
 
-        flux_template = tm.transit_flux(
+        flux_template = transit_flux(
             time_template,
             0.0,
             p.period,
@@ -97,7 +98,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
         }
 
         for obsmode in tm.unique_obsmodes:
-            exptime = tm.exptime[obsmode]
+            exptime = EXPTIME[obsmode]
             supersample = tm.supersample[obsmode]
             exptime_ioff = tm.exptime_offsets[obsmode]
 
@@ -222,7 +223,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
         f_mod = np.ones_like(t_obs)
 
         for n, p in enumerate(tm.planets):
-            qld_flux = tm.transit_flux(
+            qld_flux = transit_flux(
                 t_obs,
                 theta[n],
                 p.period,
@@ -412,7 +413,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
             error_exp = np.zeros_like(error_obs)
 
             for obsmode in tm.unique_obsmodes:
-                exptime = tm.exptime[obsmode]
+                exptime = EXPTIME[obsmode]
                 sigma_f = np.nanmedian(litecurve.error[litecurve.obsmode == obsmode])
                 error_exp[tm.transit_obsmode[n] == obsmode] = approx_tc_error(
                     p.ror, p.impact, p.duration, exptime, sigma_f

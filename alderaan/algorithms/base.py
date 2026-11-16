@@ -7,7 +7,7 @@ from copy import deepcopy
 
 import numpy as np
 
-from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
+from alderaan.constants import EXPTIME
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.planet import Planet
 from alderaan.data_models.star import Star
@@ -21,11 +21,7 @@ def _log_perform(perform, name, module):
         params = [repr(a) for a in args] + [f"{k}={v!r}" for k, v in kwargs.items()]
         logger.info("start %s(%s)", name, ", ".join(params))
         t0 = time.perf_counter()
-        try:
-            out = perform(self, *args, **kwargs)
-        except Exception:
-            logger.error("%s failed after %.1f s", name, time.perf_counter() - t0)
-            raise
+        out = perform(self, *args, **kwargs)
         logger.info("done %s in %.1f s", name, time.perf_counter() - t0)
         return out
 
@@ -45,7 +41,8 @@ class BaseAlg:
     Notes
     -----
     Each subclass's perform() is wrapped to log its start (with keyword
-    arguments), runtime, and failure to the subclass module's logger.
+    arguments) and runtime to the subclass module's logger; failures propagate
+    to pipeline.py, which logs them.
     """
 
     def __init_subclass__(cls, **kwargs):
@@ -70,19 +67,6 @@ class BaseAlg:
         self.npl = len(planets)
         self.planets = deepcopy(planets)
         self.star = deepcopy(star)
-
-        self._init_obsmode_tracking()
-
-    def _init_obsmode_tracking(self):
-        self.exptime = {
-            "long cadence": KEPLER_LCIT,
-            "short cadence": KEPLER_SCIT,
-        }
-
-        self.transit_obsmode = [
-            self.litecurve.obsmode_at(p.transit_times.ttime_mod) for p in self.planets
-        ]
-        self.unique_obsmodes = np.unique(np.hstack(self.transit_obsmode))
 
     def make_transit_mask(self, rel_size=None, abs_size=None, time=None):
         """
@@ -129,7 +113,7 @@ class BaseAlg:
         Condensed transit mask over time; tight = 1 x T14 plus the largest
         TransitTimes.ttv_buffer(), wide = 3 x T14 plus 1 hour
         """
-        exptime = self.exptime[obsmode]
+        exptime = EXPTIME[obsmode]
 
         if tight_mask:
             ttv_buffer = max(p.transit_times.ttv_buffer() for p in self.planets)

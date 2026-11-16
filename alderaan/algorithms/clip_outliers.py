@@ -8,8 +8,7 @@ from scipy.signal import medfilt as median_filter
 from scipy.signal import savgol_filter
 
 from alderaan.algorithms.base import BaseAlg
-from alderaan.algorithms.transit_fitting import BaseTransitFittingAlg
-from alderaan.models.transit_model import TransitModel
+from alderaan.transit_model import TransitModel
 from alderaan.utils.stats import sigma_cutoff
 
 logger = logging.getLogger(__name__)
@@ -111,9 +110,9 @@ class ClipOutliers(BaseAlg):
         keep[idx] = True
         return keep
 
-    def _transit_theta(self):
+    def _transit_theta(self, tm):
         """Transit model parameters using the shape from QuickFitTransitShape"""
-        theta = BaseTransitFittingAlg._theta_initial(self.star, self.planets)
+        theta = tm.theta_initial()
         for n, p in enumerate(self.planets):
             theta[5 * n + 2] = p.ror
             theta[5 * n + 3] = p.impact
@@ -145,9 +144,8 @@ class ClipOutliers(BaseAlg):
 
         # clip outliers from the incoming flux, one visit at a time
         if method == "transit_model":
-            f_mod = TransitModel(self.star, self.planets, lc).model_flux(
-                self._transit_theta()
-            )
+            tm = TransitModel(self.star, self.planets, lc)
+            f_mod = tm.model_flux(self._transit_theta(tm))
 
         keep = np.ones(len(lc.time), dtype=bool)
         for v in visits:

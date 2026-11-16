@@ -8,8 +8,7 @@ from astropy.stats import mad_std
 from alderaan.utils.plotting import annotate_plot, label_axes, save_and_close
 from alderaan.utils.stats import robust_polyfit, sigma_cutoff
 
-# name -> (dtype, FITS column format); index, ttime_obs, ttime_mod are always set,
-# the rest are optional (None)
+# name -> (dtype, FITS column format)
 FIELDS = {
     "index": (int, "K"),
     "ttime_obs": (float, "D"),
@@ -34,12 +33,14 @@ class TransitTimes:
         observed (measured) transit times; NaN where no measurement exists
     error_obs : ndarray, optional
         measured transit time uncertainties; NaN where no measurement exists
+        (default all NaN)
     ttime_mod : ndarray, optional
         modeled transit times; set equal to ttime_obs if not given
     out_prob : ndarray, optional
-        outlier probability (RegularizeOMC); NaN if not computed
+        outlier probability (RegularizeOMC); NaN if not computed (default all NaN)
     out_flag : ndarray, optional
-        True for observed transit times flagged as outliers (RegularizeOMC)
+        True for observed transit times flagged as outliers (RegularizeOMC);
+        default all False
 
     Attributes
     ----------
@@ -60,27 +61,23 @@ class TransitTimes:
     ):
         self.mission = mission
         self.target = target
+
+        npts = len(index)
         arrays = {
             "index": index,
             "ttime_obs": ttime_obs,
             "ttime_mod": ttime_obs if ttime_mod is None else ttime_mod,
-            "error_obs": error_obs,
-            "out_prob": out_prob,
-            "out_flag": out_flag,
+            "error_obs": np.full(npts, np.nan) if error_obs is None else error_obs,
+            "out_prob": np.full(npts, np.nan) if out_prob is None else out_prob,
+            "out_flag": np.zeros(npts, dtype=bool) if out_flag is None else out_flag,
         }
         for k, (dtype, _) in FIELDS.items():
-            x = arrays[k]
-            setattr(self, k, None if x is None else np.asarray(x, dtype=dtype))
+            setattr(self, k, np.asarray(arrays[k], dtype=dtype))
 
-        lengths = {len(getattr(self, k)) for k in self._fields()}
-        if len(lengths) != 1:
-            raise ValueError(f"{', '.join(self._fields())} must have equal lengths")
+        if any(len(getattr(self, k)) != npts for k in FIELDS):
+            raise ValueError(f"{', '.join(FIELDS)} must have equal lengths")
 
         self.period, self.epoch = robust_polyfit(self.index, self.ttime_mod, 1)
-
-    def _fields(self):
-        """Names of array fields that are set"""
-        return [k for k in FIELDS if getattr(self, k) is not None]
 
     @classmethod
     def from_linear_ephemeris(cls, mission, target, period, epoch, t_min, t_max):
@@ -110,7 +107,7 @@ class TransitTimes:
         return TransitTimes(
             self.mission,
             self.target,
-            **{k: getattr(self, k)[mask] for k in self._fields()},
+            **{k: getattr(self, k)[mask] for k in FIELDS},
         )
 
     def clip(self, t_min, t_max):
@@ -118,7 +115,7 @@ class TransitTimes:
         New TransitTimes with ttime_mod within (t_min, t_max), transit index re-zeroed
         """
         use = (self.ttime_mod >= t_min) & (self.ttime_mod <= t_max)
-        arrays = {k: getattr(self, k)[use] for k in self._fields()}
+        arrays = {k: getattr(self, k)[use] for k in FIELDS}
         arrays["index"] = arrays["index"] - arrays["index"][0]
         return TransitTimes(self.mission, self.target, **arrays)
 
@@ -146,15 +143,13 @@ class TransitTimes:
         omc_obs = (self.ttime_obs - self.linear_ephemeris()) * 24 * 60
         omc_mod = (self.ttime_mod - self.linear_ephemeris()) * 24 * 60
         obs = np.isfinite(self.ttime_obs)
-        flag = (
-            np.zeros(len(obs), dtype=bool) if self.out_flag is None else self.out_flag
-        )
+        flag = self.out_flag
         good = obs & ~flag
 
         line_color = color
         if show_outliers:
-            prob = None if self.out_prob is None else self.out_prob[obs]
-            if prob is None or np.all(np.isnan(prob)):
+            prob = self.out_prob[obs]
+            if np.all(np.isnan(prob)):
                 ax.scatter(self.ttime_obs[obs], omc_obs[obs], c="lightgrey")
             else:
                 ax.scatter(
@@ -187,12 +182,11 @@ class TransitTimes:
 
     def _to_hdu(self, n):
         """
-        BinTableHDU named TTIMES_nn for planet n; unset optional fields are omitted
-        (used by Results.to_fits)
+        BinTableHDU named TTIMES_nn for planet n (used by Results.to_fits)
         """
         columns = [
             fits.Column(name=k.upper(), format=FIELDS[k][1], array=getattr(self, k))
-            for k in self._fields()
+            for k in FIELDS
         ]
         hdu = fits.BinTableHDU.from_columns(columns, name=f"TTIMES_{n:02d}")
         hdu.header["MISSION"] = self.mission
@@ -201,7 +195,10 @@ class TransitTimes:
 
     @classmethod
     def _from_hdu(cls, hdu):
-        """Build from a TTIMES_nn table (used by Results.from_fits)"""
+        """
+        Build from a TTIMES_nn table (used by Results.from_fits); columns missing
+        from older files take their defaults
+        """
         data = hdu.data
         names = data.columns.names
         return cls(

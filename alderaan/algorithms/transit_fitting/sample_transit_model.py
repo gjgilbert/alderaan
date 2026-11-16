@@ -7,15 +7,15 @@ import dynesty
 import numpy as np
 from dynesty.utils import get_print_fn_args, quantile
 
-from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
+from alderaan.algorithms.base import BaseAlg
 from alderaan.data_models.posteriors import Posteriors
-from alderaan.models.transit_model import TransitModel
+from alderaan.transit_model import TransitModel
 from alderaan.utils.stats import loguniform_ppf, norm_ppf, uniform_ppf
 
 logger = logging.getLogger(__name__)
 
 
-class SampleTransitModel(BaseTransitFittingAlg):
+class SampleTransitModel(BaseAlg):
     """
     Sample transit shape posteriors with dynesty
 
@@ -104,12 +104,11 @@ class SampleTransitModel(BaseTransitFittingAlg):
             ndim,
         )
         sampler = dynesty.DynamicNestedSampler(
-            self._ln_likelihood,
+            tm.ln_likelihood,
             self._prior_transform,
             ndim,
             bound="multi",
             sample="rwalk",
-            logl_args=(tm,),
             ptform_args=(tm,),
         )
         sampler.run_nested(

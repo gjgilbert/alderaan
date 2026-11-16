@@ -5,14 +5,17 @@ import logging
 import numpy as np
 from scipy.optimize import least_squares
 
-from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
-from alderaan.models.transit_model import TransitModel
+from alderaan.algorithms.base import BaseAlg
+from alderaan.transit_model import (
+    PARAMETER_LABELS,
+    TransitModel,
+)
 from alderaan.utils.astro import approx_transit_depth
 
 logger = logging.getLogger(__name__)
 
 
-class QuickFitTransitShape(BaseTransitFittingAlg):
+class QuickFitTransitShape(BaseAlg):
     """
     Fit radius ratio, impact parameter, and duration; limb darkening is fixed
     at the star's values
@@ -43,16 +46,16 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
         return np.array(bounds)
 
     def _optimize(self, tm, niter=3):
-        theta = self._theta_initial(self.star, self.planets)
+        theta = tm.theta_initial()
         bounds = self._theta_bounds()
 
         def _fxn(x, x0, fix, tm):
             _x = x0.copy()
             _x[~fix] = x
-            return self._model_residuals(_x, tm)
+            return tm.residuals(_x)
 
         i_fix = np.arange(len(theta), dtype=int)
-        var_names = np.array("C0 C1 r b T14".split())
+        var_names = np.array(PARAMETER_LABELS)
 
         # fix ephemeris, vary [ror, b, T14]
         fix_C0_C1 = np.zeros(len(i_fix), dtype=bool)
@@ -70,9 +73,9 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
         fix_r_b_T14[-2:] = True
 
         # do the optimization
-        logp_start = self._ln_likelihood(theta, tm)
+        logp_start = tm.ln_likelihood(theta)
         for fix in [fix_r_b_T14, fix_C0_C1] * niter:
-            logp_initial = self._ln_likelihood(theta, tm)
+            logp_initial = tm.ln_likelihood(theta)
 
             result = least_squares(
                 _fxn,
@@ -83,7 +86,7 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
             )
 
             theta[~fix] = result.x
-            logp_final = self._ln_likelihood(theta, tm)
+            logp_final = tm.ln_likelihood(theta)
 
             logger.debug(
                 "shape fit, optimized [%s]: logp %.6g -> %.6g (%s)",
