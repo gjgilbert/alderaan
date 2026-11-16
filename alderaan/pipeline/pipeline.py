@@ -10,12 +10,10 @@ import alderaan
 from alderaan.algorithms.clip_outliers import ClipOutliers
 from alderaan.algorithms.detrend_visits import DetrendVisits
 from alderaan.algorithms.flag_bad_transits import FlagBadTransits
+from alderaan.algorithms.quick_fit_transit_shape import QuickFitTransitShape
+from alderaan.algorithms.quick_fit_transit_times import QuickFitTransitTimes
 from alderaan.algorithms.regularize_omc import RegularizeOMC
-from alderaan.algorithms.transit_fitting import (
-    QuickFitTransitShape,
-    QuickFitTransitTimes,
-    SampleTransitModel,
-)
+from alderaan.algorithms.sample_transit_model import SampleTransitModel
 from alderaan.data_models.results import Results
 from alderaan.utils.kepler import load_kepler_data
 from alderaan.utils.logger import setup_logging, teardown_logging
