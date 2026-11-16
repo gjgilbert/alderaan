@@ -12,7 +12,7 @@ import numpy as np
 from batman import _quadratic_ld, _rsky
 
 from alderaan.constants import EXPTIME
-from alderaan.utils.astro import ld_q_to_u, ld_u_to_q
+from alderaan.utils.astro import ld_q_to_u
 from alderaan.utils.stats import legendre_p1
 
 logger = logging.getLogger(__name__)
@@ -224,8 +224,8 @@ class TransitModel:
             theta.append(0.5)
             theta.append(p.duration)
 
-        # physical (u1, u2) --> sampling basis (q1, q2), see Kipping 2013
-        theta.extend(ld_u_to_q(self.star.u1, self.star.u2))
+        # limb darkening in the sampling basis (q1, q2), see Kipping 2013
+        theta.extend([self.star.q1, self.star.q2])
 
         return np.array(theta)
 
