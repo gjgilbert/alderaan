@@ -254,7 +254,7 @@ class DetrendVisits(BaseAlg):
                 "mean_all", _mean_fxn(time, seg_id, flux0, ramp_amp, log_tau)
             )
             log_var = pm.Normal(
-                "log_var", mu=np.var(flux - median_filter(flux, 13)), sd=5.0
+                "log_var", mu=np.log(np.var(flux - median_filter(flux, 13))), sd=5.0
             )
 
             gp = GaussianProcess(kernel, mean=mean_oot)

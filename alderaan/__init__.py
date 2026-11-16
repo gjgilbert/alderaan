@@ -4,6 +4,9 @@ import subprocess
 
 __version__ = "0.2.2"
 
+# random seed for every stochastic step, so runs are reproducible (Kepler's birth date)
+SEED = 15711227
+
 logger = logging.getLogger(__name__)
 
 

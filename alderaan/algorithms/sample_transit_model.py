@@ -7,6 +7,7 @@ import dynesty
 import numpy as np
 from dynesty.utils import get_print_fn_args, quantile
 
+from alderaan import SEED
 from alderaan.algorithms.base import BaseAlg
 from alderaan.data_models.posteriors import Posteriors
 from alderaan.transit_model import TransitModel
@@ -112,6 +113,7 @@ class SampleTransitModel(BaseAlg):
             bound="multi",
             sample="rwalk",
             ptform_args=(tm,),
+            rstate=np.random.default_rng(SEED),
         )
         sampler.run_nested(
             print_progress=True,

@@ -105,11 +105,15 @@ class BaseAlg:
 
     def _transit_mask(self, time, obsmode, tight_mask):
         """
-        Condensed transit mask over time; tight = 1 x T14 plus the largest
-        TransitTimes.ttv_buffer(), wide = 3 x T14 plus 1 hour
+        Condensed transit mask over time; full width is the larger of
+        tight = 1 x T14 or 2 x (exptime + largest TransitTimes.ttv_buffer()),
+        wide = 3 x T14 or 2 x (exptime + 1 hour)
         """
         exptime = EXPTIME[obsmode]
 
+        # tuned values, deliberately different from other near-transit windows:
+        # tight is as narrow as possible for the best detrending;
+        # wide is cautious, keeping well clear of transits
         if tight_mask:
             ttv_buffer = max(p.transit_times.ttv_buffer() for p in self.planets)
             abs_size = 2 * (exptime + ttv_buffer)

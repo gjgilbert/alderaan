@@ -17,6 +17,7 @@ from scipy.ndimage import median_filter, uniform_filter
 from scipy.signal import savgol_filter
 from sklearn.cluster import KMeans
 
+from alderaan import SEED
 from alderaan.algorithms.base import BaseAlg
 from alderaan.data_models.transit_times import TransitTimes
 
@@ -204,6 +205,7 @@ class RegularizeOMC(BaseAlg):
                     start=map_soln,
                     progressbar=progressbar,
                     return_inferencedata=False,
+                    random_seed=SEED,
                 )
         runtime = [w for w in catch if issubclass(w.category, RuntimeWarning)]
         for w in catch:
@@ -310,7 +312,9 @@ class RegularizeOMC(BaseAlg):
             )
 
             peak_freq = xf[np.argmax(yf)]
-            peak_fap = lombscargle.false_alarm_probability(yf.max(), method="bootstrap")
+            peak_fap = lombscargle.false_alarm_probability(
+                yf.max(), method="bootstrap", method_kwds={"random_seed": SEED}
+            )
 
             # output first iteration of LS periodogram
             if len(freqs) == 0:
@@ -356,7 +360,7 @@ class RegularizeOMC(BaseAlg):
 
         for k in traces.keys():
             trend = np.nanmedian(traces[k]["trend"], 0)
-            lnlike = -np.sum((yobs[q] - trend) ** 2 / yerr[q] ** 2)
+            lnlike = -0.5 * np.sum((yobs[q] - trend) ** 2 / yerr[q] ** 2)
 
             aic[k] = 2 * dofs[k] - 2 * lnlike
             bic[k] = dofs[k] * np.log(npts) - 2 * lnlike
@@ -452,7 +456,7 @@ class RegularizeOMC(BaseAlg):
         fg_prob = z_fg / (z_fg + z_bg)
 
         # use KMeans clustering to assign each point to foreground/background
-        km = KMeans(n_clusters=2)
+        km = KMeans(n_clusters=2, random_state=SEED)
         group = km.fit_predict(fg_prob.reshape(-1, 1))
         centroids = np.array(
             [np.mean(fg_prob[group == 0]), np.mean(fg_prob[group == 1])]

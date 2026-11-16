@@ -86,7 +86,9 @@ class TransitTimes:
         Transit times predicted by a linear ephemeris, clipped to (t_min, t_max);
         no measurements exist, so ttime_obs = ttime_mod = prediction
         """
-        ttime = np.arange(epoch, t_max, period)
+        # start at the first transit after t_min, even if epoch is later
+        t_first = epoch - period * np.floor((epoch - t_min) / period)
+        ttime = np.arange(t_first, t_max, period)
         index = np.array(np.round((ttime - epoch) / period), dtype=int)
         return cls(mission, target, index, ttime).clip(t_min, t_max)
 

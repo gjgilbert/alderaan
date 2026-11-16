@@ -142,7 +142,7 @@ class QuickFitTransitShape(BaseAlg):
         litecurve : LiteCurve
         """
         tm = TransitModel(self.star, self.planets, self.litecurve)
-        tm.trim(self.make_transit_mask(rel_size=3.0, abs_size=1 / 24))
+        tm.trim(self.make_transit_mask(rel_size=3.0, abs_size=2 / 24))
 
         for obsmode in tm.unique_obsmodes:
             logger.info("supersample factor (%s): %d", obsmode, tm.supersample[obsmode])

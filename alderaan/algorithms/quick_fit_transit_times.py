@@ -10,7 +10,7 @@ from alderaan.constants import EXPTIME
 from alderaan.data_models.transit_times import TransitTimes
 from alderaan.transit_model import TransitModel, transit_flux
 from alderaan.utils.astro import approx_tc_error
-from alderaan.utils.stats import bin_data, robust_polyfit
+from alderaan.utils.stats import robust_polyfit
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ class QuickFitTransitTimes(BaseAlg):
 
         for j, tc_o in enumerate(tc_offset):
             _f_mod = np.interp(_t_supersample - tc_o, time_template, flux_template)
-            _f_mod = bin_data(_t_supersample, _f_mod, exptime, bin_centers=_t)[1]
+            _f_mod = _f_mod.reshape(-1, len(exptime_ioff)).mean(axis=1)
 
             chisq[j] = np.sum(((_f_obs - _f_mod) / _f_err) ** 2)
 
@@ -465,10 +465,9 @@ class QuickFitTransitTimes(BaseAlg):
             error_fill = np.nanpercentile(error_new, 90)
             error_new[~q] = error_fill
             if not np.isfinite(error_fill):
-                logger.error(
-                    "planet %d: no valid cross-correlation errors; "
-                    "all transit errors are NaN",
-                    n,
+                raise RuntimeError(
+                    f"planet {n}: no valid cross-correlation errors; "
+                    "all transit errors are NaN"
                 )
 
             tt = p.transit_times

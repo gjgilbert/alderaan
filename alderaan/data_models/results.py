@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
 
-from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
+from alderaan import SEED
+from alderaan.constants import EXPTIME, KEPLER_SCIT
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.posteriors import Posteriors
 from alderaan.data_models.transit_times import TransitTimes
@@ -236,32 +237,50 @@ class Results:
 
         time = self.litecurve.time
         flux = self.litecurve.flux
+        obsmode = self.litecurve.obsmode
 
         # fold photometry on the model transit times
-        t_folded, f_folded = [], []
+        t_folded, f_folded, om_folded = [], [], []
         for tc in self.transit_times[n].ttime_mod:
             use = np.abs(time - tc) / T14 < 1.5
             t_folded.append(time[use] - tc)
             f_folded.append(flux[use])
+            om_folded.append(obsmode[use])
 
         t_folded = np.hstack(t_folded)
         f_folded = np.hstack(f_folded)
+        om_folded = np.hstack(om_folded)
 
-        # median models: unbinned and integrated over a long cadence exposure
-        lc_offsets = np.linspace(-KEPLER_LCIT / 2, KEPLER_LCIT / 2, 29)
+        # exposure integration offsets per obsmode; short cadence is not
+        # integrated, as in TransitModel
+        exptime_offsets = {
+            om: None
+            if om == "short cadence"
+            else np.linspace(-EXPTIME[om] / 2, EXPTIME[om] / 2, 29)
+            for om in np.unique(om_folded)
+        }
+
+        # median models: unbinned, and integrated over each obsmode's exposure
         t_mod = np.arange(t_folded.min(), t_folded.max(), KEPLER_SCIT)
-
         f_mod = transit_flux(t_mod, *params)
-        f_mod_lc = transit_flux(t_mod, *params, exptime_offsets=lc_offsets)
-        residuals = f_folded - transit_flux(
-            t_folded, *params, exptime_offsets=lc_offsets
-        )
+        f_mod_integrated = [
+            transit_flux(t_mod, *params, exptime_offsets=offsets)
+            for offsets in exptime_offsets.values()
+            if offsets is not None
+        ]
+
+        residuals = np.empty_like(f_folded)
+        for om, offsets in exptime_offsets.items():
+            q = om_folded == om
+            residuals[q] = f_folded[q] - transit_flux(
+                t_folded[q], *params, exptime_offsets=offsets
+            )
 
         t_binned, f_binned = bin_data(t_folded, f_folded, T14 / 11)
         _, r_binned = bin_data(t_folded, residuals, T14 / 11)
 
         # deterministic subset of points to plot
-        rng = np.random.default_rng(0)
+        rng = np.random.default_rng(SEED)
         inds = rng.choice(
             len(t_folded), size=min(max_pts, len(t_folded)), replace=False
         )
@@ -273,7 +292,8 @@ class Results:
         ax[0].plot(t_folded[inds] * 24, f_folded[inds], "o", color="lightgrey")
         ax[0].plot(t_binned * 24, f_binned, "s", color="w", mec="k", ms=10)
         ax[0].plot(t_mod * 24, f_mod, color=f"C{n}", lw=3)
-        ax[0].plot(t_mod * 24, f_mod_lc, "k--", lw=2)
+        for f in f_mod_integrated:
+            ax[0].plot(t_mod * 24, f, "k--", lw=2)
         label_axes(ax[0], ylabel="Flux", title=f"{self.target} - Planet {n}")
 
         ax[1].plot(t_folded[inds] * 24, residuals[inds], ".", color="lightgrey")
