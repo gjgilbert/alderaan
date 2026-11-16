@@ -32,7 +32,9 @@ class SampleTransitModel(BaseAlg):
         Prior transform over physical ALDERAAN basis {C0, C1, ror, b, T14}...{q1,q2}
 
         Distributions are hard-coded to be:
-            Normal on ephemeris perturbations {C0,C1}
+            Normal on ephemeris perturbations {C0,C1}: N(0, 0.1) days; C0 is the
+            offset at the photometry mid-span, C1 the additional offset at t_end
+            (see TransitModel)
             Log-uniform on radius ratio ror = Rp/Rs and transit duration T14
             Uniform on impact parameter b
             Uniform on quadratic limb darkening coefficients {q1,q2}

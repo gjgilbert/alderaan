@@ -12,6 +12,7 @@ from batman import _quadratic_ld, _rsky
 
 from alderaan.constants import EXPTIME
 from alderaan.utils.astro import ld_q_to_u, ld_u_to_q
+from alderaan.utils.stats import legendre_p1
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,10 @@ class TransitModel:
 
     model_flux(theta) uses the parameterization
         theta = npl * [C0, C1, ror, b, T14] + [q1, q2]
-     * linear perturbation (C0,C1) on a fixed ephemeris
+     * linear perturbation C0 + C1 * legendre_p1(T, (t_start, t_end)) on a fixed
+       ephemeris, where T is each transit's time on the planet's linear ephemeris
+       and (t_start, t_end) is the photometry span: C0 is the offset (days) at
+       mid-span, C1 the additional offset (days) at t_end
      * shape parameters (ror = Rp/Rs, impact b, duration T14)
      * limb darkening (q1,q2) in the Kipping 2013 basis
     """
@@ -66,13 +70,10 @@ class TransitModel:
         self.static_period = np.array([p.static_period for p in self.planets])
         self.static_epoch = np.array([p.static_epoch for p in self.planets])
 
-        # Legendre mapping of transit index, legx = (index - index_mid) / index_half
-        self.index_mid = np.array(
-            [p.transit_times.index[-1] // 2 for p in self.planets]
-        )
-        self.index_half = np.array(
-            [p.transit_times.index[-1] / 2 for p in self.planets]
-        )
+        # photometry span for the Legendre mapping of C0, C1; fixed here, so
+        # trim() does not change it
+        self.t_start = self.litecurve.time.min()
+        self.t_end = self.litecurve.time.max()
 
         self.transit_obsmode = [
             self.litecurve.obsmode_at(p.transit_times.ttime_mod) for p in self.planets
@@ -141,14 +142,13 @@ class TransitModel:
         """
         Warp litecurve times so each planet's transits line up on a fixed ephemeris
 
-        For each planet, every cadence is assigned to its nearest transit: the bin
-        edges sit halfway between consecutive transit times. Within a bin,
-          * warped_time = time - (that transit's time), so the transit is at 0
-          * warped_legx = Legendre mapping of the bin number, used by the linear
-            ephemeris perturbation C0 + C1 * legx; the bin number is the transit
-            index + 1 (see notes/bugfixes.md S5)
+        For each planet, every cadence is assigned to its nearest transit k: the
+        bin edges sit halfway between consecutive transit times. Then
+          * warped_time = time - (transit k's time), so the transit is at 0
+          * warped_legx = legendre_p1(epoch + period * k, (t_start, t_end)), used by
+            the linear ephemeris perturbation C0 + C1 * warped_legx
         Missing transit indexes fall back to the static ephemeris, and cadences
-        before the first or after the last transit join the end bins.
+        before the first or after the last transit join those transits.
 
         Transit indexes must be zero-based.
         """
@@ -173,13 +173,16 @@ class TransitModel:
                     [ttime_full[-1] + 0.5 * period],
                 ]
             )
-            bin_ttime = np.concatenate([[ttime_full[0]], ttime_full, [ttime_full[-1]]])
 
-            # bin number of each cadence (bin 0 is the leading end bin)
+            # transit index of each cadence; bin 0 and the last bin are the end
+            # bins, which join the first and last transits
             bin_number = np.searchsorted(bin_edges, time)
+            transit_index = np.clip(bin_number - 1, 0, index_full[-1])
 
-            self.warped_time[n] = time - bin_ttime[bin_number]
-            self.warped_legx[n] = (bin_number - self.index_mid[n]) / self.index_half[n]
+            self.warped_time[n] = time - ttime_full[transit_index]
+            self.warped_legx[n] = legendre_p1(
+                p.epoch + p.period * transit_index, (self.t_start, self.t_end)
+            )
 
         # per-obsmode slices, precomputed so model_flux avoids boolean-mask copies
         self._warped_time_om = {}

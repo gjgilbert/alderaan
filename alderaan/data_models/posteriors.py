@@ -9,7 +9,7 @@ from dynesty import plotting as dyplot
 from alderaan.transit_model import PARAMETER_LABELS
 from alderaan.utils.astro import ld_q_to_u
 from alderaan.utils.plotting import save_and_close
-from alderaan.utils.stats import weighted_percentile
+from alderaan.utils.stats import legendre_p1, weighted_percentile
 
 # per-planet sample columns, for trace and corner plots
 
@@ -29,9 +29,10 @@ class Posteriors:
     ref_period, ref_epoch : ndarray
         per planet; least squares linear ephemeris of the transit times the sampler
         perturbed with (C0, C1)
-    index_mid, index_half : ndarray
-        per planet; Legendre mapping of transit index used by the sampler,
-        legx = (index - index_mid) / index_half (see TransitModel._build_warps)
+    t_start, t_end : float
+        photometry span of the Legendre mapping used by the sampler,
+        legx = legendre_p1(ref_epoch + ref_period * index, (t_start, t_end))
+        (see TransitModel._build_warps)
     ln_vol, ln_zerr, n_live : ndarray, optional
         log prior volume, log evidence error, and number of live points per sample;
         used for sampler diagnostic plots
@@ -49,8 +50,8 @@ class Posteriors:
         ln_z,
         ref_period,
         ref_epoch,
-        index_mid,
-        index_half,
+        t_start,
+        t_end,
         ln_vol=None,
         ln_zerr=None,
         n_live=None,
@@ -64,16 +65,15 @@ class Posteriors:
         self.ln_z = np.asarray(ln_z)
         self.ref_period = np.asarray(ref_period, dtype=float)
         self.ref_epoch = np.asarray(ref_epoch, dtype=float)
-        self.index_mid = np.asarray(index_mid, dtype=int)
-        self.index_half = np.asarray(index_half, dtype=float)
+        self.t_start = float(t_start)
+        self.t_end = float(t_end)
         self.ln_vol = None if ln_vol is None else np.asarray(ln_vol)
         self.ln_zerr = None if ln_zerr is None else np.asarray(ln_zerr)
         self.n_live = None if n_live is None else np.asarray(n_live)
         self.sampler_info = {} if sampler_info is None else sampler_info
 
-        for name in ("ref_epoch", "index_mid", "index_half"):
-            if len(getattr(self, name)) != self.npl:
-                raise ValueError(f"{name} must have one entry per planet")
+        if len(self.ref_epoch) != self.npl:
+            raise ValueError("ref_epoch must have one entry per planet")
 
         if samples.shape[1] != 5 * self.npl + 2:
             raise ValueError(
@@ -137,8 +137,8 @@ class Posteriors:
             results.logz,
             ref_period,
             ref_epoch,
-            tm.index_mid,
-            tm.index_half,
+            tm.t_start,
+            tm.t_end,
             ln_vol=results.logvol,
             ln_zerr=results.logzerr,
             n_live=results.samples_n,
@@ -169,13 +169,13 @@ class Posteriors:
                 fits.Column(name="PLANET", format="K", array=np.arange(self.npl)),
                 fits.Column(name="REF_PERIOD", format="D", array=self.ref_period),
                 fits.Column(name="REF_EPOCH", format="D", array=self.ref_epoch),
-                fits.Column(name="INDEX_MID", format="K", array=self.index_mid),
-                fits.Column(name="INDEX_HALF", format="D", array=self.index_half),
             ],
             name="EPHEMERIS",
         )
         ephem_hdu.header["MISSION"] = self.mission
         ephem_hdu.header["TARGET"] = self.target
+        ephem_hdu.header["T_START"] = self.t_start
+        ephem_hdu.header["T_END"] = self.t_end
 
         return samples_hdu, ephem_hdu
 
@@ -213,8 +213,8 @@ class Posteriors:
             ln_z,
             ephem["REF_PERIOD"],
             ephem["REF_EPOCH"],
-            ephem["INDEX_MID"],
-            ephem["INDEX_HALF"],
+            ephem_hdu.header["T_START"],
+            ephem_hdu.header["T_END"],
             ln_vol=ln_vol,
             ln_zerr=ln_zerr,
             n_live=n_live,
@@ -264,9 +264,10 @@ class Posteriors:
         """
         Physical posterior samples for planet n
 
-        The sampled ephemeris is ttime + C0 + C1 * legx with
-        legx = (index - index_mid) / index_half; its least squares linear fit is
-        ref ephemeris + (C0 - C1 * index_mid / index_half) + (C1 / index_half) * index
+        The sampled transit times are ttime + C0 + C1 * legx with
+        legx = legendre_p1(ref_epoch + ref_period * index, (t_start, t_end)), which is
+        linear in index; adding that line to the reference ephemeris gives the
+        sampled period and epoch
 
         Returns
         -------
@@ -277,8 +278,13 @@ class Posteriors:
         C0 = s[f"C0_{n}"].to_numpy()
         C1 = s[f"C1_{n}"].to_numpy()
 
-        period = self.ref_period[n] + C1 / self.index_half[n]
-        epoch = self.ref_epoch[n] + C0 - C1 * self.index_mid[n] / self.index_half[n]
+        # legx at index 0, and its change per transit
+        span = (self.t_start, self.t_end)
+        x0 = legendre_p1(self.ref_epoch[n], span)
+        dx = legendre_p1(self.ref_epoch[n] + self.ref_period[n], span) - x0
+
+        period = self.ref_period[n] + C1 * dx
+        epoch = self.ref_epoch[n] + C0 + C1 * x0
         u1, u2 = ld_q_to_u(s["LD_Q1"].to_numpy(), s["LD_Q2"].to_numpy())
 
         return pd.DataFrame(

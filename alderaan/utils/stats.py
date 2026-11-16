@@ -6,6 +6,7 @@ __all__ = [
     "robust_polyfit",
     "weighted_percentile",
     "bin_data",
+    "legendre_p1",
 ]
 
 
@@ -205,3 +206,20 @@ def bin_data(time, data, binsize, bin_centers=None):
         binned_data[i] = np.mean(data[np.abs(time - t0) < binsize / 2])
 
     return bin_centers, binned_data
+
+
+def legendre_p1(x, domain):
+    """
+    First Legendre polynomial P1 of x, with domain (x_min, x_max) mapped onto
+    the Legendre window [-1, 1] (numpy convention): x_min -> -1, x_max -> +1
+
+    Parameters
+    ----------
+    x : array-like
+    domain : (float, float)
+
+    Returns
+    -------
+    ndarray
+    """
+    return Legendre.basis(1, domain=domain)(x)
