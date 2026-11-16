@@ -2,9 +2,10 @@ __all__ = [
     "uniform_ppf",
     "loguniform_ppf",
     "norm_ppf",
-    "set_sigma_cutoff",
+    "sigma_cutoff",
     "robust_polyfit",
     "weighted_percentile",
+    "bin_data",
 ]
 
 
@@ -62,7 +63,7 @@ def norm_ppf(u, mu, sig, eps=1e-12):
     return mu + sig * np.sqrt(2) * erfinv((2 * u - 1) / (1 + eps))
 
 
-def set_sigma_cutoff(npts, sigma_min=3.0):
+def sigma_cutoff(npts, sigma_min=3.0):
     """
     Set sigma cutoff such that not even one outlier is expected
     if distribution is normal
@@ -135,3 +136,35 @@ def weighted_percentile(a, q, w=None):
     weighted_quantiles /= weighted_quantiles[-1]
 
     return np.interp(q / 100.0, weighted_quantiles, a)
+
+
+def bin_data(time, data, binsize, bin_centers=None):
+    """Bin a 1D timeseries data array
+
+    If bin_centers is not provided, bins will be linearly spaced
+    between (time.min(),time.max())
+
+    Args:
+        time (ndarray) : time values
+        data (ndarray) : corresponding data to be binned
+        binsize (float): bin size for output data, in same units as time
+        bin_centers (optional) : pre-defined bin centers
+
+    Returns:
+        tuple : a tuple containing:
+          - time_binned (array-like)
+          - data_binned (array-like)
+    """
+    if bin_centers is None:
+        bin_centers = np.hstack(
+            [
+                np.arange(time.mean(), time.min() - binsize / 2, -binsize)[::-1],
+                np.arange(time.mean(), time.max() + binsize / 2, binsize)[1:],
+            ]
+        )
+
+    binned_data = np.zeros(len(bin_centers))
+    for i, t0 in enumerate(bin_centers):
+        binned_data[i] = np.mean(data[np.abs(time - t0) < binsize / 2])
+
+    return bin_centers, binned_data

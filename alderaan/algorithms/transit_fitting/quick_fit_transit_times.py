@@ -8,8 +8,8 @@ from scipy.optimize import least_squares
 from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
 from alderaan.data_models.transit_times import TransitTimes
 from alderaan.models.transit_model import TransitModel
-from alderaan.utils.astro import bin_data, predict_tc_error
-from alderaan.utils.stats import robust_polyfit
+from alderaan.utils.astro import approx_tc_error
+from alderaan.utils.stats import bin_data, robust_polyfit
 
 logger = logging.getLogger(__name__)
 
@@ -409,7 +409,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
             for obsmode in tm.unique_obsmodes:
                 exptime = tm.exptime[obsmode]
                 sigma_f = np.nanmedian(litecurve.error[litecurve.obsmode == obsmode])
-                error_exp[tm.transit_obsmode[n] == obsmode] = predict_tc_error(
+                error_exp[tm.transit_obsmode[n] == obsmode] = approx_tc_error(
                     p.ror, p.impact, p.duration, exptime, sigma_f
                 )
 

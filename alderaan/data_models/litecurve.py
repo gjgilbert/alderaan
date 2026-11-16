@@ -182,6 +182,15 @@ class LiteCurve:
         for k in FIELDS:
             setattr(self, k, getattr(self, k)[mask])
 
+    def obsmode_at(self, times):
+        """Observing mode at the cadence nearest each time (ties go earlier)"""
+        if np.any(np.diff(self.time) < 0):
+            raise ValueError("litecurve.time must be sorted")
+
+        i = np.clip(np.searchsorted(self.time, times), 1, len(self.time) - 1)
+        earlier = (times - self.time[i - 1]) <= (self.time[i] - times)
+        return self.obsmode[i - earlier]
+
     def reset(self, raw):
         """
         Restore raw flux and error for the current cadences, matched by cadence

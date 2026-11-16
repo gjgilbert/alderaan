@@ -1,10 +1,8 @@
 __all__ = [
-    "bin_data",
-    "estimate_transit_depth",
+    "approx_tc_error",
+    "approx_transit_depth",
     "ld_q_to_u",
     "ld_u_to_q",
-    "predict_tc_error",
-    "transit_obsmode",
 ]
 
 
@@ -25,63 +23,7 @@ def ld_u_to_q(u1, u2):
     return q1, q2
 
 
-def transit_obsmode(planets, litecurve):
-    """
-    Observing mode at the cadence nearest each transit
-
-    Returns:
-        transit_obsmode (list) : one array of obsmodes per planet
-        unique_obsmodes (ndarray) : unique obsmodes across all transits
-    """
-    time = litecurve.time
-    if np.any(np.diff(time) < 0):
-        raise ValueError("litecurve.time must be sorted")
-
-    obsmode = [None] * len(planets)
-    for n, p in enumerate(planets):
-        # nearest cadence; ties go to the earlier cadence
-        i = np.clip(np.searchsorted(time, p.transit_times.ttime_mod), 1, len(time) - 1)
-        earlier = (p.transit_times.ttime_mod - time[i - 1]) <= (
-            time[i] - p.transit_times.ttime_mod
-        )
-        obsmode[n] = litecurve.obsmode[i - earlier]
-
-    return obsmode, np.unique(np.hstack(obsmode))
-
-
-def bin_data(time, data, binsize, bin_centers=None):
-    """Bin a 1D timeseries data array
-
-    If bin_centers is not provided, bins will be linearly spaced
-    between (time.min(),time.max())
-
-    Args:
-        time (ndarray) : time values
-        data (ndarray) : corresponding data to be binned
-        binsize (float): bin size for output data, in same units as time
-        bin_centers (optional) : pre-defined bin centers
-
-    Returns:
-        tuple : a tuple containing:
-          - time_binned (array-like)
-          - data_binned (array-like)
-    """
-    if bin_centers is None:
-        bin_centers = np.hstack(
-            [
-                np.arange(time.mean(), time.min() - binsize / 2, -binsize)[::-1],
-                np.arange(time.mean(), time.max() + binsize / 2, binsize)[1:],
-            ]
-        )
-
-    binned_data = np.zeros(len(bin_centers))
-    for i, t0 in enumerate(bin_centers):
-        binned_data[i] = np.mean(data[np.abs(time - t0) < binsize / 2])
-
-    return bin_centers, binned_data
-
-
-def estimate_transit_depth(p, b):
+def approx_transit_depth(p, b):
     """Calculate approximate transit depth following Mandel & Agol (2002)
 
     Args:
@@ -116,7 +58,7 @@ def estimate_transit_depth(p, b):
     return np.squeeze(d)
 
 
-def predict_tc_error(ror, b, T14, texp, sigma_f):
+def approx_tc_error(ror, b, T14, texp, sigma_f):
     """
     Predict uncertainty on mid-transit time
     See Carter+2008

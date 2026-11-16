@@ -7,7 +7,7 @@ import numpy as np
 from batman import _quadratic_ld, _rsky
 
 from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
-from alderaan.utils.astro import ld_q_to_u, transit_obsmode
+from alderaan.utils.astro import ld_q_to_u
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +34,10 @@ class TransitModel:
             "long cadence": KEPLER_LCIT,
             "short cadence": KEPLER_SCIT,
         }
-        self.transit_obsmode, self.unique_obsmodes = transit_obsmode(
-            self.planets, self.litecurve
-        )
+        self.transit_obsmode = [
+            self.litecurve.obsmode_at(p.transit_times.ttime_mod) for p in self.planets
+        ]
+        self.unique_obsmodes = np.unique(np.hstack(self.transit_obsmode))
 
         self._init_supersampling()
         self._set_cadence_masks()

@@ -10,7 +10,7 @@ from scipy.signal import savgol_filter
 from alderaan.algorithms.base import BaseAlg
 from alderaan.algorithms.transit_fitting import BaseTransitFittingAlg
 from alderaan.models.transit_model import TransitModel
-from alderaan.utils.stats import set_sigma_cutoff
+from alderaan.utils.stats import sigma_cutoff
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +171,7 @@ class ClipOutliers(BaseAlg):
                 keep[use] = self._clip_outliers(lc.flux[use], v, 5, 1000, 13)
 
             elif method == "transit_model":
-                sigma = set_sigma_cutoff(int(np.sum(use)), sigma_min=5.0)
+                sigma = sigma_cutoff(int(np.sum(use)), sigma_min=5.0)
                 logger.debug("visit %d: transit-model clipping at %.1f sigma", v, sigma)
                 keep[use] = ~sigma_clip(
                     lc.flux[use] - f_mod[use],

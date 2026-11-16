@@ -7,7 +7,7 @@ from scipy.optimize import least_squares
 
 from alderaan.algorithms.transit_fitting.base import BaseTransitFittingAlg
 from alderaan.models.transit_model import TransitModel
-from alderaan.utils.astro import estimate_transit_depth
+from alderaan.utils.astro import approx_transit_depth
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +120,7 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
         for n, p in enumerate(self.planets):
             ror, impact = theta[2 + n * 5], theta[3 + n * 5]
             p.set_transit_shape(
-                ror, impact, theta[4 + n * 5], estimate_transit_depth(ror, impact)
+                ror, impact, theta[4 + n * 5], approx_transit_depth(ror, impact)
             )
             logger.info(
                 "planet %d: ror = %.4f, b = %.3f, T14 = %.3f hr, depth = %.0f ppm",

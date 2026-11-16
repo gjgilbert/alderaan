@@ -5,8 +5,8 @@ import numpy as np
 from astropy.io import fits
 from astropy.stats import mad_std
 
-from alderaan.utils.plotting import annotate, label_axes, save_and_close
-from alderaan.utils.stats import robust_polyfit, set_sigma_cutoff
+from alderaan.utils.plotting import annotate_plot, label_axes, save_and_close
+from alderaan.utils.stats import robust_polyfit, sigma_cutoff
 
 # name -> (dtype, FITS column format); index, ttime_obs, ttime_mod are always set,
 # the rest are optional (None)
@@ -103,7 +103,7 @@ class TransitTimes:
     def ttv_buffer(self):
         """ttv_scatter scaled so not even one normal outlier is expected"""
         npts = np.sum(np.isfinite(self.ttime_obs))
-        return set_sigma_cutoff(npts) * self.ttv_scatter()
+        return sigma_cutoff(npts) * self.ttv_scatter()
 
     def subset(self, mask):
         """New TransitTimes with only transits where mask is True"""
@@ -172,8 +172,8 @@ class TransitTimes:
         ax.plot(self.ttime_mod, omc_mod, c=line_color, lw=2)
 
         rms = mad_std(omc_obs[good] - omc_mod[good])
-        annotate(ax, f"P = {self.period:.2f} d", "upper right")
-        annotate(ax, f"residual RMS = {rms:.1f} min", "lower right")
+        annotate_plot(ax, f"P = {self.period:.2f} d", "upper right")
+        annotate_plot(ax, f"residual RMS = {rms:.1f} min", "lower right")
 
         shown = obs if show_outliers else good
         yrange = max(5, 1.1 * np.max(np.abs(omc_obs[shown]), initial=0))

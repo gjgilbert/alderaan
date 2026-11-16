@@ -11,9 +11,9 @@ from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.posteriors import Posteriors
 from alderaan.data_models.transit_times import TransitTimes
 from alderaan.models.transit_model import TransitModel
-from alderaan.utils.astro import bin_data, ld_q_to_u
-from alderaan.utils.plotting import annotate, label_axes, save_and_close
-from alderaan.utils.stats import weighted_percentile
+from alderaan.utils.astro import ld_q_to_u
+from alderaan.utils.plotting import annotate_plot, label_axes, save_and_close
+from alderaan.utils.stats import bin_data, weighted_percentile
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +207,7 @@ class Results:
         ax.plot(t_obs, f_obs, "o", color="lightgrey")
         ax.plot(t_mod, f_mod, color=f"C{n}", lw=2)
         ax.set_xlim(tc - 1.55 * T14, tc + 1.55 * T14)
-        annotate(ax, f"P = {params[1]:.2f} d", "lower right")
+        annotate_plot(ax, f"P = {params[1]:.2f} d", "lower right")
         label_axes(
             ax,
             "Time [BKJD]",
@@ -278,7 +278,7 @@ class Results:
         ax[1].plot(t_binned * 24, r_binned, "s", color="w", mec="k", ms=10)
         ax[1].axhline(0, color="k", ls="--", lw=2)
         ax[1].set_xlim(t_folded.min() * 24, t_folded.max() * 24)
-        annotate(ax[1], f"RMS = {int(np.std(residuals) * 1e6)} ppm", "lower left")
+        annotate_plot(ax[1], f"RMS = {int(np.std(residuals) * 1e6)} ppm", "lower left")
         label_axes(ax[1], xlabel="Time from mid-transit [hrs]")
         fig.tight_layout()
         save_and_close(fig, fig_path)
