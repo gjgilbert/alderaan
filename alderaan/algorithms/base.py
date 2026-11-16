@@ -7,7 +7,6 @@ from copy import deepcopy
 
 import numpy as np
 
-from alderaan.constants import EXPTIME
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.planet import Planet
 from alderaan.data_models.star import Star
@@ -68,18 +67,20 @@ class BaseAlg:
         self.planets = deepcopy(planets)
         self.star = deepcopy(star)
 
-    def make_transit_mask(self, rel_size=0.0, abs_size=0.0, time=None):
+    def make_transit_mask(self, rel_size=0.0, abs_size=0.0, buffer=0.0, time=None):
         """
         Mask cadences near a transit of any planet
 
-        Each masked window has full width max(rel_size * duration, abs_size)
+        Each masked window has full width max(rel_size * T14, abs_size) + buffer
 
         Parameters
         ----------
         rel_size : float
-            full width of masked region in units of transit duration
+            full width of masked region in units of transit duration (T14)
         abs_size : float
-            full width of masked region in days
+            floor on rel_size * T14 in days, so short transits are not under-masked
+        buffer : float
+            extra full width in days added after the floor (e.g. cadence + TTVs)
         time : ndarray
             cadence times to mask (default = self.litecurve.time)
 
@@ -97,30 +98,11 @@ class BaseAlg:
         mask = np.zeros((self.npl, len(time)), dtype=int)
 
         for n, p in enumerate(self.planets):
-            half_width = 0.5 * np.max([rel_size * p.duration, abs_size])
+            half_width = 0.5 * (np.max([rel_size * p.duration, abs_size]) + buffer)
             for tc in p.transit_times.ttime_mod:
                 mask[n] += np.abs(time - tc) < half_width
 
         return np.sum(mask, axis=0).astype(bool)
-
-    def _transit_mask(self, time, obsmode, tight_mask):
-        """
-        Condensed transit mask over time; full width is the larger of
-        tight = 1 x T14 or 2 x (exptime + largest TransitTimes.ttv_buffer()),
-        wide = 3 x T14 or 2 x (exptime + 1 hour)
-        """
-        exptime = EXPTIME[obsmode]
-
-        # tuned values, deliberately different from other near-transit windows:
-        # tight is as narrow as possible for the best detrending;
-        # wide is cautious, keeping well clear of transits
-        if tight_mask:
-            ttv_buffer = max(p.transit_times.ttv_buffer() for p in self.planets)
-            abs_size = 2 * (exptime + ttv_buffer)
-            return self.make_transit_mask(rel_size=1.0, abs_size=abs_size, time=time)
-
-        abs_size = 2 * (exptime + 1 / 24)
-        return self.make_transit_mask(rel_size=3.0, abs_size=abs_size, time=time)
 
     def identify_overlapping_transits(self, rel_size=None, abs_size=None):
         """

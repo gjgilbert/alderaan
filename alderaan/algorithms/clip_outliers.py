@@ -8,6 +8,7 @@ from scipy.signal import medfilt as median_filter
 from scipy.signal import savgol_filter
 
 from alderaan.algorithms.base import BaseAlg
+from alderaan.constants import EXPTIME
 from alderaan.transit_model import TransitModel
 from alderaan.utils.stats import sigma_cutoff
 
@@ -153,8 +154,10 @@ class ClipOutliers(BaseAlg):
             npts_initial = int(np.sum(use))
 
             if method == "local_trend":
-                transit_mask = self._transit_mask(
-                    lc.time[use], lc.obsmode[use][0], tight_mask=False
+                # full width = max(3 x T14, 2 x (exptime + 1 hour))
+                exptime = EXPTIME[lc.obsmode[use][0]]
+                transit_mask = self.make_transit_mask(
+                    rel_size=3.0, abs_size=2 * (exptime + 1 / 24), time=lc.time[use]
                 )
                 keep[use] = self._clip_outliers(
                     lc.flux[use],

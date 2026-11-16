@@ -345,7 +345,23 @@ class DetrendVisits(BaseAlg):
             raise ValueError(f"unsupported obsmode: {obsmode}")
 
         min_oscillation_period = self._min_oscillation_period(obsmode)
-        mask = self._transit_mask(time, obsmode, tight_mask)
+        # tight is as narrow as possible for the best detrending;
+        # wide is cautious, keeping well clear of transits
+        exptime = EXPTIME[obsmode]
+        if tight_mask:
+            # full width = max(T14, 2 hours) + 2 x (exptime + largest ttv_buffer)
+            ttv_buffer = max(p.transit_times.ttv_buffer() for p in self.planets)
+            mask = self.make_transit_mask(
+                rel_size=1.0,
+                abs_size=2 / 24,
+                buffer=2 * (exptime + ttv_buffer),
+                time=time,
+            )
+        else:
+            # full width = max(3 x T14, 2 x (exptime + 1 hour))
+            mask = self.make_transit_mask(
+                rel_size=3.0, abs_size=2 * (exptime + 1 / 24), time=time
+            )
         logger.debug(
             "visit %d: %s transit mask covers %d of %d cadences; gap tolerance = %d",
             visit,
@@ -427,7 +443,7 @@ class DetrendVisits(BaseAlg):
         method : str
             'wide_mask' : mask transits over the larger of 3 x T14 or
                 2 x (exptime + 1 hour)
-            'tight_mask' : mask transits over the larger of 1 x T14 or
+            'tight_mask' : mask transits over max(T14, 2 hours) +
                 2 x (exptime + largest TransitTimes.ttv_buffer())
 
         Returns

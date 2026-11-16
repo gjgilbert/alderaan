@@ -142,6 +142,7 @@ class QuickFitTransitShape(BaseAlg):
         litecurve : LiteCurve
         """
         tm = TransitModel(self.star, self.planets, self.litecurve)
+        # full width = max(3 x T14, 2 hours)
         tm.trim(self.make_transit_mask(rel_size=3.0, abs_size=2 / 24))
 
         for obsmode in tm.unique_obsmodes:
