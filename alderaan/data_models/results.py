@@ -12,7 +12,7 @@ from alderaan.constants import EXPTIME, KEPLER_SCIT
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.posteriors import Posteriors
 from alderaan.data_models.transit_times import TransitTimes
-from alderaan.transit_model import transit_flux
+from alderaan.transit_model import exposure_offsets, transit_flux
 from alderaan.utils.astro import ld_q_to_u
 from alderaan.utils.plotting import annotate_plot, label_axes, save_and_close
 from alderaan.utils.stats import bin_data, legendre_p1, weighted_percentile
@@ -27,8 +27,7 @@ def _exposure_offsets(obsmode, n=29):
     """
     if obsmode == "short cadence":
         return None
-    exptime = EXPTIME[obsmode]
-    return (np.arange(n) + 0.5) / n * exptime - exptime / 2
+    return exposure_offsets(EXPTIME[obsmode], n)
 
 
 class Results:

@@ -1,6 +1,7 @@
 __all__ = [
     "PARAMETER_LABELS",
     "TransitModel",
+    "exposure_offsets",
     "transit_flux",
 ]
 
@@ -18,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 # plot labels for the five per-planet entries of theta
 PARAMETER_LABELS = "C0 C1 r b T14".split()
+
+
+def exposure_offsets(exptime, n):
+    """Midpoints of n equal sub-exposures, relative to the exposure center"""
+    return (np.arange(n) + 0.5) / n * exptime - exptime / 2
 
 
 def transit_flux(t, t0, period, ror, impact, duration, u1, u2, exptime_offsets=None):
@@ -113,9 +119,7 @@ class TransitModel:
             self.supersample[om] = np.max(
                 np.hstack([supersample + (supersample % 2 + 1), 7])
             )
-            # midpoints of N equal sub-exposures
-            N = self.supersample[om]
-            self.exptime_offsets[om] = (np.arange(N) + 0.5) / N * exptime - exptime / 2
+            self.exptime_offsets[om] = exposure_offsets(exptime, self.supersample[om])
             logger.debug(
                 "supersample (%s) = %d (min tau12 = %.2f min, sigma = %.2e)",
                 om,

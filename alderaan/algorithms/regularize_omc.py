@@ -53,21 +53,28 @@ class RegularizeOMC(BaseAlg):
         return quality
 
     @staticmethod
-    def _smooth(xtime, yobs, quality):
+    def _smooth(index, yobs, quality):
+        """
+        Savitzky-Golay smooth of OMC over consecutive epochs; returns values at index
+
+        OMC is first linearly interpolated onto every epoch from index.min() to
+        index.max(), so the filter window spans a fixed number of epochs
+        """
         q = quality
-        npts = len(q)
+        epochs = np.arange(index.min(), index.max() + 1)
+        npts = len(epochs)
 
         interpolator = interp1d(
-            xtime[q], yobs[q], kind="linear", fill_value="extrapolate"
+            index[q], yobs[q], kind="linear", fill_value="extrapolate"
         )
-        ysmooth = interpolator(xtime)
+        ysmooth = interpolator(epochs)
 
         if npts >= 8:
             window_length = int(np.log2(npts)) + 1
             window_length += (window_length + 1) % 2
             ysmooth = savgol_filter(ysmooth, window_length, 2)
 
-        return ysmooth
+        return ysmooth[index - index.min()]
 
     @staticmethod
     def _poly_model(xtime, yobs, yerr, quality, polyorder):
@@ -688,7 +695,7 @@ class RegularizeOMC(BaseAlg):
             )
 
             if method == "smooth":
-                ymod[n] = self._smooth(xtime[n], yobs[n], quality[n])
+                ymod[n] = self._smooth(tts[n].index[measured[n]], yobs[n], quality[n])
                 out_prob = np.full(len(yobs[n]), np.nan)
                 out_class = np.zeros(len(yobs[n]), dtype=bool)
 
