@@ -208,13 +208,11 @@ class TransitTimes:
     @classmethod
     def _from_hdu(cls, hdu):
         """
-        Build from a TTIMES_nn table (used by Results.from_fits); columns missing
-        from older files take their defaults
+        Build from a TTIMES_nn table (used by Results.from_fits)
         """
         data = hdu.data
-        names = data.columns.names
         return cls(
             hdu.header["MISSION"],
             hdu.header["TARGET"],
-            **{k: data[k.upper()] for k in FIELDS if k.upper() in names},
+            **{k: data[k.upper()] for k in FIELDS},
         )
