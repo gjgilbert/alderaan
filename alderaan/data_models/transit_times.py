@@ -63,6 +63,9 @@ class TransitTimes:
         self.target = target
 
         npts = len(index)
+        if npts < 2:
+            raise ValueError(f"need at least 2 transits for an ephemeris, got {npts}")
+
         arrays = {
             "index": index,
             "ttime_obs": ttime_obs,
@@ -83,14 +86,13 @@ class TransitTimes:
     @classmethod
     def from_linear_ephemeris(cls, mission, target, period, epoch, t_min, t_max):
         """
-        Transit times predicted by a linear ephemeris, clipped to (t_min, t_max);
-        no measurements exist, so ttime_obs = ttime_mod = prediction
+        Transit times predicted by a linear ephemeris within [t_min, t_max),
+        indexed from 0; no measurements exist, so ttime_obs = ttime_mod = prediction
         """
-        # start at the first transit after t_min, even if epoch is later
+        # start at the first transit at or after t_min, even if epoch is later
         t_first = epoch - period * np.floor((epoch - t_min) / period)
         ttime = np.arange(t_first, t_max, period)
-        index = np.array(np.round((ttime - epoch) / period), dtype=int)
-        return cls(mission, target, index, ttime).clip(t_min, t_max)
+        return cls(mission, target, np.arange(len(ttime)), ttime)
 
     def linear_ephemeris(self):
         return self.epoch + self.period * self.index
@@ -115,9 +117,15 @@ class TransitTimes:
 
     def clip(self, t_min, t_max):
         """
-        New TransitTimes with ttime_mod within (t_min, t_max), transit index re-zeroed
+        New TransitTimes with ttime_mod within [t_min, t_max] (inclusive), transit
+        index re-zeroed
         """
         use = (self.ttime_mod >= t_min) & (self.ttime_mod <= t_max)
+        if np.sum(use) < 2:
+            raise ValueError(
+                f"need at least 2 transits for an ephemeris, got {np.sum(use)} "
+                f"within ({t_min:.2f}, {t_max:.2f})"
+            )
         arrays = {k: getattr(self, k)[use] for k in FIELDS}
         arrays["index"] = arrays["index"] - arrays["index"][0]
         return TransitTimes(self.mission, self.target, **arrays)

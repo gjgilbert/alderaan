@@ -39,15 +39,32 @@ class LiteCurve:
         observing visit (Kepler quarter)
     obsmode : ndarray
         'long cadence' or 'short cadence'
+    t_start, t_end : float, optional
+        photometry span; default time.min(), time.max()
 
-    Bad cadences are removed (select), not flagged
+    Bad cadences are removed (select), not flagged. The span (t_start, t_end) is
+    fixed at construction; select() and reset() do not change it
     """
 
-    def __init__(self, mission, target, time, flux, error, cadno, visit, obsmode):
+    def __init__(
+        self,
+        mission,
+        target,
+        time,
+        flux,
+        error,
+        cadno,
+        visit,
+        obsmode,
+        t_start=None,
+        t_end=None,
+    ):
         self.mission = mission
         self.target = target
 
         self.time = np.asarray(time, dtype=float)
+        self.t_start = float(self.time.min() if t_start is None else t_start)
+        self.t_end = float(self.time.max() if t_end is None else t_end)
         self.flux = np.asarray(flux, dtype=float)
         self.error = np.asarray(error, dtype=float)
         self.cadno = np.asarray(cadno, dtype=int)
@@ -68,6 +85,8 @@ class LiteCurve:
                 hdu.header["MISSION"],
                 hdu.header["TARGET"],
                 **{k: hdu.data[k.upper()] for k in FIELDS},
+                t_start=hdu.header["T_START"],
+                t_end=hdu.header["T_END"],
             )
 
     @classmethod
@@ -166,18 +185,17 @@ class LiteCurve:
             len(qmask),
         )
 
-        litecurve = cls(
+        # span (t_start, t_end) is that of the quality-filtered cadences
+        return cls(
             "Kepler",
             target,
-            time=lklc.time.value,
-            flux=lklc.flux.value,
-            error=lklc.flux_err.value,
-            cadno=lklc.cadenceno.value,
-            visit=lklc.quarter,
-            obsmode=np.full(len(qmask), obsmode),
+            time=lklc.time.value[qmask],
+            flux=lklc.flux.value[qmask],
+            error=lklc.flux_err.value[qmask],
+            cadno=lklc.cadenceno.value[qmask],
+            visit=np.asarray(lklc.quarter)[qmask],
+            obsmode=np.full(np.sum(qmask), obsmode),
         )
-        litecurve.select(qmask)
-        return litecurve
 
     def select(self, mask):
         """Keep only cadences where mask is True (in place)"""
@@ -215,7 +233,10 @@ class LiteCurve:
         self.error = raw.error[idx].copy()
 
     def to_fits(self, filepath):
-        """Save as a fits file: PRIMARY (MISSION, TARGET) + LITECURVE table"""
+        """
+        Save as a fits file: PRIMARY (MISSION, TARGET) + LITECURVE table
+        (header T_START, T_END)
+        """
         primary_hdu = fits.PrimaryHDU()
         primary_hdu.header["MISSION"] = self.mission
         primary_hdu.header["TARGET"] = self.target
@@ -230,6 +251,8 @@ class LiteCurve:
         hdu = fits.BinTableHDU.from_columns(columns, name="LITECURVE")
         hdu.header["MISSION"] = self.mission
         hdu.header["TARGET"] = self.target
+        hdu.header["T_START"] = self.t_start
+        hdu.header["T_END"] = self.t_end
 
         # write then rename, so a crash never leaves a partial file at filepath
         fits.HDUList([primary_hdu, hdu]).writeto(filepath + ".tmp", overwrite=True)

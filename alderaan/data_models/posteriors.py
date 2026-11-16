@@ -124,10 +124,6 @@ class Posteriors:
             sampler_info[f"NLIVE{i}"] = nlive
         sampler_info["EFF"] = results.eff
 
-        # linear ephemeris of the sampled transit times
-        ref_period = np.array([p.period for p in tm.planets])
-        ref_epoch = np.array([p.epoch for p in tm.planets])
-
         return cls(
             mission,
             target,
@@ -135,8 +131,8 @@ class Posteriors:
             results.logwt,
             results.logl,
             results.logz,
-            ref_period,
-            ref_epoch,
+            tm.ref_period,
+            tm.ref_epoch,
             tm.t_start,
             tm.t_end,
             ln_vol=results.logvol,

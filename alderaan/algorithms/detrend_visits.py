@@ -190,7 +190,9 @@ class DetrendVisits(BaseAlg):
         # break_locs[-1] is the last cadence, which belongs to the last segment
         seg_id[break_locs[-1]] = n_seg - 1
 
-        approx_mean = [np.mean(flux[seg_id == i]) for i in range(n_seg)]
+        # priors from out-of-transit cadences only, as in the likelihood
+        oot = ~transit_mask
+        approx_mean = [np.mean(flux[oot & (seg_id == i)]) for i in range(n_seg)]
 
         # convenience function
         def _mean_fxn(time, seg_id, flux0, ramp_amp, log_tau):
@@ -210,7 +212,7 @@ class DetrendVisits(BaseAlg):
         # pymc model
         with pm.Model() as model:
             # set up the kernel
-            log_sigma = pm.Normal("log_sigma", mu=np.log(mad_std(flux)), sd=5.0)
+            log_sigma = pm.Normal("log_sigma", mu=np.log(mad_std(flux[oot])), sd=5.0)
             sigma = pm.Deterministic("sigma", T.exp(log_sigma))
 
             log_P_off = pm.Normal(
@@ -238,14 +240,15 @@ class DetrendVisits(BaseAlg):
             flux0 = pm.Normal("flux0", mu=approx_mean, sd=np.ones(n_seg), shape=n_seg)
 
             if correct_ramp:
-                ramp_amp = pm.Normal("ramp_amp", mu=0, sd=np.std(flux), shape=n_seg)
+                ramp_amp = pm.Normal(
+                    "ramp_amp", mu=0, sd=np.std(flux[oot]), shape=n_seg
+                )
                 log_tau = pm.Normal("log_tau", mu=0, sd=5, shape=n_seg)
             else:
                 ramp_amp = T.zeros(n_seg)
                 log_tau = T.zeros(n_seg)
 
             # set up the gp
-            oot = ~transit_mask
             mean_oot = pm.Deterministic(
                 "mean_oot",
                 _mean_fxn(time[oot], seg_id[oot], flux0, ramp_amp, log_tau),
@@ -254,7 +257,9 @@ class DetrendVisits(BaseAlg):
                 "mean_all", _mean_fxn(time, seg_id, flux0, ramp_amp, log_tau)
             )
             log_var = pm.Normal(
-                "log_var", mu=np.log(np.var(flux - median_filter(flux, 13))), sd=5.0
+                "log_var",
+                mu=np.log(np.var(flux[oot] - median_filter(flux[oot], 13))),
+                sd=5.0,
             )
 
             gp = GaussianProcess(kernel, mean=mean_oot)
@@ -420,9 +425,10 @@ class DetrendVisits(BaseAlg):
         Parameters
         ----------
         method : str
-            'wide_mask' : mask transits with 3 x T14 plus 1 hour
-            'tight_mask' : mask transits with 1 x T14 plus the largest
-                TransitTimes.ttv_buffer()
+            'wide_mask' : mask transits over the larger of 3 x T14 or
+                2 x (exptime + 1 hour)
+            'tight_mask' : mask transits over the larger of 1 x T14 or
+                2 x (exptime + largest TransitTimes.ttv_buffer())
 
         Returns
         -------

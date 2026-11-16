@@ -15,9 +15,20 @@ from alderaan.data_models.transit_times import TransitTimes
 from alderaan.transit_model import transit_flux
 from alderaan.utils.astro import ld_q_to_u
 from alderaan.utils.plotting import annotate_plot, label_axes, save_and_close
-from alderaan.utils.stats import bin_data, weighted_percentile
+from alderaan.utils.stats import bin_data, legendre_p1, weighted_percentile
 
 logger = logging.getLogger(__name__)
+
+
+def _exposure_offsets(obsmode, n=29):
+    """
+    Plot-model exposure integration offsets (midpoints of n sub-exposures);
+    None for short cadence, which TransitModel does not integrate either
+    """
+    if obsmode == "short cadence":
+        return None
+    exptime = EXPTIME[obsmode]
+    return (np.arange(n) + 0.5) / n * exptime - exptime / 2
 
 
 class Results:
@@ -182,6 +193,20 @@ class Results:
             *ld_q_to_u(median["LD_Q1"], median["LD_Q2"]),
         )
 
+    def median_transit_times(self, n):
+        """
+        Transit times of planet n at the posterior median: ttime_mod shifted by
+        C0 + C1 * legx (see Posteriors.planet_samples)
+        """
+        tt = self.transit_times[n]
+        post = self.posteriors
+        median = self.summary()["median"]
+        legx = legendre_p1(
+            post.ref_epoch[n] + post.ref_period[n] * tt.index,
+            (post.t_start, post.t_end),
+        )
+        return tt.ttime_mod + median[f"C0_{n}"] + median[f"C1_{n}"] * legx
+
     def plot_transit(self, n, index, ax=None, fig_path=None):
         """
         Plot photometry and median posterior model around one transit of planet n
@@ -191,7 +216,7 @@ class Results:
         if not np.any(tt.index == index):
             raise ValueError(f"planet {n} has no transit with index {index}")
 
-        tc = tt.ttime_mod[tt.index == index][0]
+        tc = self.median_transit_times(n)[tt.index == index][0]
         params = self.median_transit_params(n)
         T14 = params[4]
 
@@ -203,7 +228,10 @@ class Results:
         t_obs = lc.time[use]
         f_obs = (lc.flux[use] - 1.0) * 1000
         t_mod = np.arange(t_obs.min(), t_obs.max(), KEPLER_SCIT)
-        f_mod = (transit_flux(t_mod - tc, *params) - 1.0) * 1000
+        offsets = _exposure_offsets(lc.obsmode[use][0])
+        f_mod = (
+            transit_flux(t_mod - tc, *params, exptime_offsets=offsets) - 1.0
+        ) * 1000
 
         new_figure = ax is None
         if new_figure:
@@ -226,7 +254,7 @@ class Results:
 
     def plot_folded_transit(self, n, max_pts=1000, fig_path=None):
         """
-        Plot photometry of planet n folded on the model transit times, with the
+        Plot photometry of planet n folded on median_transit_times, with the
         median posterior model and residuals; returns the Figure
 
         max_pts : int
@@ -241,7 +269,7 @@ class Results:
 
         # fold photometry on the model transit times
         t_folded, f_folded, om_folded = [], [], []
-        for tc in self.transit_times[n].ttime_mod:
+        for tc in self.median_transit_times(n):
             use = np.abs(time - tc) / T14 < 1.5
             t_folded.append(time[use] - tc)
             f_folded.append(flux[use])
@@ -251,14 +279,7 @@ class Results:
         f_folded = np.hstack(f_folded)
         om_folded = np.hstack(om_folded)
 
-        # exposure integration offsets per obsmode; short cadence is not
-        # integrated, as in TransitModel
-        exptime_offsets = {
-            om: None
-            if om == "short cadence"
-            else np.linspace(-EXPTIME[om] / 2, EXPTIME[om] / 2, 29)
-            for om in np.unique(om_folded)
-        }
+        exptime_offsets = {om: _exposure_offsets(om) for om in np.unique(om_folded)}
 
         # median models: unbinned, and integrated over each obsmode's exposure
         t_mod = np.arange(t_folded.min(), t_folded.max(), KEPLER_SCIT)

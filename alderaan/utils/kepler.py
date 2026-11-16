@@ -123,7 +123,7 @@ def parse_holczer16_catalog(filepath, koi_id):
     return transit_times
 
 
-def match_holczer16_transit_times(planets, transit_times):
+def match_holczer16_transit_times(planets, transit_times, t_min, t_max):
     """
     Assign Holczer+2016 transit times to planets by matching periods
 
@@ -135,11 +135,15 @@ def match_holczer16_transit_times(planets, transit_times):
     planets : list of Planet
     transit_times : list of (index, ttime, error) tuples
         output of parse_holczer16_catalog
+    t_min, t_max : float
+        litecurve time span
 
     Returns
     -------
     planets : list of Planet
-        matched planets carry Holczer+2016 transit times
+        matched planets carry every transit of the Holczer+2016 linear
+        ephemeris within [t_min, t_max), with Holczer+2016 times as ttime_obs
+        (NaN where Holczer+2016 has no measurement)
 
     Raises
     ------
@@ -165,13 +169,28 @@ def match_holczer16_transit_times(planets, transit_times):
 
             index, ttime, error = transit_times[k]
             try:
+                # every transit of the Holczer linear ephemeris within [t_min, t_max);
+                # epochs Holczer did not measure keep ttime_obs = NaN
+                h_period, h_epoch = robust_polyfit(index, ttime, 1)
+                tt = TransitTimes.from_linear_ephemeris(
+                    p.mission, p.target, h_period, h_epoch, t_min, t_max
+                )
+                k_h = np.round((ttime - tt.ttime_mod[0]) / h_period).astype(int)
+                use = (k_h >= 0) & (k_h < len(tt.index))
+                ttime_obs = np.full(len(tt.index), np.nan)
+                error_obs = np.full(len(tt.index), np.nan)
+                ttime_obs[k_h[use]] = ttime[use]
+                error_obs[k_h[use]] = error[use]
                 p.set_transit_times(
                     TransitTimes(
                         p.mission,
                         p.target,
-                        index - index[0],
-                        ttime_obs=ttime,
-                        error_obs=error,
+                        tt.index,
+                        ttime_obs=ttime_obs,
+                        error_obs=error_obs,
+                        ttime_mod=np.where(
+                            np.isfinite(ttime_obs), ttime_obs, tt.ttime_mod
+                        ),
                     )
                 )
             except ValueError as e:
@@ -233,8 +252,8 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
         input_dir, target, star.kic_id, "long cadence", visits=visits
     )
 
-    t_min = litecurve.time.min()
-    t_max = litecurve.time.max()
+    # the photometry span, fixed on the litecurve (also used by TransitModel)
+    t_min, t_max = litecurve.t_start, litecurve.t_end
     if t_min < 0:
         raise ValueError(
             "Lightcurve has negative timestamps...this will cause problems"
@@ -267,7 +286,9 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
 
     # load Holczer+2016 transit times
     holczer_transit_times = parse_holczer16_catalog(ttv_filepath, star.koi_id)
-    planets = match_holczer16_transit_times(planets, holczer_transit_times)
+    planets = match_holczer16_transit_times(
+        planets, holczer_transit_times, t_min, t_max
+    )
 
     # clip planet transit times to the litecurve time range and refit ephemerides
     for n, p in enumerate(planets):

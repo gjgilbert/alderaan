@@ -125,7 +125,7 @@ class ClipOutliers(BaseAlg):
         ----------
         method : str
             'local_trend' : clip flux about a smoothed trend, sparing transits
-                (3 x T14 plus 1 hour)
+                (the larger of 3 x T14 or 2 x (exptime + 1 hour))
             'transit_model' : clip (detrended) flux about the transit model
 
         Returns

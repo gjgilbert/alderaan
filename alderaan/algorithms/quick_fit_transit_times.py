@@ -422,6 +422,18 @@ class QuickFitTransitTimes(BaseAlg):
 
             assert len(ttime_cc[n]) == len(p.transit_times.ttime_mod)
 
+            # discard fits with outsized errors; they fall back to the optimizer
+            large = error_cc[n] > 8 * np.nanmedian(error_cc[n])
+            if np.any(large):
+                logger.info(
+                    "planet %d: %d cross-correlation fits discarded "
+                    "(error > 8x median)",
+                    n,
+                    np.sum(large),
+                )
+            ttime_cc[n][large] = np.nan
+            error_cc[n][large] = np.nan
+
         # interim transit times for the optimizer: cross-correlation measurements
         # where available, otherwise the previous model
         for n, p in enumerate(planets):

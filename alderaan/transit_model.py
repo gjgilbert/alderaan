@@ -46,9 +46,10 @@ class TransitModel:
 
     model_flux(theta) uses the parameterization
         theta = npl * [C0, C1, ror, b, T14] + [q1, q2]
-     * linear perturbation C0 + C1 * legendre_p1(T, (t_start, t_end)) on a fixed
-       ephemeris, where T is each transit's time on the planet's linear ephemeris
-       and (t_start, t_end) is the photometry span: C0 is the offset (days) at
+     * linear perturbation C0 + C1 * legendre_p1(T, (t_start, t_end)) added to
+       each transit time on a fixed ephemeris, where T is each transit's time
+       on the planet's linear ephemeris and (t_start, t_end) is the photometry
+       span: C0 is the offset (days) at
        mid-span, C1 the additional offset (days) at t_end
      * shape parameters (ror = Rp/Rs, impact b, duration T14)
      * limb darkening (q1,q2) in the Kipping 2013 basis
@@ -70,10 +71,10 @@ class TransitModel:
         self.static_period = np.array([p.static_period for p in self.planets])
         self.static_epoch = np.array([p.static_epoch for p in self.planets])
 
-        # photometry span for the Legendre mapping of C0, C1; fixed here, so
-        # trim() does not change it
-        self.t_start = self.litecurve.time.min()
-        self.t_end = self.litecurve.time.max()
+        # photometry span for the Legendre mapping of C0, C1 (fixed on the
+        # litecurve, so outlier clipping and trim() do not change it)
+        self.t_start = self.litecurve.t_start
+        self.t_end = self.litecurve.t_end
 
         self.transit_obsmode = [
             self.litecurve.obsmode_at(p.transit_times.ttime_mod) for p in self.planets
@@ -112,9 +113,9 @@ class TransitModel:
             self.supersample[om] = np.max(
                 np.hstack([supersample + (supersample % 2 + 1), 7])
             )
-            self.exptime_offsets[om] = np.linspace(
-                -exptime / 2, exptime / 2, self.supersample[om]
-            )
+            # midpoints of N equal sub-exposures
+            N = self.supersample[om]
+            self.exptime_offsets[om] = (np.arange(N) + 0.5) / N * exptime - exptime / 2
             logger.debug(
                 "supersample (%s) = %d (min tau12 = %.2f min, sigma = %.2e)",
                 om,
@@ -145,14 +146,19 @@ class TransitModel:
         For each planet, every cadence is assigned to its nearest transit k: the
         bin edges sit halfway between consecutive transit times. Then
           * warped_time = time - (transit k's time), so the transit is at 0
-          * warped_legx = legendre_p1(epoch + period * k, (t_start, t_end)), used by
-            the linear ephemeris perturbation C0 + C1 * warped_legx
+          * warped_legx = legendre_p1(ref_epoch + ref_period * k, (t_start, t_end)),
+            used by the linear ephemeris perturbation C0 + C1 * warped_legx
         Missing transit indexes fall back to the static ephemeris, and cadences
         before the first or after the last transit join those transits.
 
         Transit indexes must be zero-based.
         """
         time = self.litecurve.time
+
+        # least squares ephemeris of the transit times warped here; the Legendre
+        # mapping and Posteriors use this same ephemeris
+        self.ref_period = np.array([p.period for p in self.planets])
+        self.ref_epoch = np.array([p.epoch for p in self.planets])
 
         self.warped_time = [None] * self.npl
         self.warped_legx = [None] * self.npl
@@ -181,7 +187,8 @@ class TransitModel:
 
             self.warped_time[n] = time - ttime_full[transit_index]
             self.warped_legx[n] = legendre_p1(
-                p.epoch + p.period * transit_index, (self.t_start, self.t_end)
+                self.ref_epoch[n] + self.ref_period[n] * transit_index,
+                (self.t_start, self.t_end),
             )
 
         # per-obsmode slices, precomputed so model_flux avoids boolean-mask copies
@@ -250,7 +257,8 @@ class TransitModel:
         for n in range(self.npl):
             C0, C1, ror, b, T14 = np.array(theta[5 * n : 5 * (n + 1)])
 
-            _t = warped_time[n] + C0 + C1 * warped_legx[n]
+            # transit at ttime_mod + C0 + C1 * legx
+            _t = warped_time[n] - (C0 + C1 * warped_legx[n])
 
             qld_flux = transit_flux(
                 _t,
