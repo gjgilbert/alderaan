@@ -131,9 +131,15 @@ class FlagBadTransits(BaseAlg):
         coverage = self._check_coverage()
 
         # check for transits with unusually high noise
-        with warnings.catch_warnings(record=True):
+        with warnings.catch_warnings(record=True) as catch:
             warnings.simplefilter("always", category=RuntimeWarning)
             good_rms = self._check_rms(rel_size=3.0, abs_size=2 / 24, sigma_cut=5.0)
+        if len(catch) > 0:
+            logger.debug(
+                "%d RuntimeWarnings during noise check (first: %s)",
+                len(catch),
+                catch[0].message,
+            )
 
         for n, p in enumerate(planets):
             assert len(coverage[n]) == len(p.transit_times.ttime_mod)

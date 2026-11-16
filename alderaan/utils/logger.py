@@ -14,6 +14,9 @@ __all__ = ["setup_logging", "teardown_logging"]
 import logging
 import os
 import time
+import warnings
+
+from astropy.units import UnitsWarning
 
 LOG_FORMAT = "%(asctime)s.%(msecs)03dZ %(levelname)-8s %(name)s: %(message)s"
 LOG_DATEFMT = "%Y-%m-%dT%H:%M:%S"
@@ -79,6 +82,9 @@ def setup_logging(log_dir, target, level="INFO"):
     for name in _THIRD_PARTY_PINS:
         logging.getLogger(name).setLevel(logging.WARNING)
 
+    # astropy can't parse Kepler FITS unit strings ('e-/s', 'BJD - 2454833');
+    # alderaan doesn't use astropy units, so these are noise
+    warnings.filterwarnings("ignore", category=UnitsWarning, module="astropy")
     logging.captureWarnings(True)
     return file_handler.baseFilename
 
@@ -94,12 +100,5 @@ def teardown_logging():
 
 
 def _open_file_handler(path):
-    # exclusive create so concurrent runs never share a file
-    base, ext = os.path.splitext(path)
-    for i in range(1000):
-        candidate = path if i == 0 else f"{base}.{i}{ext}"
-        try:
-            return logging.FileHandler(candidate, mode="x", encoding="utf-8")
-        except FileExistsError:
-            continue
-    raise FileExistsError(f"could not create a unique log file near {path}")
+    # exclusive create: fail loudly rather than share or overwrite a log file
+    return logging.FileHandler(path, mode="x", encoding="utf-8")

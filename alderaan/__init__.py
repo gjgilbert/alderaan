@@ -7,7 +7,7 @@ __version__ = "0.2.2"
 logger = logging.getLogger(__name__)
 
 
-def _git_hash():
+def git_hash():
     try:
         return subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],

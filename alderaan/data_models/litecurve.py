@@ -113,7 +113,9 @@ class LiteCurve:
         for mf in mast_files:
             header = fits.getheader(mf)
             if header["OBSMODE"] == obsmode and np.isin(header["QUARTER"], visits):
-                raw.append(lk.read(mf))
+                # read from an open HDUList; lk.read(path) leaves the file open
+                with fits.open(mf) as hdul:
+                    raw.append(lk.KeplerLightCurve.read(hdul, format="kepler"))
             else:
                 logger.debug(
                     "skipped %s (OBSMODE = %s, QUARTER = %d not requested)",

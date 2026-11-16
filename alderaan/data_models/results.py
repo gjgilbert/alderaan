@@ -101,7 +101,7 @@ class Results:
         Parameters
         ----------
         results_filepath : str
-            path to {target}-results.fits
+            path to {target}_results.fits
         detrended_filepath : str, optional
             path to {target}_*_detrended.fits; litecurve is None if omitted
         """

@@ -3,10 +3,8 @@ import logging
 import os
 import sys
 import time
-import warnings
 
 from aesara_theano_fallback import aesara as theano
-from astropy.units import UnitsWarning
 
 import alderaan
 from alderaan.algorithms.clip_outliers import ClipOutliers
@@ -40,14 +38,17 @@ def main(
     """
     pipeline_start_time = time.perf_counter()
 
+    # fail before creating any output directories
+    if mission != "Kepler":
+        raise NotImplementedError(
+            f"mission {mission!r} not yet implemented; only Kepler is supported"
+        )
+
     log_path = setup_logging(
         os.path.join(output_dir, run_id, "logs"), target, log_level
     )
 
-    warnings.simplefilter("always", UserWarning)
-    warnings.filterwarnings(action="ignore", category=UnitsWarning, module="astropy")
-
-    logger.info("alderaan %s (git %s)", alderaan.__version__, alderaan._git_hash())
+    logger.info("alderaan %s (git %s)", alderaan.__version__, alderaan.git_hash())
     logger.info("argv: %s", " ".join(sys.argv))
     logger.info(
         "target %s, mission %s, run_id %s, visits %s", target, mission, run_id, visits
@@ -87,26 +88,17 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     results_dir = os.path.join(output_dir, run_id, "results", target)
     os.makedirs(results_dir, exist_ok=True)
 
-    quicklook_dir = os.path.join(output_dir, run_id, "plots", target)
-    os.makedirs(quicklook_dir, exist_ok=True)
+    plots_dir = os.path.join(output_dir, run_id, "plots", target)
+    os.makedirs(plots_dir, exist_ok=True)
 
-    # data i/o
-    if mission == "Kepler":
-        star, planets, litecurve = load_kepler_data(
-            target, input_dir, catalog_dir, visits
-        )
-    elif mission == "K2":
-        raise NotImplementedError("K2 mission not yet implemented")
-    elif mission == "TESS":
-        raise NotImplementedError("TESS mission not yet implemented")
-    else:
-        raise ValueError(f"Unsupported mission : {mission}")
+    # data i/o (Kepler only; main() rejects other missions)
+    star, planets, litecurve = load_kepler_data(target, input_dir, catalog_dir, visits)
 
     raw_litecurve = copy.deepcopy(litecurve)
 
     litecurve.plot(
         mark_times=[p.transit_times.ttime_mod for p in planets],
-        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_raw.png"),
+        fig_path=os.path.join(plots_dir, f"{target}_litecurve_raw.png"),
     )
 
     planets, litecurve = RegularizeOMC(star, planets, litecurve).perform(
@@ -115,7 +107,7 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     for n, p in enumerate(planets):
         p.transit_times.plot_omc(
             show_outliers=True,
-            fig_path=os.path.join(quicklook_dir, f"{target}_omc_initial_{n:02d}.png"),
+            fig_path=os.path.join(plots_dir, f"{target}_omc_initial_{n:02d}.png"),
         )
 
     # 1st pass
@@ -128,7 +120,7 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     )
     litecurve.plot(
         mark_times=[p.transit_times.ttime_mod for p in planets],
-        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_detrended_pass1.png"),
+        fig_path=os.path.join(plots_dir, f"{target}_litecurve_detrended_pass1.png"),
     )
     planets, litecurve = FlagBadTransits(star, planets, litecurve).perform()
     planets, litecurve = QuickFitTransitShape(star, planets, litecurve).perform()
@@ -139,7 +131,7 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     for n, p in enumerate(planets):
         p.transit_times.plot_omc(
             show_outliers=True,
-            fig_path=os.path.join(quicklook_dir, f"{target}_omc_{n:02d}.png"),
+            fig_path=os.path.join(plots_dir, f"{target}_omc_{n:02d}.png"),
         )
 
     # 2nd pass
@@ -153,7 +145,7 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     litecurve.to_fits(os.path.join(results_dir, f"{target}_detrended.fits"))
     litecurve.plot(
         mark_times=[p.transit_times.ttime_mod for p in planets],
-        fig_path=os.path.join(quicklook_dir, f"{target}_litecurve_detrended_pass2.png"),
+        fig_path=os.path.join(plots_dir, f"{target}_litecurve_detrended_pass2.png"),
     )
     planets, litecurve = FlagBadTransits(star, planets, litecurve).perform()
     posteriors = SampleTransitModel(star, planets, litecurve).perform()
@@ -164,25 +156,23 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
         transit_times=[p.transit_times for p in planets],
         litecurve=litecurve,
     )
-    results_path = os.path.join(results_dir, f"{target}-results.fits")
+    results_path = os.path.join(results_dir, f"{target}_results.fits")
     results.to_fits(results_path)
 
     posteriors.plot_runplot(
-        fig_path=os.path.join(quicklook_dir, f"{target}_dynesty_runplot.png")
+        fig_path=os.path.join(plots_dir, f"{target}_dynesty_runplot.png")
     )
     for n in range(results.npl):
         posteriors.plot_traceplot(
             n,
-            fig_path=os.path.join(
-                quicklook_dir, f"{target}_dynesty_traceplot_{n:02d}.png"
-            ),
+            fig_path=os.path.join(plots_dir, f"{target}_dynesty_traceplot_{n:02d}.png"),
         )
         posteriors.plot_cornerplot(
             n,
             fig_path=os.path.join(
-                quicklook_dir, f"{target}_dynesty_cornerplot_{n:02d}.png"
+                plots_dir, f"{target}_dynesty_cornerplot_{n:02d}.png"
             ),
         )
-    logger.info("wrote quicklook plots to %s", quicklook_dir)
+    logger.info("wrote plots to %s", plots_dir)
 
     return results_path
