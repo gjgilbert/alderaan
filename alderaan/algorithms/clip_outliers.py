@@ -4,7 +4,7 @@ import logging
 
 import numpy as np
 from astropy.stats import mad_std, sigma_clip
-from scipy.signal import medfilt as median_filter
+from scipy.ndimage import median_filter
 from scipy.signal import savgol_filter
 
 from alderaan.algorithms.base import BaseAlg
@@ -58,7 +58,7 @@ class ClipOutliers(BaseAlg):
         # at most 3 iterations; stop early once no new outliers are found
         for _ in range(3):
             # first pass: try median filter
-            smoothed = median_filter(flux, kernel_size=kernel_size)
+            smoothed = median_filter(flux, size=kernel_size, mode="mirror")
 
             bad = sigma_clip(
                 flux - smoothed,

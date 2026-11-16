@@ -11,15 +11,15 @@ from astropy.timeseries import LombScargle
 from celerite2.pymc import GaussianProcess
 from celerite2.pymc import terms as GPterms
 from scipy import signal, stats
-from scipy.interpolate import interp1d
+from scipy.interpolate import make_interp_spline
 from scipy.ndimage import median_filter, uniform_filter
 from scipy.signal import savgol_filter
 from sklearn.cluster import KMeans
 
 from alderaan import SEED
 from alderaan.algorithms.base import BaseAlg
-from alderaan.data_models.transit_times import TransitTimes
-from alderaan.utils.optim import optimize
+from alderaan.data_models import TransitTimes
+from alderaan.utils.optimize import optimize
 from alderaan.utils.stats import legendre_p1
 
 logger = logging.getLogger(__name__)
@@ -64,9 +64,7 @@ class RegularizeOMC(BaseAlg):
         epochs = np.arange(index.min(), index.max() + 1)
         npts = len(epochs)
 
-        interpolator = interp1d(
-            index[q], yobs[q], kind="linear", fill_value="extrapolate"
-        )
+        interpolator = make_interp_spline(index[q], yobs[q], k=1)
         ysmooth = interpolator(epochs)
 
         if npts >= 8:
@@ -618,11 +616,8 @@ class RegularizeOMC(BaseAlg):
         """
         ttime_mod = tt.linear_ephemeris()[measured] + ymod
 
-        interpolator = interp1d(
-            tt.index[measured][screen],
-            ttime_mod[screen],
-            kind="linear",
-            fill_value="extrapolate",
+        interpolator = make_interp_spline(
+            tt.index[measured][screen], ttime_mod[screen], k=1
         )
 
         out_prob_full = np.full(len(tt.index), np.nan)

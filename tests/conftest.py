@@ -49,7 +49,7 @@ def make_posteriors():
     builds uniform samples and dynesty-like sampler_info for npl planets with
     reference ephemerides spanning 130-200 d; kwargs override Posteriors arguments
     """
-    from alderaan.data_models.posteriors import Posteriors
+    from alderaan.data_models import Posteriors
 
     def _make(npl=2, nsamp=200, target=TARGET, seed=0, **kwargs):
         rng = np.random.default_rng(seed)

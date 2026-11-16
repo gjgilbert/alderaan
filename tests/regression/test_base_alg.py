@@ -4,10 +4,7 @@ import numpy as np
 import pytest
 
 from alderaan.algorithms.base import BaseAlg
-from alderaan.data_models.litecurve import LiteCurve
-from alderaan.data_models.planet import Planet
-from alderaan.data_models.star import Star
-from alderaan.data_models.transit_times import TransitTimes
+from alderaan.data_models import LiteCurve, Planet, Star, TransitTimes
 
 
 def _star():

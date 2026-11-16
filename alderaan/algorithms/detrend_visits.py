@@ -10,11 +10,11 @@ from astropy.timeseries import LombScargle
 from celerite2.backprop import LinAlgError
 from celerite2.pymc import GaussianProcess
 from celerite2.pymc import terms as GPterms
-from scipy.signal import medfilt as median_filter
+from scipy.ndimage import median_filter
 
 from alderaan.algorithms.base import BaseAlg
 from alderaan.constants import EXPTIME
-from alderaan.utils.optim import optimize
+from alderaan.utils.optimize import optimize
 
 logger = logging.getLogger(__name__)
 
@@ -261,7 +261,9 @@ class DetrendVisits(BaseAlg):
             )
             log_var = pm.Normal(
                 "log_var",
-                mu=np.log(np.var(flux[oot] - median_filter(flux[oot], 13))),
+                mu=np.log(
+                    np.var(flux[oot] - median_filter(flux[oot], size=13, mode="mirror"))
+                ),
                 sigma=5.0,
             )
 

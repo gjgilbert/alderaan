@@ -7,7 +7,7 @@ from scipy.optimize import least_squares
 
 from alderaan.algorithms.base import BaseAlg
 from alderaan.transit_model import (
-    PARAMETER_LABELS,
+    TRANSIT_PARAMETER_LABELS,
     TransitModel,
 )
 from alderaan.utils.astro import approx_transit_depth
@@ -55,7 +55,7 @@ class QuickFitTransitShape(BaseAlg):
             return tm.residuals(_x)
 
         i_fix = np.arange(len(theta), dtype=int)
-        var_names = np.array(PARAMETER_LABELS)
+        var_names = np.array(TRANSIT_PARAMETER_LABELS)
 
         # fix ephemeris, vary [ror, b, T14]
         fix_C0_C1 = np.zeros(len(i_fix), dtype=bool)

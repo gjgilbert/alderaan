@@ -1,5 +1,5 @@
 __all__ = [
-    "PARAMETER_LABELS",
+    "TRANSIT_PARAMETER_LABELS",
     "TransitModel",
     "exposure_offsets",
     "transit_flux",
@@ -18,7 +18,7 @@ from alderaan.utils.stats import legendre_p1
 logger = logging.getLogger(__name__)
 
 # plot labels for the five per-planet entries of theta
-PARAMETER_LABELS = "C0 C1 r b T14".split()
+TRANSIT_PARAMETER_LABELS = "C0 C1 r b T14".split()
 
 
 def exposure_offsets(exptime, n):

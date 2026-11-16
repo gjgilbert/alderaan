@@ -3,8 +3,7 @@
 import numpy as np
 import pytest
 
-from alderaan.data_models.planet import Planet
-from alderaan.data_models.transit_times import TransitTimes
+from alderaan.data_models import Planet, TransitTimes
 
 PERIOD = 3.5
 EPOCH = 100.2

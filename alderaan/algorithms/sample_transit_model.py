@@ -9,7 +9,7 @@ from dynesty.utils import get_print_fn_args, quantile
 
 from alderaan import SEED
 from alderaan.algorithms.base import BaseAlg
-from alderaan.data_models.posteriors import Posteriors
+from alderaan.data_models import Posteriors
 from alderaan.transit_model import TransitModel
 from alderaan.utils.stats import loguniform_ppf, norm_ppf, uniform_ppf
 

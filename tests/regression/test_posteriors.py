@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from alderaan.data_models.posteriors import Posteriors
+from alderaan.data_models import Posteriors
 from alderaan.utils.astro import ld_q_to_u
 from alderaan.utils.stats import legendre_p1, weighted_percentile
 

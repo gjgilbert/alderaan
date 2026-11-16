@@ -6,9 +6,7 @@ import pandas as pd
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
-from alderaan.data_models.litecurve import LiteCurve
-from alderaan.data_models.results import Results
-from alderaan.data_models.transit_times import TransitTimes
+from alderaan.data_models import LiteCurve, Results, TransitTimes
 
 TARGET = "K00137"
 # match the make_posteriors fixture's reference ephemerides and span

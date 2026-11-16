@@ -16,7 +16,7 @@ from alderaan.algorithms import (
     RegularizeOMC,
     SampleTransitModel,
 )
-from alderaan.data_models.results import Results
+from alderaan.data_models import Results
 from alderaan.utils.kepler import load_kepler_data
 from alderaan.utils.logger import setup_logging, teardown_logging
 

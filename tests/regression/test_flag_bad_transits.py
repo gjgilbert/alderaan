@@ -5,10 +5,7 @@ import pytest
 
 from alderaan.algorithms import FlagBadTransits
 from alderaan.constants import EXPTIME
-from alderaan.data_models.litecurve import LiteCurve
-from alderaan.data_models.planet import Planet
-from alderaan.data_models.star import Star
-from alderaan.data_models.transit_times import TransitTimes
+from alderaan.data_models import LiteCurve, Planet, Star, TransitTimes
 
 NOISE = 1e-4
 PERIOD, EPOCH, DURATION = 3.1, 1.3, 0.2

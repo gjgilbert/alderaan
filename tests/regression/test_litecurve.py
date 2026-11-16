@@ -11,7 +11,7 @@ import pytest
 from astropy.io import fits
 from numpy.testing import assert_array_equal
 
-from alderaan.data_models.litecurve import LiteCurve
+from alderaan.data_models import LiteCurve
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "MAST_downloads"
 TARGET = "K00137"

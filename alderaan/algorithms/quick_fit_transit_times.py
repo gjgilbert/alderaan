@@ -7,7 +7,7 @@ from scipy.optimize import least_squares
 
 from alderaan.algorithms.base import BaseAlg
 from alderaan.constants import EXPTIME
-from alderaan.data_models.transit_times import TransitTimes
+from alderaan.data_models import TransitTimes
 from alderaan.transit_model import TransitModel, transit_flux
 from alderaan.utils.astro import approx_tc_error
 from alderaan.utils.stats import robust_polyfit

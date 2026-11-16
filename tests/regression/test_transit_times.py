@@ -6,7 +6,7 @@ from astropy.io import fits
 from astropy.stats import mad_std
 from numpy.testing import assert_allclose, assert_array_equal
 
-from alderaan.data_models.transit_times import TransitTimes
+from alderaan.data_models import TransitTimes
 from alderaan.utils.stats import sigma_cutoff
 
 PERIOD = 3.5

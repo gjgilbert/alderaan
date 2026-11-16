@@ -7,9 +7,7 @@ from copy import deepcopy
 
 import numpy as np
 
-from alderaan.data_models.litecurve import LiteCurve
-from alderaan.data_models.planet import Planet
-from alderaan.data_models.star import Star
+from alderaan.data_models import LiteCurve, Planet, Star
 
 
 def _log_perform(perform, name, module):

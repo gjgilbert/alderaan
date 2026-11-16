@@ -11,11 +11,7 @@ import pytest
 
 from alderaan.algorithms import SampleTransitModel
 from alderaan.constants import EXPTIME
-from alderaan.data_models.litecurve import LiteCurve
-from alderaan.data_models.planet import Planet
-from alderaan.data_models.posteriors import Posteriors
-from alderaan.data_models.star import Star
-from alderaan.data_models.transit_times import TransitTimes
+from alderaan.data_models import LiteCurve, Planet, Posteriors, Star, TransitTimes
 from alderaan.transit_model import TransitModel, exposure_offsets, transit_flux
 from alderaan.utils.astro import approx_transit_depth, ld_u_to_q
 

@@ -6,7 +6,7 @@ import pandas as pd
 from astropy.io import fits
 from dynesty import plotting as dyplot
 
-from alderaan.transit_model import PARAMETER_LABELS
+from alderaan.transit_model import TRANSIT_PARAMETER_LABELS
 from alderaan.utils.astro import ld_q_to_u
 from alderaan.utils.plotting import save_and_close
 from alderaan.utils.stats import legendre_p1, weighted_percentile
@@ -306,7 +306,7 @@ class Posteriors:
         """dynesty trace plot of planet n parameters"""
         fig, _ = dyplot.traceplot(
             self._dynesty_results(),
-            labels=PARAMETER_LABELS,
+            labels=TRANSIT_PARAMETER_LABELS,
             dims=np.arange(5 * n, 5 * (n + 1)),
             label_kwargs={"fontsize": 14},
         )
@@ -318,7 +318,7 @@ class Posteriors:
         """dynesty corner plot of planet n parameters"""
         fig, _ = dyplot.cornerplot(
             self._dynesty_results(),
-            labels=PARAMETER_LABELS,
+            labels=TRANSIT_PARAMETER_LABELS,
             dims=np.arange(5 * n, 5 * (n + 1)),
             label_kwargs={"fontsize": 14},
             color=f"C{n}",
