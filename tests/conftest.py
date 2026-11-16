@@ -2,7 +2,7 @@
 Shared pytest configuration and fixtures
 
 Real-data fixtures load K00137 (Kepler-18, 3 planets) from tests/data and
-tests/catalogs; tests that use them, or that compile theano models or run
+tests/catalogs; tests that use them, or that compile pytensor models or run
 samplers, are marked @pytest.mark.slow.
 """
 
@@ -25,7 +25,7 @@ VISITS = [4, 5, 6]
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
-        "slow: real photometry, theano compiles, or samplers; skipped by test-fast",
+        "slow: real photometry, pytensor compiles, or samplers; skipped by test-fast",
     )
 
 

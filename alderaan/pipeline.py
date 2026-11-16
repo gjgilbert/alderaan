@@ -4,7 +4,7 @@ import os
 import sys
 import time
 
-from aesara_theano_fallback import aesara as theano
+import pytensor
 
 import alderaan
 from alderaan.algorithms import (
@@ -59,7 +59,7 @@ def main(
         output_dir,
         catalog_dir,
     )
-    logger.info("theano cache: %s", theano.config.compiledir)
+    logger.info("pytensor cache: %s", pytensor.config.compiledir)
     logger.info("log file: %s (console level %s)", log_path, log_level)
 
     try:

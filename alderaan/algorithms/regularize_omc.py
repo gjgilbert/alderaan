@@ -3,14 +3,13 @@
 import logging
 import warnings
 
-import aesara_theano_fallback.tensor as T
 import numpy as np
-import pymc3 as pm
-import pymc3_ext as pmx
+import pymc as pm
+import pytensor.tensor as T
 from astropy.stats import mad_std
 from astropy.timeseries import LombScargle
-from celerite2.theano import GaussianProcess
-from celerite2.theano import terms as GPterms
+from celerite2.pymc import GaussianProcess
+from celerite2.pymc import terms as GPterms
 from scipy import signal, stats
 from scipy.interpolate import interp1d
 from scipy.ndimage import median_filter, uniform_filter
@@ -20,6 +19,7 @@ from sklearn.cluster import KMeans
 from alderaan import SEED
 from alderaan.algorithms.base import BaseAlg
 from alderaan.data_models.transit_times import TransitTimes
+from alderaan.utils.optim import optimize
 from alderaan.utils.stats import legendre_p1
 
 logger = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ class RegularizeOMC(BaseAlg):
     @staticmethod
     def _poly_model(xtime, yobs, yerr, quality, polyorder):
         """
-        Build a PyMC3 model to fit TTV observed-minus-calculated data
+        Build a PyMC model to fit TTV observed-minus-calculated data
         Fits data with a polynomial
 
         Parameters
@@ -100,19 +100,19 @@ class RegularizeOMC(BaseAlg):
 
         # build pymc model
         with pm.Model() as model:
-            C = pm.Normal("C", mu=0, sd=10, shape=polyorder + 1)
+            C = pm.Normal("C", mu=0, sigma=10, shape=polyorder + 1)
 
             trend = pm.Deterministic("trend", pm.math.dot(Xt, C))
             pm.Deterministic("pred", pm.math.dot(Xp, C))
 
-            pm.Normal("obs", mu=trend, sd=yerr[q], observed=yobs[q])
+            pm.Normal("obs", mu=trend, sigma=yerr[q], observed=yobs[q])
 
         return model
 
     @staticmethod
     def _sin_model(xtime, yobs, yerr, quality, ttv_period=None):
         """
-        Build a PyMC3 model to fit TTV observed-minus-calculated data
+        Build a PyMC model to fit TTV observed-minus-calculated data
         Fits data with a single-frequency sinusoid
 
         Parameters
@@ -137,21 +137,21 @@ class RegularizeOMC(BaseAlg):
         # build pymc model
         with pm.Model() as model:
             df = 1 / (xtime[q].max() - xtime[q].min())
-            f = pm.Normal("f", mu=1 / ttv_period, sd=df)
-            Ah = pm.Normal("Ah", mu=0, sd=5 * np.std(yobs[q]))
-            Bk = pm.Normal("Bk", mu=0, sd=5 * np.std(yobs[q]))
+            f = pm.Normal("f", mu=1 / ttv_period, sigma=df)
+            Ah = pm.Normal("Ah", mu=0, sigma=5 * np.std(yobs[q]))
+            Bk = pm.Normal("Bk", mu=0, sigma=5 * np.std(yobs[q]))
 
             trend = pm.Deterministic("trend", _sin_fxn(Ah, Bk, f, xtime[q]))
             pm.Deterministic("pred", _sin_fxn(Ah, Bk, f, xtime))
 
-            pm.Normal("obs", mu=trend, sd=yerr[q], observed=yobs[q])
+            pm.Normal("obs", mu=trend, sigma=yerr[q], observed=yobs[q])
 
         return model
 
     @staticmethod
     def _matern32_model(xtime, yobs, yerr, quality):
         """
-        Build a PyMC3 model to fit TTV observed-minus-calculated data
+        Build a PyMC model to fit TTV observed-minus-calculated data
         Fits data with a regularized Matern-3/2 GP kernel
 
         Returns
@@ -169,13 +169,13 @@ class RegularizeOMC(BaseAlg):
         # pymc model
         with pm.Model() as model:
             # build the kernel
-            log_sigma = pm.Bound(pm.Normal, upper=np.log(ymax))(
-                "log_sigma", mu=np.log(ymax), sd=5
+            log_sigma = pm.TruncatedNormal(
+                "log_sigma", mu=np.log(ymax), sigma=5, upper=np.log(ymax)
             )
 
             rho = pm.Uniform("rho", lower=2 * dx, upper=xtime[q].max() - xtime[q].min())
             kernel = GPterms.Matern32Term(sigma=T.exp(log_sigma), rho=rho)
-            mean = pm.Normal("mean", mu=np.mean(yobs[q]), sd=np.std(yobs[q]))
+            mean = pm.Normal("mean", mu=np.mean(yobs[q]), sigma=np.std(yobs[q]))
 
             # define the GP and factorize the covariance matrix
             gp = GaussianProcess(kernel, t=xtime[q], yerr=yerr[q], mean=mean)
@@ -186,7 +186,7 @@ class RegularizeOMC(BaseAlg):
 
             trend = pm.Deterministic("trend", trend)
             pm.Deterministic("pred", gp.predict(yobs[q], xtime))
-            pm.Deterministic("dof", pm.math.trace(cov / yerr[q] ** 2))
+            pm.Deterministic("dof", T.trace(cov / yerr[q] ** 2))
 
             # add marginal likelihood to model
             lnlike = gp.log_likelihood(yobs[q])
@@ -197,23 +197,23 @@ class RegularizeOMC(BaseAlg):
     @staticmethod
     def _sample(model, name, progressbar=False):
         """
-        MAP-initialized NUTS sampling of a PyMC3 model; RuntimeWarnings raised
+        MAP-initialized NUTS sampling of a PyMC model; RuntimeWarnings raised
         during sampling are counted and logged at DEBUG under name
         """
         logger.debug("sampling %s model", name)
         with warnings.catch_warnings(record=True) as catch:
             warnings.simplefilter("always", category=RuntimeWarning)
             with model:
-                map_soln = pmx.optimize(
-                    start=model.test_point, progress=progressbar, verbose=False
-                )
+                map_soln, _ = optimize()
 
-                trace = pmx.sample(
+                # dense mass matrix adaptation
+                trace = pm.sample(
                     tune=8000,
                     draws=2000,
                     chains=2,
                     target_accept=0.95,
-                    start=map_soln,
+                    init="adapt_full",
+                    initvals=map_soln,
                     progressbar=progressbar,
                     return_inferencedata=False,
                     random_seed=SEED,
@@ -351,7 +351,7 @@ class RegularizeOMC(BaseAlg):
         Parameters
         ----------
         traces : dict
-            PyMC3 MultiTraces, output from _sample()
+            PyMC MultiTraces, output from _sample()
         dofs : dict
             degrees-of-freedom corresponding to each model trace
 
@@ -449,7 +449,7 @@ class RegularizeOMC(BaseAlg):
         # fit gaussian mixture
         with pm.Model() as model:
             w = pm.Dirichlet("w", np.array([1.0, 1.0]))
-            mu = pm.Normal("mu", mu=0.0, sd=1.0, shape=1)
+            mu = pm.Normal("mu", mu=0.0, sigma=1.0, shape=1)
             tau_latent = pm.Gamma("tau_latent", 1.0, 1.0, shape=2)
             tau = pm.Deterministic("tau", T.sort(tau_latent))
 

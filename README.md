@@ -60,5 +60,5 @@ The `alderaan` pipeline relies on the following core dependencies:
 * `celerite` [Foreman-Mackey (2018)](https://ui.adsabs.harvard.edu/abs/2018RNAAS...2...31F/abstract)
 * `dynesty` [Speagle (2020)](https://ui.adsabs.harvard.edu/abs/2020MNRAS.493.3132S/abstract)
 * `numpy` [Harris et al, (2020)](https://ui.adsabs.harvard.edu/abs/2020Natur.585..357H/abstract)
-* `PyMC3` [Salvatier, Wiecki, & Fonnesbeck (2016)](https://ui.adsabs.harvard.edu/abs/2016ascl.soft10016S/abstract)
+* `PyMC` [Abril-Pla et al. (2023)](https://doi.org/10.7717/peerj-cs.1516)
 * `scipy` [Virtanen et al. (2020)](https://ui.adsabs.harvard.edu/abs/2016ascl.soft10016S/abstract)

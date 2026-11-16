@@ -2,19 +2,19 @@
 
 import logging
 
-import aesara_theano_fallback.tensor as T
 import numpy as np
-import pymc3 as pm
-import pymc3_ext as pmx
+import pymc as pm
+import pytensor.tensor as T
 from astropy.stats import mad_std
 from astropy.timeseries import LombScargle
 from celerite2.backprop import LinAlgError
-from celerite2.theano import GaussianProcess
-from celerite2.theano import terms as GPterms
+from celerite2.pymc import GaussianProcess
+from celerite2.pymc import terms as GPterms
 from scipy.signal import medfilt as median_filter
 
 from alderaan.algorithms.base import BaseAlg
 from alderaan.constants import EXPTIME
+from alderaan.utils.optim import optimize
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +199,7 @@ class DetrendVisits(BaseAlg):
         seg_id = self._identify_breaks(
             cadno, flux, gap_tolerance_cadences, jump_tolerance, transit_mask
         )
-        n_seg = seg_id.max() + 1
+        n_seg = int(seg_id.max()) + 1
         # ramp origin per segment, from all cadences, so fit and prediction agree
         seg_t0 = np.array([time[seg_id == i].min() for i in range(n_seg)])
 
@@ -210,20 +210,20 @@ class DetrendVisits(BaseAlg):
         # pymc model
         with pm.Model() as model:
             # set up the kernel
-            log_sigma = pm.Normal("log_sigma", mu=np.log(mad_std(flux[oot])), sd=5.0)
+            log_sigma = pm.Normal("log_sigma", mu=np.log(mad_std(flux[oot])), sigma=5.0)
             sigma = pm.Deterministic("sigma", T.exp(log_sigma))
 
             log_P_off = pm.Normal(
-                "log_P", mu=np.log(nominal_gp_period - minimum_gp_period), sd=2.0
+                "log_P", mu=np.log(nominal_gp_period - minimum_gp_period), sigma=2.0
             )
             P = pm.Deterministic("P", minimum_gp_period + T.exp(log_P_off))
 
-            log_Q0 = pm.Normal("log_Q0", mu=0.0, sd=5.0, testval=np.log(0.5))
+            log_Q0 = pm.Normal("log_Q0", mu=0.0, sigma=5.0, initval=np.log(0.5))
             Q0 = pm.Deterministic("Q0", T.exp(log_Q0))
 
             if gp_term == "RotationTerm":
-                log_dQ = pm.Normal("log_dQ", mu=0.0, sd=5.0, testval=np.log(1e-3))
-                mix = pm.Uniform("mix", lower=0, upper=1, testval=0.1)
+                log_dQ = pm.Normal("log_dQ", mu=0.0, sigma=5.0, initval=np.log(1e-3))
+                mix = pm.Uniform("mix", lower=0, upper=1, initval=0.1)
                 kernel = GPterms.RotationTerm(
                     sigma=sigma, period=P, Q0=Q0, dQ=T.exp(log_dQ), f=mix
                 )
@@ -235,13 +235,15 @@ class DetrendVisits(BaseAlg):
                 raise ValueError(f"gp_term {gp_term} not recognized")
 
             # set up mean function and variance
-            flux0 = pm.Normal("flux0", mu=approx_mean, sd=np.ones(n_seg), shape=n_seg)
+            flux0 = pm.Normal(
+                "flux0", mu=approx_mean, sigma=np.ones(n_seg), shape=n_seg
+            )
 
             if correct_ramp:
                 ramp_amp = pm.Normal(
-                    "ramp_amp", mu=0, sd=np.std(flux[oot]), shape=n_seg
+                    "ramp_amp", mu=0, sigma=np.std(flux[oot]), shape=n_seg
                 )
-                log_tau = pm.Normal("log_tau", mu=0, sd=5, shape=n_seg)
+                log_tau = pm.Normal("log_tau", mu=0, sigma=5, shape=n_seg)
             else:
                 ramp_amp = T.zeros(n_seg)
                 log_tau = T.zeros(n_seg)
@@ -260,7 +262,7 @@ class DetrendVisits(BaseAlg):
             log_var = pm.Normal(
                 "log_var",
                 mu=np.log(np.var(flux[oot] - median_filter(flux[oot], 13))),
-                sd=5.0,
+                sigma=5.0,
             )
 
             gp = GaussianProcess(kernel, mean=mean_oot)
@@ -274,31 +276,28 @@ class DetrendVisits(BaseAlg):
             pm.Deterministic("pred", pred + mean_all)
 
         # optimize hyperparameters
-        def _optimize(start, vars):
-            return pmx.optimize(
-                start=start, vars=vars, progress=False, verbose=False, return_info=True
-            )
 
         with model:
-            map_soln, info = _optimize(model.test_point, [flux0])
-            map_soln, info = _optimize(map_soln, [flux0, log_var])
+            map_soln, info = optimize(None, [flux0])
+            map_soln, info = optimize(map_soln, [flux0, log_var])
 
             for _ in range(1 + correct_ramp):
                 if gp_term == "RotationTerm":
-                    map_soln, info = _optimize(
-                        map_soln, [log_var, flux0, sigma, P, log_Q0, log_dQ, mix]
+                    map_soln, info = optimize(
+                        map_soln,
+                        [log_var, flux0, log_sigma, log_P_off, log_Q0, log_dQ, mix],
                     )
                 if gp_term == "SHOTerm":
-                    map_soln, info = _optimize(
-                        map_soln, [log_var, flux0, sigma, P, log_Q0]
+                    map_soln, info = optimize(
+                        map_soln, [log_var, flux0, log_sigma, log_P_off, log_Q0]
                     )
                 if correct_ramp:
-                    map_soln, info = _optimize(
+                    map_soln, info = optimize(
                         map_soln, [log_var, flux0, ramp_amp, log_tau]
                     )
 
-        # "precision loss" non-success is routine here; pmx warns on non-finite logp
-        if info is not None and not info.success:
+        # "precision loss" non-success is routine here
+        if not info.success:
             logger.debug("visit %d: %s GP optimizer: %s", visit, gp_term, info.message)
         logger.info(
             "visit %d: %s GP, %d segments, ramp = %s, oscillation P = %.2f d "

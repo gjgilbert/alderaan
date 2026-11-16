@@ -22,7 +22,7 @@ Avoid: rebuilding a hidden framework unintentionally, adding implicit global sta
 
 ## Development Environment
 
-- **Python>=3.9**
+- **Python 3.12**
 - **Conda env**: `alderaan` — set up via `conda env create -f environment.yml`
 - **Install package**: `pip install -e alderaan` (editable install)
 
@@ -33,7 +33,7 @@ Avoid: rebuilding a hidden framework unintentionally, adding implicit global sta
 # Run from the repo root.
 
 make test        # full suite, including @pytest.mark.slow
-make test-fast   # fast subset; excludes slow (real data, theano compiles, samplers); the default
+make test-fast   # fast subset; excludes slow (real data, pytensor compiles, samplers); the default
 make test-debug  # iteration loop: rerun only last-failed (--lf), halt at first failure (-x)
 
 # Single file / class / test — append ::Class or ::Class::test_name
@@ -64,7 +64,7 @@ Layout: `tests/regression/test_<module>.py`, one file per module, named for the 
 (Kepler-18, quarters 4-6, from `tests/data` and `tests/catalogs`) and the
 `make_posteriors` factory. Fast tests use small
 synthetic objects built in the test file; anything loading real photometry, compiling
-theano models, or running a sampler is `@pytest.mark.slow` (reading a small catalog is fast). A known bug is a
+pytensor models, or running a sampler is `@pytest.mark.slow` (reading a small catalog is fast). A known bug is a
 `@pytest.mark.xfail(strict=True, reason=...)` test; when it XPASSes, remove the marker.
 
 Tests check behavior required by the design, not edge cases or development history.

@@ -3,7 +3,7 @@ Tests for alderaan/algorithms/quick_fit_transit_times.py
 
 Recovery of injected per-transit time offsets (TTVs) from a synthetic detrended
 long cadence litecurve, including a transit that overlaps a second planet's;
-no theano compile, fast tier only.
+no pytensor compile, fast tier only.
 """
 
 import numpy as np

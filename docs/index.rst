@@ -25,5 +25,5 @@ Please also cite the following core dependencies:
 - `celerite` `Foreman-Mackey (2018) <https://ui.adsabs.harvard.edu/abs/2018RNAAS...2...31F/abstract>`_
 - `dynesty` `Speagle (2020) <https://ui.adsabs.harvard.edu/abs/2020MNRAS.493.3132S/abstract>`_
 - `numpy` `Harris et al, (2020) <https://ui.adsabs.harvard.edu/abs/2020Natur.585..357H/abstract>`_
-- `PyMC3` `Salvatier, Wiecki, & Fonnesbeck (2016) <https://ui.adsabs.harvard.edu/abs/2016ascl.soft10016S/abstract>`_
+- `PyMC` `Abril-Pla et al. (2023) <https://doi.org/10.7717/peerj-cs.1516>`_
 - `scipy` `Virtanen et al. (2020) <https://ui.adsabs.harvard.edu/abs/2016ascl.soft10016S/abstract>`_

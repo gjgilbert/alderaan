@@ -135,13 +135,13 @@ def fast_sampling(monkeypatch):
     """Shorten NUTS runs; selection and outlier logic are unchanged"""
     from alderaan.algorithms import regularize_omc
 
-    sample = regularize_omc.pmx.sample
+    sample = regularize_omc.pm.sample
 
     def _sample(*args, **kwargs):
         kwargs.update(tune=500, draws=500)
         return sample(*args, **kwargs)
 
-    monkeypatch.setattr(regularize_omc.pmx, "sample", _sample)
+    monkeypatch.setattr(regularize_omc.pm, "sample", _sample)
 
 
 @pytest.mark.slow

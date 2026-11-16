@@ -2,7 +2,7 @@
 
 # All targets run through `conda run -n alderaan`.
 
-# Full suite, including @pytest.mark.slow (real data, theano compiles, samplers).
+# Full suite, including @pytest.mark.slow (real data, pytensor compiles, samplers).
 test:
 	conda run -n alderaan python -m pytest tests/
 

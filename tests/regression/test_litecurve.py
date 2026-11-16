@@ -125,14 +125,15 @@ class TestFits:
         assert os.listdir(tmp_path) == ["lc.fits"]
 
 
+@pytest.fixture(scope="module")
+def kplr_lc():
+    return LiteCurve.from_kplr_pdcsap(
+        str(DATA_DIR), TARGET, KIC_ID, "long cadence", visits=VISITS
+    )
+
+
 @pytest.mark.slow
 class TestFromKplrPdcsap:
-    @pytest.fixture(scope="class")
-    def kplr_lc(self):
-        return LiteCurve.from_kplr_pdcsap(
-            str(DATA_DIR), TARGET, KIC_ID, "long cadence", visits=VISITS
-        )
-
     def test_loads_requested_quarters(self, kplr_lc):
         lc = kplr_lc
         assert (lc.mission, lc.target) == ("Kepler", TARGET)

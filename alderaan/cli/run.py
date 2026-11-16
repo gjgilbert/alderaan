@@ -55,7 +55,7 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
 
-    # deferred so --help and argument errors don't pay for the theano/pymc import
+    # deferred so --help and argument errors don't pay for the pytensor/pymc import
     from alderaan.pipeline import main as run_pipeline
 
     run_pipeline(

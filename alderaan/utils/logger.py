@@ -25,9 +25,8 @@ LOG_DATEFMT = "%Y-%m-%dT%H:%M:%S"
 _THIRD_PARTY_PINS = [
     "matplotlib",
     "PIL",
-    "theano",
-    "aesara",
-    "pymc3",
+    "pytensor",
+    "pymc",
     "filelock",
     "numexpr",
     "numba",
