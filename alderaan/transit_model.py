@@ -264,8 +264,14 @@ class TransitModel:
             # transit at ttime_mod + C0 + C1 * legx
             _t = warped_time[n] - (C0 + C1 * warped_legx[n])
 
+            # batman's _rsky returns no overlap (flux exactly 1) beyond |t_phi| > T14,
+            # so skip cadences whose every sub-exposure lies there; exact, not approx
+            period = self.static_period[n]
+            t_phi = _t - period * np.round(_t / period)
+            near = np.abs(t_phi) <= T14 + EXPTIME[obsmode]
+
             qld_flux = transit_flux(
-                _t,
+                _t[near],
                 0.0,
                 self.static_period[n],
                 ror,
@@ -276,7 +282,7 @@ class TransitModel:
                 exptime_offsets=self.exptime_offsets[obsmode],
             )
 
-            flux_mod += qld_flux - 1.0
+            flux_mod[near] += qld_flux - 1.0
 
         return flux_mod
 

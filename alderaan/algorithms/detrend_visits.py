@@ -279,24 +279,18 @@ class DetrendVisits(BaseAlg):
 
         # optimize hyperparameters
 
-        with model:
-            map_soln, info = optimize(None, [flux0])
-            map_soln, info = optimize(map_soln, [flux0, log_var])
+        gp_vars = [log_var, flux0, log_sigma, log_P_off, log_Q0]
+        if gp_term == "RotationTerm":
+            gp_vars += [log_dQ, mix]
 
-            for _ in range(1 + correct_ramp):
-                if gp_term == "RotationTerm":
-                    map_soln, info = optimize(
-                        map_soln,
-                        [log_var, flux0, log_sigma, log_P_off, log_Q0, log_dQ, mix],
-                    )
-                if gp_term == "SHOTerm":
-                    map_soln, info = optimize(
-                        map_soln, [log_var, flux0, log_sigma, log_P_off, log_Q0]
-                    )
-                if correct_ramp:
-                    map_soln, info = optimize(
-                        map_soln, [log_var, flux0, ramp_amp, log_tau]
-                    )
+        stages = [[flux0], [flux0, log_var]]
+        for _ in range(1 + correct_ramp):
+            stages.append(gp_vars)
+            if correct_ramp:
+                stages.append([log_var, flux0, ramp_amp, log_tau])
+
+        with model:
+            map_soln, info = optimize(stages)
 
         # "precision loss" non-success is routine here
         if not info.success:

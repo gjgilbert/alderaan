@@ -179,12 +179,12 @@ class RegularizeOMC(BaseAlg):
             gp = GaussianProcess(kernel, t=xtime[q], yerr=yerr[q], mean=mean)
             gp.compute(xtime[q], yerr=yerr[q])
 
-            # track GP prediction, covariance, and degrees of freedom
-            trend, cov = gp.predict(yobs[q], xtime[q], return_cov=True)
+            # track GP prediction, variance, and degrees of freedom
+            trend, var = gp.predict(yobs[q], xtime[q], return_var=True)
 
             trend = pm.Deterministic("trend", trend)
             pm.Deterministic("pred", gp.predict(yobs[q], xtime))
-            pm.Deterministic("dof", T.trace(cov / yerr[q] ** 2))
+            pm.Deterministic("dof", T.sum(var / yerr[q] ** 2))
 
             # add marginal likelihood to model
             lnlike = gp.log_likelihood(yobs[q])
@@ -206,7 +206,7 @@ class RegularizeOMC(BaseAlg):
 
                 # dense mass matrix adaptation
                 trace = pm.sample(
-                    tune=8000,
+                    tune=2000,
                     draws=2000,
                     chains=2,
                     target_accept=0.95,

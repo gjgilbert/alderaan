@@ -12,7 +12,7 @@ import pytest
 from alderaan.constants import KEPLER_LCIT, KEPLER_SCIT
 from alderaan.data_models import LiteCurve, Planet, Star, TransitTimes
 from alderaan.transit_model import TransitModel, exposure_offsets, transit_flux
-from alderaan.utils.astro import ld_u_to_q
+from alderaan.utils.astro import ld_q_to_u, ld_u_to_q
 from alderaan.utils.stats import legendre_p1
 
 U1, U2 = 0.4, 0.25
@@ -209,6 +209,35 @@ class TestTransitModel:
         )
         # the unperturbed ephemeris no longer fits
         assert np.max(np.abs(model.residuals(_theta_true()))) > 5
+
+    def test_near_transit_evaluation_is_exact(self):
+        # model_flux skips cadences far from each planet's transits; the result
+        # must equal evaluating every planet on every cadence, bit for bit
+        star, planets, litecurve = _synthetic_system()
+        model = TransitModel(star, planets, litecurve)
+        theta = _theta_true(perturbed=True)
+        u1, u2 = ld_q_to_u(*theta[-2:])
+
+        expected = np.ones(litecurve.time.size)
+        for n in range(model.npl):
+            C0, C1, ror, b, T14 = theta[5 * n : 5 * (n + 1)]
+            t = model.warped_time[n] - (C0 + C1 * model.warped_legx[n])
+            expected += (
+                transit_flux(
+                    t,
+                    0.0,
+                    model.static_period[n],
+                    ror,
+                    b,
+                    T14,
+                    u1,
+                    u2,
+                    exptime_offsets=model.exptime_offsets["long cadence"],
+                )
+                - 1.0
+            )
+
+        assert np.array_equal(model.model_flux(theta), expected)
 
     def test_reproduces_transits_in_mixed_long_and_short_cadence(self):
         star, planets, _ = _synthetic_system()
