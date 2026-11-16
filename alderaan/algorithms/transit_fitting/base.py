@@ -10,7 +10,7 @@ class BaseTransitFittingAlg(BaseAlg):
     """
     Shared RBD transit model parameterization and likelihood
 
-    theta = num_planets * [C0, C1, rp, b, T14] + [q1, q2]
+    theta = npl * [C0, C1, ror, b, T14] + [q1, q2]
 
     Parameters
     ----------
@@ -23,7 +23,7 @@ class BaseTransitFittingAlg(BaseAlg):
     def _theta_initial(star, planets):
         """
         theta : array-like
-            num_planets * [C0, C1, rp, b, T14] + [q1, q2]
+            npl * [C0, C1, ror, b, T14] + [q1, q2]
         """
         theta = []
         for n, p in enumerate(planets):

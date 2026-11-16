@@ -84,20 +84,25 @@ class BaseAlg:
         ]
         self.unique_obsmodes = np.unique(np.hstack(self.transit_obsmode))
 
-    def make_transit_mask(
-        self, rel_size=None, abs_size=None, mask_type="standard", time=None
-    ):
+    def make_transit_mask(self, rel_size=None, abs_size=None, time=None):
         """
-        Arguments
-            rel_size : full width of masked region in units of transit duration
-            abs_size : full width of masked region in units of time
-            mask_type : type of transit mask to return (default = 'standard')
-            time : cadence times to mask (default = self.litecurve.time)
+        Mask cadences near a transit of any planet
 
-        Supported mask_type
-         * standard : bool, shape (n_planet, n_cadence),
-                      True near transits of each planet
-         * condensed : bool, shape (n_cadence), True near transit of any planet
+        Each masked window has full width max(rel_size * duration, abs_size)
+
+        Parameters
+        ----------
+        rel_size : float
+            full width of masked region in units of transit duration
+        abs_size : float
+            full width of masked region in days
+        time : ndarray
+            cadence times to mask (default = self.litecurve.time)
+
+        Returns
+        -------
+        mask : ndarray, bool
+            True for cadences near a transit of any planet
         """
         if (rel_size is None) & (abs_size is None):
             raise ValueError("either rel_size or abs_size must be provided")
@@ -117,12 +122,7 @@ class BaseAlg:
             for tc in p.transit_times.ttime_mod:
                 mask[n] += np.abs(time - tc) < half_width
 
-        if mask_type == "standard":
-            return mask.astype(bool)
-        elif mask_type == "condensed":
-            return np.sum(mask, axis=0).astype(bool)
-        else:
-            raise ValueError(f"mask_type {mask_type} not supported")
+        return np.sum(mask, axis=0).astype(bool)
 
     def _transit_mask(self, time, obsmode, tight_mask):
         """
@@ -134,25 +134,29 @@ class BaseAlg:
         if tight_mask:
             ttv_buffer = max(p.transit_times.ttv_buffer() for p in self.planets)
             abs_size = 2 * (exptime + ttv_buffer)
-            return self.make_transit_mask(
-                rel_size=1.0, abs_size=abs_size, mask_type="condensed", time=time
-            )
+            return self.make_transit_mask(rel_size=1.0, abs_size=abs_size, time=time)
 
         abs_size = 2 * (exptime + 1 / 24)
-        return self.make_transit_mask(
-            rel_size=3.0, abs_size=abs_size, mask_type="condensed", time=time
-        )
+        return self.make_transit_mask(rel_size=3.0, abs_size=abs_size, time=time)
 
-    def identify_overlapping_transits(self, rtol=None, atol=None):
+    def identify_overlapping_transits(self, rel_size=None, abs_size=None):
         """
         Identify where transits overlap based on separation of transit midpoints
 
-        Arguments
-            rtol (float) : relative tolerance, in units of transit durations
-            atol (float) : absolute tolerance, in units of days
+        Parameters
+        ----------
+        rel_size : float
+            tolerance in units of the mean transit duration of the two planets
+        abs_size : float
+            tolerance in days
+
+        Returns
+        -------
+        overlap : list of ndarray, bool
+            one array per planet; True for transits that overlap another planet
         """
-        if (rtol is None) and (atol is None):
-            raise ValueError("at least one of rtol or atol must be provided")
+        if (rel_size is None) and (abs_size is None):
+            raise ValueError("at least one of rel_size or abs_size must be provided")
 
         overlap = [None] * self.npl
 
@@ -166,11 +170,11 @@ class BaseAlg:
                 if j == i:
                     continue
                 for tc_j in self.planets[j].transit_times.ttime_mod:
-                    if rtol is not None:
-                        overlap[i] |= np.abs(ttime_i - tc_j) < rtol * 0.5 * (
+                    if rel_size is not None:
+                        overlap[i] |= np.abs(ttime_i - tc_j) < rel_size * 0.5 * (
                             self.planets[i].duration + self.planets[j].duration
                         )
-                    if atol is not None:
-                        overlap[i] |= np.abs(ttime_i - tc_j) < atol
+                    if abs_size is not None:
+                        overlap[i] |= np.abs(ttime_i - tc_j) < abs_size
 
         return overlap

@@ -17,9 +17,9 @@ class TransitModel:
     Transit forward model for a star, planets, and litecurve
 
     model_flux(theta) uses the parameterization
-        theta = num_planets * [C0, C1, rp, b, T14] + [q1, q2]
+        theta = npl * [C0, C1, ror, b, T14] + [q1, q2]
      * linear perturbation (C0,C1) on a fixed ephemeris
-     * shape parameters (Rp/Rs, b, T14)
+     * shape parameters (ror = Rp/Rs, impact b, duration T14)
      * limb darkening (q1,q2) in the Kipping 2013 basis
     """
 
@@ -98,8 +98,6 @@ class TransitModel:
         self._set_bins()
         self._set_warps()
 
-        return self
-
     def _init_time_warping(self):
         """
         This function initializes warped time arrays
@@ -167,8 +165,8 @@ class TransitModel:
             _t, _i = self._warp_times(self.litecurve.time, n, return_inds=True)
             _x = (_i - self.index_mid[n]) / self.index_half[n]
 
-            self.warped_time[n] = _t  # len(self.litecurve.ttime)
-            self.warped_legx[n] = _x  # len(self.litecurve.ttime)
+            self.warped_time[n] = _t  # len(self.litecurve.time)
+            self.warped_legx[n] = _x  # len(self.litecurve.time)
 
         self._set_obsmode_slices()
 
@@ -222,7 +220,7 @@ class TransitModel:
     def model_flux(self, theta):
         """
         theta : array-like
-            num_planets * [C0, C1, rp, b, T14] + [q1, q2]
+            npl * [C0, C1, ror, b, T14] + [q1, q2]
 
         Limb darkening is sampled in terms of [q1, q2] (see Kipping 2013)
         """
@@ -249,7 +247,7 @@ class TransitModel:
         flux_mod = np.ones(len(warped_time[0]))
 
         for n in range(self.npl):
-            C0, C1, rp, b, T14 = np.array(theta[5 * n : 5 * (n + 1)])
+            C0, C1, ror, b, T14 = np.array(theta[5 * n : 5 * (n + 1)])
 
             _t = warped_time[n] + C0 + C1 * warped_legx[n]
 
@@ -257,7 +255,7 @@ class TransitModel:
                 _t,
                 0.0,
                 self.static_period[n],
-                rp,
+                ror,
                 b,
                 T14,
                 u1,

@@ -22,9 +22,6 @@ class FlagBadTransits(BaseAlg):
     litecurve : LiteCurve
     """
 
-    def __init__(self, star, planets, litecurve):
-        super().__init__(star, planets, litecurve)
-
     def _check_coverage(self):
         """
         Check that each transit has at least 50% coverage
@@ -80,7 +77,9 @@ class FlagBadTransits(BaseAlg):
         lc = self.litecurve
 
         quality = [None] * self.npl
-        overlap = self.identify_overlapping_transits(rtol=rel_size, atol=abs_size)
+        overlap = self.identify_overlapping_transits(
+            rel_size=rel_size, abs_size=abs_size
+        )
         obsmode = self.transit_obsmode
 
         for n, p in enumerate(self.planets):

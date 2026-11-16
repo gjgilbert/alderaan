@@ -19,13 +19,19 @@ def uniform_ppf(u, a, b):
     """
     Transform from U(0,1) --> Uniform(a,b)
 
-    Args:
-        u (array-like) : samples from standard uniform distribution U(0,1)
-        a (float) : lower bound on transformed distribution U(a,b)
-        b (float) : upper bound on transformed distribution U(a,b)
+    Parameters
+    ----------
+    u : array-like
+        samples from standard uniform distribution U(0,1)
+    a : float
+        lower bound on transformed distribution U(a,b)
+    b : float
+        upper bound on transformed distribution U(a,b)
 
-    Returns:
-        array-like : transformed samples from uniform distribution
+    Returns
+    -------
+    x : array-like
+        transformed samples from uniform distribution
     """
     return u * (b - a) + a
 
@@ -34,13 +40,19 @@ def loguniform_ppf(u, a, b):
     """
     Transform from U(0,1) --> LogUniform(a,b)
 
-    Args:
-        u (array-like) : samples from standard uniform distribution U(0,1)
-        a (float) : lower bound on transformed distribution lnU(a,b)
-        b (float) : upper bound on transformed distribution lnU(a,b)
+    Parameters
+    ----------
+    u : array-like
+        samples from standard uniform distribution U(0,1)
+    a : float
+        lower bound on transformed distribution lnU(a,b)
+    b : float
+        upper bound on transformed distribution lnU(a,b)
 
-    Returns:
-        x (array-like) : transformed samples from log-uniform distribution
+    Returns
+    -------
+    x : array-like
+        transformed samples from log-uniform distribution
     """
     return np.exp(u * np.log(b) + (1 - u) * np.log(a))
 
@@ -49,16 +61,21 @@ def norm_ppf(u, mu, sig, eps=1e-12):
     """
     Transform from U(0,1) --> Normal(mu,sig)
 
-    Args:
-        u (array-like) : samples from standard uniform distribution U(0,1)
-        mu (float) : mean of transformed distribution N(mu,sig)
-        sig (float) : standard deviation of transformed distribution N(mu,sig)
-        eps (float) : provides numerical stability in the inverse error function
-                      at edges
+    Parameters
+    ----------
+    u : array-like
+        samples from standard uniform distribution U(0,1)
+    mu : float
+        mean of transformed distribution N(mu,sig)
+    sig : float
+        standard deviation of transformed distribution N(mu,sig)
+    eps : float
+        numerical stability in the inverse error function at the edges
 
     Returns
     -------
-        array-like : transformed samples from Normal distribution
+    x : array-like
+        transformed samples from Normal distribution
     """
     return mu + sig * np.sqrt(2) * erfinv((2 * u - 1) / (1 + eps))
 
@@ -68,9 +85,12 @@ def sigma_cutoff(npts, sigma_min=3.0):
     Set sigma cutoff such that not even one outlier is expected
     if distribution is normal
 
-    Args:
-        npts (int) : number of points
-        sigma_min (float) : minimum sigma cutoff, default=3.0
+    Parameters
+    ----------
+    npts : int
+        number of points
+    sigma_min : float
+        minimum sigma cutoff (default = 3.0)
     """
     return np.max([sigma_min, scipy_norm.interval((npts - 1) / npts)[1]])
 
@@ -81,14 +101,20 @@ def robust_polyfit(x, y, deg):
     in a Legendre basis over the span of x, which stays well conditioned where the
     power-basis Vandermonde matrix does not
 
-    Args:
-        x (ndarray) : independent variable
-        y (ndarray) : dependent variable, shape (M,) or (M, K)
-        deg (int) : degree of the fitted polynomial
+    Parameters
+    ----------
+    x : ndarray
+        independent variable
+    y : ndarray
+        dependent variable, shape (M,) or (M, K)
+    deg : int
+        degree of the fitted polynomial
 
-    Returns:
-        ndarray : power-basis coefficients, highest order first (same as np.polyfit);
-            shape (deg + 1,) or (deg + 1, K)
+    Returns
+    -------
+    coeffs : ndarray
+        power-basis coefficients, highest order first (same as np.polyfit);
+        shape (deg + 1,) or (deg + 1, K)
     """
     y = np.asarray(y)
     if y.ndim == 2:
@@ -110,13 +136,19 @@ def weighted_percentile(a, q, w=None):
 
     Similar to np.percentile, but allows for weights (not axis-wise)
 
-    Args:
-        a (array-like) : data
-        q (float or array-like) : percentile(s) in [0, 100]
-        w (array-like) : optional weights, same length as a
+    Parameters
+    ----------
+    a : array-like
+        data
+    q : float or array-like
+        percentile(s) in [0, 100]
+    w : array-like
+        optional weights, same length as a
 
-    Returns:
-        float or ndarray : percentile value(s)
+    Returns
+    -------
+    percentile : float or ndarray
+        percentile value(s)
     """
     a = np.asarray(a)
     q = np.asarray(q)
@@ -144,16 +176,21 @@ def bin_data(time, data, binsize, bin_centers=None):
     If bin_centers is not provided, bins will be linearly spaced
     between (time.min(),time.max())
 
-    Args:
-        time (ndarray) : time values
-        data (ndarray) : corresponding data to be binned
-        binsize (float): bin size for output data, in same units as time
-        bin_centers (optional) : pre-defined bin centers
+    Parameters
+    ----------
+    time : ndarray
+        time values
+    data : ndarray
+        corresponding data to be binned
+    binsize : float
+        bin size for output data, in same units as time
+    bin_centers : ndarray
+        (optional) pre-defined bin centers
 
-    Returns:
-        tuple : a tuple containing:
-          - time_binned (array-like)
-          - data_binned (array-like)
+    Returns
+    -------
+    bin_centers : ndarray
+    binned_data : ndarray
     """
     if bin_centers is None:
         bin_centers = np.hstack(

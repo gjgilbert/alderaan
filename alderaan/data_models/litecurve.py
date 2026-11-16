@@ -81,14 +81,22 @@ class LiteCurve:
          * normalize()
          * remove cadences flagged by the Kepler pipeline (default bitmask)
 
-        Args:
-            data_dir (str) : path to where data are stored
-            target (str) : target name, e.g. K00137
-            kic_id (int) : KIC number
-            obsmode (str) : 'short cadence' or 'long cadence'
-            visits (list) : optional, list of visits (Kepler quarters) to load.
-        Returns:
-            LiteCurve
+        Parameters
+        ----------
+        data_dir : str
+            path to where data are stored
+        target : str
+            target name, e.g. K00137
+        kic_id : int
+            KIC number
+        obsmode : str
+            'short cadence' or 'long cadence'
+        visits : list
+            (optional) visits (Kepler quarters) to load
+
+        Returns
+        -------
+        litecurve : LiteCurve
         """
         if visits is None:
             visits = np.arange(18, dtype=int)
@@ -168,14 +176,6 @@ class LiteCurve:
         )
         litecurve.select(qmask)
         return litecurve
-
-    @classmethod
-    def from_k2(cls, data_dir, target_id, obsmode, visits=None):
-        raise NotImplementedError("Loading K2 data not yet implemented")
-
-    @classmethod
-    def from_tess(cls, data_dir, target_id, obsmode, visits=None):
-        raise NotImplementedError("Loading TESS data not yet implemented")
 
     def select(self, mask):
         """Keep only cadences where mask is True (in place)"""

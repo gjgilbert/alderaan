@@ -25,15 +25,20 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
     litecurve : LiteCurve
     """
 
-    def __init__(self, star, planets, litecurve):
-        super().__init__(star, planets, litecurve)
-
     @staticmethod
     def _construct_template(tm, planet_no, obsmode, transit_window_size):
         """
-        planet_no (int) : planet number index
+        Model transit template for one planet, from its period, ror, impact,
+        and duration
 
-        IMPORTANT!!! Planet extensions must have desired [P, Rp/Rs, b, T14]
+        Parameters
+        ----------
+        tm : TransitModel
+        planet_no : int
+            planet index
+        obsmode : str
+        transit_window_size : float
+            full width of the template (days)
         """
         # shorthand
         p = tm.planets[planet_no]
@@ -74,8 +79,8 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
         lc = tm.litecurve
         p = tm.planets[planet_no]
 
-        ttime = np.nan * np.ones(len(p.transit_times.ttime_mod))
-        ttime_err = np.nan * np.ones(len(p.transit_times.ttime_mod))
+        ttime = np.full(len(p.transit_times.ttime_mod), np.nan)
+        ttime_err = np.full(len(p.transit_times.ttime_mod), np.nan)
 
         assert len(p.transit_times.ttime_mod) == len(overlap[planet_no]), (
             f"Mismatched sizes for ttime ({len(p.transit_times.ttime_mod)}) "
@@ -357,7 +362,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
 
         # fit transit times using Mazeh+13 / Holczer+16 cross-correlation method
         tm = TransitModel(star, planets, litecurve)
-        overlap = self.identify_overlapping_transits(rtol=1.0, atol=1 / 24)
+        overlap = self.identify_overlapping_transits(rel_size=1.0, abs_size=1 / 24)
         ttime_cc = [None] * npl
         error_cc = [None] * npl
 
@@ -394,7 +399,7 @@ class QuickFitTransitTimes(BaseTransitFittingAlg):
 
         # fit transit times using least squares optimization
         tm = TransitModel(star, planets, litecurve)
-        overlap = self.identify_overlapping_transits(rtol=1.0, atol=1 / 24)
+        overlap = self.identify_overlapping_transits(rel_size=1.0, abs_size=1 / 24)
         ttime_opt = [None] * npl
 
         for n in range(npl):

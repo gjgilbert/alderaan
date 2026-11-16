@@ -26,12 +26,17 @@ def ld_u_to_q(u1, u2):
 def approx_transit_depth(p, b):
     """Calculate approximate transit depth following Mandel & Agol (2002)
 
-    Args:
-        p (array-like) : planet-to-star radius ratio Rp/Rstar
-        b (array-like) : impact parameter
+    Parameters
+    ----------
+    p : array-like
+        planet-to-star radius ratio Rp/Rs
+    b : array-like
+        impact parameter
 
-    Returns:
-        array-like : transit depth
+    Returns
+    -------
+    depth : array-like
+        transit depth
     """
     # broadcasting
     p = p * np.ones(np.atleast_1d(b).shape)
@@ -58,7 +63,7 @@ def approx_transit_depth(p, b):
     return np.squeeze(d)
 
 
-def approx_tc_error(ror, b, T14, texp, sigma_f):
+def approx_tc_error(ror, b, T14, exptime, sigma_f):
     """
     Predict uncertainty on mid-transit time
     See Carter+2008
@@ -68,10 +73,10 @@ def approx_tc_error(ror, b, T14, texp, sigma_f):
     ror : planet-to-star radius ratio
     b : impact parameter
     T14 : first-to-fourth contact transit duration
-    texp : exposure time (in same units as T14)
+    exptime : exposure time (in same units as T14)
     sigma_f : photometric error on flux
     """
-    Q = np.sqrt(T14 / texp) * (ror**2 / sigma_f)
+    Q = np.sqrt(T14 / exptime) * (ror**2 / sigma_f)
 
     if b <= 1 - ror:
         tau_over_T14 = ror / (1 - b**2)

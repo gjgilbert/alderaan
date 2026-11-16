@@ -34,40 +34,39 @@ class ClipOutliers(BaseAlg):
 
         Returns a boolean mask over flux; True for cadences to keep
 
-        Arguments:
-            flux : ndarray
-                flux for one visit
-            visit : int
-                visit number (for logging)
-            sigma_upper : float
-                upper sigmga clipping threshold
-            sigma_lower : float
-                lower sigma clipping threshold
-            kernel_size : int
-                size of the smoothing filter kernel
-            mask : array-like, bool (optional)
-                do not reject cadences within masked regions;
-                useful for protecting transits
+        Parameters
+        ----------
+        flux : ndarray
+            flux for one visit
+        visit : int
+            visit number (for logging)
+        sigma_upper : float
+            upper sigma clipping threshold
+        sigma_lower : float
+            lower sigma clipping threshold
+        kernel_size : int
+            size of the smoothing filter kernel
+        mask : array-like, bool
+            (optional) do not reject cadences within masked regions;
+            useful for protecting transits
         """
         if mask is None:
             mask = np.zeros(len(flux), dtype=bool)
         npts = len(flux)
         idx = np.arange(npts)
 
-        loop = True
-        count = 0
-        while loop:
+        # at most 3 iterations; stop early once no new outliers are found
+        for _ in range(3):
             # first pass: try median filter
-            if loop:
-                smoothed = median_filter(flux, kernel_size=kernel_size)
+            smoothed = median_filter(flux, kernel_size=kernel_size)
 
-                bad = sigma_clip(
-                    flux - smoothed,
-                    sigma_upper=sigma_upper,
-                    sigma_lower=sigma_lower,
-                    stdfunc=mad_std,
-                ).mask
-                bad = bad * ~mask
+            bad = sigma_clip(
+                flux - smoothed,
+                sigma_upper=sigma_upper,
+                sigma_lower=sigma_lower,
+                stdfunc=mad_std,
+            ).mask
+            bad = bad * ~mask
 
             # second pass: try savgol filter
             # if over 1% of points were flagged with median filter
@@ -105,13 +104,8 @@ class ClipOutliers(BaseAlg):
             # update mask and iterate
             mask = mask[~bad]
 
-            if np.sum(bad) == 0:
-                loop = False
-            else:
-                count += 1
-
-            if count >= 3:
-                loop = False
+            if not np.any(bad):
+                break
 
         keep = np.zeros(npts, dtype=bool)
         keep[idx] = True
@@ -165,10 +159,18 @@ class ClipOutliers(BaseAlg):
                     lc.time[use], lc.obsmode[use][0], tight_mask=False
                 )
                 keep[use] = self._clip_outliers(
-                    lc.flux[use], v, 5, 5, 13, mask=transit_mask
+                    lc.flux[use],
+                    v,
+                    sigma_upper=5,
+                    sigma_lower=5,
+                    kernel_size=13,
+                    mask=transit_mask,
                 )
+                # second pass: upper outliers only, including in transit
                 use = (lc.visit == v) & keep
-                keep[use] = self._clip_outliers(lc.flux[use], v, 5, 1000, 13)
+                keep[use] = self._clip_outliers(
+                    lc.flux[use], v, sigma_upper=5, sigma_lower=1000, kernel_size=13
+                )
 
             elif method == "transit_model":
                 sigma = sigma_cutoff(int(np.sum(use)), sigma_min=5.0)

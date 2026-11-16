@@ -34,9 +34,6 @@ class RegularizeOMC(BaseAlg):
     litecurve : LiteCurve
     """
 
-    def __init__(self, star, planets, litecurve):
-        super().__init__(star, planets, litecurve)
-
     @staticmethod
     def _flag_outliers(yobs, sigma_cut=5.0):
         if len(yobs) > 16:
@@ -69,39 +66,25 @@ class RegularizeOMC(BaseAlg):
         return ysmooth
 
     @staticmethod
-    def _poly_model(
-        xtime, yobs, yerr, quality, polyorder, ignore_bad=True, xt_predict=None
-    ):
+    def _poly_model(xtime, yobs, yerr, quality, polyorder):
         """
         Build a PyMC3 model to fit TTV observed-minus-calculated data
         Fits data with a polynomial
 
-        Arguments
+        Parameters
         ----------
         polyorder : int
             polynomial order
-        ignore_bad : bool
-            True (default) to exclude bad quality times from model
-        xt_predict : ndarray
-            (optional) time values to predict OMC model
 
         Returns
         -------
         model : pm.Model()
         """
-        # quality mask
-        if ignore_bad and quality is not None:
-            q = quality
-        else:
-            q = np.ones(len(xtime), dtype=bool)
-
-        # times where trend will be predicted
-        if xt_predict is None:
-            xt_predict = xtime
+        q = quality
 
         # create Vandermonde matrices
         Xt = np.vander(xtime[q], N=polyorder + 1, increasing=True)
-        Xp = np.vander(xt_predict, N=polyorder + 1, increasing=True)
+        Xp = np.vander(xtime, N=polyorder + 1, increasing=True)
 
         # build pymc model
         with pm.Model() as model:
@@ -115,35 +98,21 @@ class RegularizeOMC(BaseAlg):
         return model
 
     @staticmethod
-    def _sin_model(
-        xtime, yobs, yerr, quality, ttv_period=None, ignore_bad=True, xt_predict=None
-    ):
+    def _sin_model(xtime, yobs, yerr, quality, ttv_period=None):
         """
         Build a PyMC3 model to fit TTV observed-minus-calculated data
         Fits data with a single-frequency sinusoid
 
-        Arguments
+        Parameters
         ----------
         ttv_period : float
             pre-estimated sinusoid period; the model places tight priors on this period
-        ignore_bad : bool
-            True (default) to exclude bad quality times from model
-        xt_predict : ndarray
-            (optional) time values to predict OMC model
 
         Returns
         -------
         model : pm.Model()
         """
-        # quality mask
-        if ignore_bad and quality is not None:
-            q = quality
-        else:
-            q = np.ones(len(xtime), dtype=bool)
-
-        # times where trend will be predicted
-        if xt_predict is None:
-            xt_predict = xtime
+        q = quality
 
         # nominal TTV period
         if ttv_period is None:
@@ -161,38 +130,23 @@ class RegularizeOMC(BaseAlg):
             Bk = pm.Normal("Bk", mu=0, sd=5 * np.std(yobs[q]))
 
             trend = pm.Deterministic("trend", _sin_fxn(Ah, Bk, f, xtime[q]))
-            pm.Deterministic("pred", _sin_fxn(Ah, Bk, f, xt_predict))
+            pm.Deterministic("pred", _sin_fxn(Ah, Bk, f, xtime))
 
             pm.Normal("obs", mu=trend, sd=yerr[q], observed=yobs[q])
 
         return model
 
     @staticmethod
-    def _matern32_model(xtime, yobs, yerr, quality, ignore_bad=True, xt_predict=None):
+    def _matern32_model(xtime, yobs, yerr, quality):
         """
         Build a PyMC3 model to fit TTV observed-minus-calculated data
         Fits data with a regularized Matern-3/2 GP kernel
-
-        Arguments
-        ----------
-        ignore_bad : bool
-            True (default) to exclude bad quality times from model
-        xt_predict : ndarray
-            (optional) time values to predict OMC model
 
         Returns
         -------
         model : pm.Model()
         """
-        # quality mask
-        if ignore_bad and quality is not None:
-            q = quality
-        else:
-            q = np.ones(len(xtime), dtype=bool)
-
-        # times where trend will be predicted
-        if xt_predict is None:
-            xt_predict = xtime
+        q = quality
 
         # delta between each transit time
         dx = np.mean(np.diff(xtime))
@@ -219,7 +173,7 @@ class RegularizeOMC(BaseAlg):
             trend, cov = gp.predict(yobs[q], xtime[q], return_cov=True)
 
             trend = pm.Deterministic("trend", trend)
-            pm.Deterministic("pred", gp.predict(yobs[q], xt_predict))
+            pm.Deterministic("pred", gp.predict(yobs[q], xtime))
             pm.Deterministic("dof", pm.math.trace(cov / yerr[q] ** 2))
 
             # add marginal likelihood to model
@@ -251,8 +205,8 @@ class RegularizeOMC(BaseAlg):
         """
         Identify significant periodic frequencies using a Lomb-Scargle periodogram
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         critical_fap : float
             false alarm probability threshold to consider a frequency significant
         """
@@ -284,22 +238,19 @@ class RegularizeOMC(BaseAlg):
         return peakfreq, peakfap
 
     @staticmethod
-    def _ls_estimator(x, y, fsamp=None, fap=0.1, return_levels=False, max_peaks=2):
+    def _ls_estimator(x, y, fap=0.1, max_peaks=2):
         """
         Generate a Lomb-Scargle periodogram and identify significant frequencies
         * assumes that data are nearly evenly sampled
         * optimized for finding marginal periodic TTV signals in OMC data
         * may not perform well for other applications
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         x : array-like
             1D array of x data values; should be monotonically increasing
         y : array-like
             1D array of corresponding y data values, len(x)
-        fsamp: float
-            nominal sampling frequency;
-            if not provided it will be calculated from the data
         fap : float
             false alarm probability threshold to consider a frequency significant
             (default=0.1)
@@ -315,9 +266,8 @@ class RegularizeOMC(BaseAlg):
         faps : list
             corresponding false alarm probabilities
         """
-        # get sampling frequency
-        if fsamp is None:
-            fsamp = 1 / np.min(x[1:] - x[:-1])
+        # sampling frequency
+        fsamp = 1 / np.min(x[1:] - x[:-1])
 
         # Hann window to reduce ringing
         hann = signal.windows.hann(len(x))
@@ -347,7 +297,6 @@ class RegularizeOMC(BaseAlg):
             if len(freqs) == 0:
                 xf_out = xf
                 yf_out = yf
-                levels = lombscargle.false_alarm_level([0.1, 0.01, 0.001])
 
             if peak_fap < fap:
                 yt -= lombscargle.model(xt, peak_freq) * len(xt)
@@ -360,22 +309,24 @@ class RegularizeOMC(BaseAlg):
             if len(freqs) >= max_peaks:
                 loop = False
 
-        if return_levels:
-            return xf_out, yf_out, freqs, faps, levels
-
-        else:
-            return xf_out, yf_out, freqs, faps
+        return xf_out, yf_out, freqs, faps
 
     @staticmethod
-    def _select_best_model(yobs, yerr, quality, traces, dofs, return_name=True):
+    def _select_best_model(yobs, yerr, quality, traces, dofs):
         """
-        Args:
-            traces (dict): PyMC3 MultiTraces, output from _sample()
-            dofs (dict): degrees-of-freedom corresponding to each model trace
+        Parameters
+        ----------
+        traces : dict
+            PyMC3 MultiTraces, output from _sample()
+        dofs : dict
+            degrees-of-freedom corresponding to each model trace
 
-        Returns:
-            ndarray : best model prediction
-            str : name (dict key) of selected best model
+        Returns
+        -------
+        ymod : ndarray
+            best model prediction
+        name : str
+            name (dict key) of selected best model
         """
         q = quality
         npts = np.sum(quality)
@@ -433,9 +384,7 @@ class RegularizeOMC(BaseAlg):
         # calculate best model prediction and return
         ymod = np.nanmedian(traces[best_omc_model_name]["pred"], 0)
 
-        if return_name:
-            return ymod, best_omc_model_name
-        return ymod
+        return ymod, best_omc_model_name
 
     @staticmethod
     def _calculate_outlier_probability(yobs, ymod):
@@ -444,14 +393,19 @@ class RegularizeOMC(BaseAlg):
         Assumes a two-component Gaussian mixture model to calculate outlier probabilty
         Applies K-means clustering to assign each point to foreground or background
 
-        Args:
-            yobs (ndarray) : observed omc values
-            ymod (ndarray) : regularized model for yobs
+        Parameters
+        ----------
+        yobs : ndarray
+            observed omc values
+        ymod : ndarray
+            regularized model for yobs
 
-        Returns:
-            tuple : (out_prob, out_class)
-              * out_prob (ndarray) : probability that each transit time is an outlier
-              * out_class (ndarray) : boolean flag that each transit time is an outlier
+        Returns
+        -------
+        out_prob : ndarray
+            probability that each transit time is an outlier
+        out_class : ndarray
+            boolean flag that each transit time is an outlier
         """
         # normalize and center residuals
         res = yobs - ymod
@@ -538,20 +492,19 @@ class RegularizeOMC(BaseAlg):
                             close[j, i] = True
 
             for i in range(npl):
-                if fap[i] is not None:
-                    if not np.any(close[i]) and fap[i] > 0.1:
-                        # freq is None (fap = 1) when no candidate was found
-                        if freq[i] is not None:
-                            logger.info(
-                                "planet %d: candidate TTV period %.1f d "
-                                "(FAP = %.3g) rejected; no matching frequency "
-                                "in other planets",
-                                i,
-                                1 / freq[i],
-                                fap[i],
-                            )
-                        freq[i] = None
-                        fap[i] = None
+                if not np.any(close[i]) and fap[i] > 0.1:
+                    # freq is None (fap = 1) when no candidate was found
+                    if freq[i] is not None:
+                        logger.info(
+                            "planet %d: candidate TTV period %.1f d "
+                            "(FAP = %.3g) rejected; no matching frequency "
+                            "in other planets",
+                            i,
+                            1 / freq[i],
+                            fap[i],
+                        )
+                    freq[i] = None
+                    fap[i] = None
 
         for n in range(npl):
             if freq[n] is not None:
@@ -628,18 +581,26 @@ class RegularizeOMC(BaseAlg):
         Regularized transit times: OMC model added to the current linear ephemeris,
         linearly interpolated over transits failing the initial outlier screen
 
-        Args:
-            tt (TransitTimes) : current transit times
-            ymod (ndarray) : OMC model relative to tt.linear_ephemeris()
-            screen (ndarray) : True for transits passing the initial outlier screen
-            out_prob (ndarray) : outlier probability (NaN if not computed)
-            out_class (ndarray) : True for model-based outliers
-            full (bool) : True to also interpolate missing transit indexes
+        Parameters
+        ----------
+        tt : TransitTimes
+            current transit times
+        ymod : ndarray
+            OMC model relative to tt.linear_ephemeris()
+        screen : ndarray
+            True for transits passing the initial outlier screen
+        out_prob : ndarray
+            outlier probability (NaN if not computed)
+        out_class : ndarray
+            True for model-based outliers
+        full : bool
+            True to also interpolate missing transit indexes
 
-        Returns:
-            TransitTimes : ttime_obs and error_obs are NaN where a transit was
-            added; out_flag is True for transits failing the screen or flagged by
-            the model
+        Returns
+        -------
+        transit_times : TransitTimes
+            ttime_obs and error_obs are NaN where a transit was added;
+            out_flag is True for transits failing the screen or flagged by the model
         """
         assert tt.index[0] == 0, (
             f"transit index[0] = {tt.index[0]}, expected zero-indexing"

@@ -24,13 +24,10 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
     litecurve : LiteCurve
     """
 
-    def __init__(self, star, planets, litecurve):
-        super().__init__(star, planets, litecurve)
-
     def _theta_bounds(self):
         """
         theta : array-like
-            num_planets * [C0, C1, rp, b, T14] + [q1, q2]
+            npl * [C0, C1, ror, b, T14] + [q1, q2]
         """
         bounds = []
         for p in self.planets:
@@ -57,12 +54,12 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
         i_fix = np.arange(len(theta), dtype=int)
         var_names = np.array("C0 C1 r b T14".split())
 
-        # fix ephemeris, vary [r, b, T14]
+        # fix ephemeris, vary [ror, b, T14]
         fix_C0_C1 = np.zeros(len(i_fix), dtype=bool)
         fix_C0_C1[i_fix % 5 == 0] = True
         fix_C0_C1[i_fix % 5 == 1] = True
 
-        # fix [r, b, T14], vary ephemeris
+        # fix [ror, b, T14], vary ephemeris
         fix_r_b_T14 = np.zeros(len(i_fix), dtype=bool)
         fix_r_b_T14[i_fix % 5 == 2] = True
         fix_r_b_T14[i_fix % 5 == 3] = True
@@ -120,7 +117,10 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
         for n, p in enumerate(self.planets):
             ror, impact = theta[2 + n * 5], theta[3 + n * 5]
             p.set_transit_shape(
-                ror, impact, theta[4 + n * 5], approx_transit_depth(ror, impact)
+                depth=approx_transit_depth(ror, impact),
+                duration=theta[4 + n * 5],
+                impact=impact,
+                ror=ror,
             )
             logger.info(
                 "planet %d: ror = %.4f, b = %.3f, T14 = %.3f hr, depth = %.0f ppm",
@@ -139,9 +139,7 @@ class QuickFitTransitShape(BaseTransitFittingAlg):
         litecurve : LiteCurve
         """
         tm = TransitModel(self.star, self.planets, self.litecurve)
-        tm.trim(
-            self.make_transit_mask(rel_size=3.0, abs_size=1 / 24, mask_type="condensed")
-        )
+        tm.trim(self.make_transit_mask(rel_size=3.0, abs_size=1 / 24))
 
         for obsmode in tm.unique_obsmodes:
             logger.info("supersample factor (%s): %d", obsmode, tm.supersample[obsmode])

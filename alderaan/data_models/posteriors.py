@@ -22,7 +22,7 @@ class Posteriors:
     ----------
     mission, target : str
     samples : pd.DataFrame
-        nested samples; columns num_planets * [C0_n, C1_n, ROR_n, IMPACT_n, DUR14_n]
+        nested samples; columns npl * [C0_n, C1_n, ROR_n, IMPACT_n, DUR14_n]
         + [LD_Q1, LD_Q2]
     ln_wt, ln_like, ln_z : ndarray
         log weight, log likelihood, and cumulative log evidence per sample

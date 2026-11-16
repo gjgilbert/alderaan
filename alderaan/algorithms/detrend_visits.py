@@ -40,27 +40,28 @@ class DetrendVisits(BaseAlg):
             return np.max([5 * np.max(self.durations), 91 * KEPLER_SCIT])
         if obsmode == "long cadence":
             return np.max([5 * np.max(self.durations), 13 * KEPLER_LCIT])
-        raise ValueError(f"unsuported obsmode: {obsmode}")
+        raise ValueError(f"unsupported obsmode: {obsmode}")
 
     @staticmethod
-    def _identify_breaks(cadno, flux, gap_tolerance, jump_tolerance, mask):
+    def _identify_breaks(cadno, flux, gap_tolerance_cadences, jump_tolerance, mask):
         """
         Identify gaps (breaks in times) and jumps (sudden flux changes) in a litecurve
             * GAPS are consecutive missing cadences in the TIME domain
             * JUMPS are large cadence-to-cadence FLUX variations
 
-        Arguments
-            gap_tolerance : int
-                number of cadences to be considered a (time) gap
-            jump_tolerance : float
-                sigma threshold for identifying (flux) jumps
-            mask : array-like, bool
-                1 near transit, 0 far from transit
+        Parameters
+        ----------
+        gap_tolerance_cadences : int
+            number of cadences to be considered a (time) gap
+        jump_tolerance : float
+            sigma threshold for identifying (flux) jumps
+        mask : array-like, bool
+            1 near transit, 0 far from transit
         """
         # identify GAPS in time
         gaps = np.pad(np.diff(cadno), (1, 0), "constant", constant_values=(1, 0))
         gap_locs = np.pad(
-            np.where(gaps > gap_tolerance)[0],
+            np.where(gaps > gap_tolerance_cadences)[0],
             (1, 1),
             "constant",
             constant_values=(0, len(gaps) + 1),
@@ -75,7 +76,7 @@ class DetrendVisits(BaseAlg):
         break_locs = np.sort(np.unique(np.hstack([gap_locs, jump_locs])))
 
         # fix edge behavior
-        bad = np.hstack([False, np.diff(break_locs) < gap_tolerance])
+        bad = np.hstack([False, np.diff(break_locs) < gap_tolerance_cadences])
         if bad[-1]:
             bad[-2:] = (True, False)
         break_locs = break_locs[~bad]
@@ -142,25 +143,27 @@ class DetrendVisits(BaseAlg):
         nominal_gp_period,
         minimum_gp_period,
         transit_mask,
-        gap_tolerance,
+        gap_tolerance_cadences,
         jump_tolerance,
         correct_ramp,
     ):
         """
         Fit a GP trend to one visit; returns the predicted trend (same length as time)
 
-        Arguments
-            time, flux, cadno : ndarray
-                cadence times, fluxes, and cadence numbers for one visit
-            visit : int
-                visit number (for logging)
-            gp_term : str "RotationTerm" or "SHOTerm"
-            nominal_gp_period : float
-            minimum_gp_period : float
-            transit_mask : ndarray
-            gap_tolerance : int
-            jump_tolerance : float
-            correct_ramp : bool
+        Parameters
+        ----------
+        time, flux, cadno : ndarray
+            cadence times, fluxes, and cadence numbers for one visit
+        visit : int
+            visit number (for logging)
+        gp_term : str
+            "RotationTerm" or "SHOTerm"
+        nominal_gp_period : float
+        minimum_gp_period : float
+        transit_mask : ndarray
+        gap_tolerance_cadences : int
+        jump_tolerance : float
+        correct_ramp : bool
         """
         # identify breaks (gaps in time, jumps in flux)
         # these will be used to identify contiguous "segments" of data
@@ -170,7 +173,7 @@ class DetrendVisits(BaseAlg):
         # gp parameters are shared between all segments
 
         break_locs = self._identify_breaks(
-            cadno, flux, gap_tolerance, jump_tolerance, transit_mask
+            cadno, flux, gap_tolerance_cadences, jump_tolerance, transit_mask
         )
 
         n_seg = len(break_locs) - 1
@@ -316,15 +319,15 @@ class DetrendVisits(BaseAlg):
         """
 
         if obsmode == "short cadence":
-            gap_tolerance = np.max(
+            gap_tolerance_cadences = np.max(
                 [int(np.min(self.durations) / KEPLER_SCIT * 5 / 2), 91]
             )
         elif obsmode == "long cadence":
-            gap_tolerance = np.max(
+            gap_tolerance_cadences = np.max(
                 [int(np.min(self.durations) / KEPLER_LCIT * 5 / 2), 13]
             )
         else:
-            raise ValueError(f"unsuported obsmode: {obsmode}")
+            raise ValueError(f"unsupported obsmode: {obsmode}")
 
         min_period = self._min_period(obsmode)
         mask = self._transit_mask(time, obsmode, tight_mask)
@@ -334,7 +337,7 @@ class DetrendVisits(BaseAlg):
             "tight" if tight_mask else "wide",
             np.sum(mask),
             len(mask),
-            gap_tolerance,
+            gap_tolerance_cadences,
         )
         if np.mean(mask) > 0.5:
             logger.warning(
@@ -354,7 +357,7 @@ class DetrendVisits(BaseAlg):
                 np.nanmedian(oscillation_periods),
                 min_period,
                 transit_mask=mask,
-                gap_tolerance=gap_tolerance,
+                gap_tolerance_cadences=gap_tolerance_cadences,
                 jump_tolerance=5.0,
                 correct_ramp=True,
             )
@@ -375,7 +378,7 @@ class DetrendVisits(BaseAlg):
                 np.nanmedian(oscillation_periods),
                 min_period,
                 transit_mask=mask,
-                gap_tolerance=gap_tolerance,
+                gap_tolerance_cadences=gap_tolerance_cadences,
                 jump_tolerance=5.0,
                 correct_ramp=False,
             )
@@ -395,7 +398,7 @@ class DetrendVisits(BaseAlg):
             np.nanmedian(oscillation_periods),
             min_period,
             transit_mask=mask,
-            gap_tolerance=gap_tolerance,
+            gap_tolerance_cadences=gap_tolerance_cadences,
             jump_tolerance=5.0,
             correct_ramp=False,
         )

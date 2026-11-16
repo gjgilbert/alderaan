@@ -26,17 +26,14 @@ class SampleTransitModel(BaseTransitFittingAlg):
     litecurve : LiteCurve
     """
 
-    def __init__(self, star, planets, litecurve):
-        super().__init__(star, planets, litecurve)
-
     @staticmethod
     def _prior_transform(uniform_hypercube, tm):
         """
-        Prior transform over physical ALDERAAN basis {C0, C1, r, b, T14}...{q1,q2}
+        Prior transform over physical ALDERAAN basis {C0, C1, ror, b, T14}...{q1,q2}
 
         Distributions are hard-coded to be:
             Normal on ephemeris perturbations {C0,C1}
-            Log-uniform on radius ratio r and transit duration T14
+            Log-uniform on radius ratio ror = Rp/Rs and transit duration T14
             Uniform on impact parameter b
             Uniform on quadratic limb darkening coefficients {q1,q2}
 
@@ -51,20 +48,20 @@ class SampleTransitModel(BaseTransitFittingAlg):
 
         Parameters
         ----------
-            uniform_hypercube : array-like, length 5 * N + 2
-                list of parameters N * [C0, C1, r, b, T14] + [q1, q2]
-            tm : TransitModel
-                transit model; planet durations set the T14 prior limits
+        uniform_hypercube : array-like, length 5 * npl + 2
+            list of parameters npl * [C0, C1, ror, b, T14] + [q1, q2]
+        tm : TransitModel
+            transit model; planet durations set the T14 prior limits
 
         Returns
         -------
-            transformed_hypercube : array_like, length 5 * N + 2
-                transformed samples
+        transformed_hypercube : array_like, length 5 * npl + 2
+            transformed samples
         """
         u = np.asarray(uniform_hypercube)  # U(0,1) priors
         x = np.zeros_like(u)  # physical priors
 
-        # 5 * npl + 2 parameters: [C0, C1, r, b, T14]...[q1, q2]
+        # 5 * npl + 2 parameters: [C0, C1, ror, b, T14]...[q1, q2]
         for n in range(tm.npl):
             x[5 * n + 0] = norm_ppf(u[0 + n * 5], 0.0, 0.1)
             x[5 * n + 1] = norm_ppf(u[1 + n * 5], 0.0, 0.1)
@@ -99,13 +96,12 @@ class SampleTransitModel(BaseTransitFittingAlg):
 
         return callback
 
-    def _sample(self, tm, checkpoint_file=None, checkpoint_every=60, progress_every=60):
+    def _sample(self, tm):
         ndim = 5 * tm.npl + 2
         logger.info(
             "dynesty DynamicNestedSampler: ndim = %d, bound = multi, sample = rwalk, "
-            "default nlive/dlogz, checkpoint = %s",
+            "default nlive/dlogz",
             ndim,
-            checkpoint_file,
         )
         sampler = dynesty.DynamicNestedSampler(
             self._ln_likelihood,
@@ -117,10 +113,8 @@ class SampleTransitModel(BaseTransitFittingAlg):
             ptform_args=(tm,),
         )
         sampler.run_nested(
-            checkpoint_file=checkpoint_file,
-            checkpoint_every=checkpoint_every,
             print_progress=True,
-            print_func=self._throttled_print_fn(progress_every),
+            print_func=self._throttled_print_fn(interval=60),
         )
 
         results = sampler.results
@@ -148,12 +142,12 @@ class SampleTransitModel(BaseTransitFittingAlg):
             )
 
         for n, p in enumerate(tm.planets):
-            r, b, T14 = (_q(5 * n + k) for k in (2, 3, 4))
+            ror, b, T14 = (_q(5 * n + k) for k in (2, 3, 4))
             logger.info(
                 "planet %d posterior (16/50/84): ror = %.4f/%.4f/%.4f, "
                 "b = %.3f/%.3f/%.3f, T14 = %.3f/%.3f/%.3f hr",
                 n,
-                *r,
+                *ror,
                 *b,
                 *(T14 * 24),
             )
@@ -182,9 +176,7 @@ class SampleTransitModel(BaseTransitFittingAlg):
         posteriors : Posteriors
         """
         tm = TransitModel(self.star, self.planets, self.litecurve)
-        tm.trim(
-            self.make_transit_mask(rel_size=3.0, abs_size=2 / 24, mask_type="condensed")
-        )
+        tm.trim(self.make_transit_mask(rel_size=3.0, abs_size=2 / 24))
 
         for obsmode in tm.unique_obsmodes:
             logger.info("supersample factor (%s): %d", obsmode, tm.supersample[obsmode])

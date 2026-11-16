@@ -7,14 +7,22 @@ class Planet:
     """
     Physical planet parameters plus one attached TransitTimes
 
-    Args:
-        mission, target (str)
-        period (float) : initial orbital period (days), e.g. from a catalog
-        epoch (float) : initial transit epoch
-        depth (float) : transit depth (fraction)
-        duration (float) : transit duration (days)
-        impact (float) : impact parameter
+    Parameters
+    ----------
+    mission, target : str
+    period : float
+        initial orbital period (days), e.g. from a catalog
+    epoch : float
+        initial transit epoch
+    depth : float
+        transit depth (fraction)
+    duration : float
+        transit duration (days)
+    impact : float
+        impact parameter
 
+    Notes
+    -----
     period and epoch are read-only; once transit times are attached they are the
     linear ephemeris fit to those transit times
     """
@@ -50,11 +58,14 @@ class Planet:
         """
         Attach transit times; the only way to change a planet's ephemeris
 
-        Args:
-            transit_times (TransitTimes)
+        Parameters
+        ----------
+        transit_times : TransitTimes
 
-        Raises:
-            ValueError : if the new period differs from the current one by >10%
+        Raises
+        ------
+        ValueError
+            if the new period differs from the current one by >10%
         """
         if not np.isclose(self.period, transit_times.period, rtol=0.1):
             raise ValueError(
@@ -72,17 +83,22 @@ class Planet:
         self.static_period = self.period
         self.static_epoch = self.epoch
 
-    def set_transit_shape(self, ror, impact, duration, depth):
+    def set_transit_shape(self, depth, duration, impact, ror):
         """
         Set transit shape parameters (e.g. from QuickFitTransitShape)
 
-        Args:
-            ror (float) : planet-to-star radius ratio
-            impact (float) : impact parameter
-            duration (float) : transit duration (days)
-            depth (float) : transit depth (fraction)
+        Parameters
+        ----------
+        depth : float
+            transit depth (fraction)
+        duration : float
+            transit duration (days)
+        impact : float
+            impact parameter
+        ror : float
+            planet-to-star radius ratio Rp/Rs
         """
-        self.ror = ror
-        self.impact = impact
-        self.duration = duration
         self.depth = depth
+        self.duration = duration
+        self.impact = impact
+        self.ror = ror
