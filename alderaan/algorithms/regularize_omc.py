@@ -183,20 +183,34 @@ class RegularizeOMC(BaseAlg):
         return model
 
     @staticmethod
-    def _sample(model, progressbar=False):
-        with model:
-            map_soln = pmx.optimize(
-                start=model.test_point, progress=progressbar, verbose=False
-            )
+    def _sample(model, name, progressbar=False):
+        """
+        MAP-initialized NUTS sampling of a PyMC3 model; RuntimeWarnings raised
+        during sampling are counted and logged at DEBUG under name
+        """
+        logger.debug("sampling %s model", name)
+        with warnings.catch_warnings(record=True) as catch:
+            warnings.simplefilter("always", category=RuntimeWarning)
+            with model:
+                map_soln = pmx.optimize(
+                    start=model.test_point, progress=progressbar, verbose=False
+                )
 
-            trace = pmx.sample(
-                tune=8000,
-                draws=2000,
-                chains=2,
-                target_accept=0.95,
-                start=map_soln,
-                progressbar=progressbar,
-                return_inferencedata=False,
+                trace = pmx.sample(
+                    tune=8000,
+                    draws=2000,
+                    chains=2,
+                    target_accept=0.95,
+                    start=map_soln,
+                    progressbar=progressbar,
+                    return_inferencedata=False,
+                )
+        if len(catch) > 0:
+            logger.debug(
+                "%s model: %d RuntimeWarnings during sampling (first: %s)",
+                name,
+                len(catch),
+                catch[0].message,
             )
         return trace
 
@@ -421,11 +435,7 @@ class RegularizeOMC(BaseAlg):
 
             pm.NormalMixture("obs", w, mu=mu * T.ones(2), tau=tau, observed=res)
 
-        with warnings.catch_warnings(record=True) as catch:
-            warnings.simplefilter("always", category=RuntimeWarning)
-            with model:
-                trace = RegularizeOMC._sample(model)
-        logger.debug("%d RuntimeWarnings during mixture model sampling", len(catch))
+        trace = RegularizeOMC._sample(model, "outlier mixture")
 
         # calculate foreground/background probability
         loc = np.nanmedian(trace["mu"], axis=0)
@@ -525,24 +535,10 @@ class RegularizeOMC(BaseAlg):
         traces = {}
         dofs = {}
 
-        def _sample_quietly(name, model):
-            logger.debug("sampling %s OMC model", name)
-            with warnings.catch_warnings(record=True) as catch:
-                warnings.simplefilter("always", category=RuntimeWarning)
-                trace = self._sample(model)
-            if len(catch) > 0:
-                logger.debug(
-                    "%s OMC model: %d RuntimeWarnings during sampling (first: %s)",
-                    name,
-                    len(catch),
-                    catch[0].message,
-                )
-            return trace
-
         # Matern-3/2 model | don't use GP on very noisy data
         if (npts >= 8) & (np.median(yerr) <= 0.5 * mad_std(yobs)):
-            traces["matern32"] = _sample_quietly(
-                "matern32", self._matern32_model(xtime, yobs, yerr, quality)
+            traces["matern32"] = self._sample(
+                self._matern32_model(xtime, yobs, yerr, quality), "matern32 OMC"
             )
             dofs["matern32"] = np.nanmedian(traces["matern32"]["dof"])
         else:
@@ -557,17 +553,17 @@ class RegularizeOMC(BaseAlg):
         # Polynomial model | require 2^N transits, at most do 3rd order
         max_polyorder = np.max([1, np.min([3, int(np.log2(npts)) - 1])])
         for polyorder in range(1, max_polyorder + 1):
-            traces[f"poly_{polyorder}"] = _sample_quietly(
-                f"poly_{polyorder}",
+            traces[f"poly_{polyorder}"] = self._sample(
                 self._poly_model(xtime, yobs, yerr, quality, polyorder),
+                f"poly_{polyorder} OMC",
             )
             dofs[f"poly_{polyorder}"] = 1 + polyorder
 
         # Sinusoidal model
         if npts >= 8 and freq is not None:
-            traces["sinusoid"] = _sample_quietly(
-                "sinusoid",
+            traces["sinusoid"] = self._sample(
                 self._sin_model(xtime, yobs, yerr, quality, ttv_period=1 / freq),
+                "sinusoid OMC",
             )
             dofs["sinusoid"] = 3
 

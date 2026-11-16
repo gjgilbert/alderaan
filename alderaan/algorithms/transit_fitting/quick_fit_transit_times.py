@@ -29,8 +29,8 @@ class QuickFitTransitTimes(BaseAlg):
     @staticmethod
     def _construct_template(tm, planet_no, obsmode, transit_window_size):
         """
-        Model transit template for one planet, from its period, ror, impact,
-        and duration
+        Model transit template for one planet, from its orbital period, ror,
+        impact, and duration
 
         Parameters
         ----------
@@ -65,6 +65,122 @@ class QuickFitTransitTimes(BaseAlg):
 
         return time_template, flux_template
 
+    @staticmethod
+    def _fit_one_transit(
+        tm, obsmode, tc, duration, transit_window_size, time_template, flux_template
+    ):
+        """
+        Cross-correlation fit of a single transit time
+
+        Slides the template across a grid of trial transit times, then fits a
+        parabola to chi-square near its minimum
+
+        Parameters
+        ----------
+        tm : TransitModel
+        obsmode : str
+            observing mode of this transit
+        tc : float
+            current transit time estimate
+        duration : float
+            planet transit duration (days)
+        transit_window_size : float
+            full width of the data window around tc (days)
+        time_template, flux_template : ndarray
+            model transit template for this planet and obsmode
+
+        Returns
+        -------
+        ttime, ttime_err : float
+            fitted transit time and its uncertainty; NaN if the fit was skipped
+        skip_reason : str or None
+            why the fit was skipped, or None on success
+        """
+        lc = tm.litecurve
+        exptime = EXPTIME[obsmode]
+        supersample = tm.supersample[obsmode]
+        exptime_ioff = tm.exptime_offsets[obsmode]
+
+        # STEP 0: pull data near a single transit
+        in_transit = np.abs(lc.time - tc) < duration / 2
+        in_window = np.abs(lc.time - tc) < transit_window_size / 2
+
+        if np.sum(in_transit) == 0:
+            return np.nan, np.nan, "no in-transit data"
+
+        _t = lc.time[in_window]
+        _f_obs = lc.flux[in_window]
+        _f_err = lc.error[in_window]
+
+        _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).ravel()
+
+        # remove any residual out-of-transit trend
+        use = ~in_transit[in_window]
+        if np.any(use):
+            _slope, _intercept = robust_polyfit(_t[use], _f_obs[use], 1)
+            _f_obs /= _intercept + _slope * _t
+
+        # STEP 1: generate tc_offset vs chisq vectors
+        gridstep = exptime / supersample / 1.618 / 3
+        tc_offset = np.arange(0, transit_window_size / 2, gridstep)
+        tc_offset = tc + np.hstack([-tc_offset[:-1][::-1], tc_offset])
+        chisq = np.zeros_like(tc_offset)
+
+        for j, tc_o in enumerate(tc_offset):
+            _f_mod = np.interp(_t_supersample - tc_o, time_template, flux_template)
+            _f_mod = bin_data(_t_supersample, _f_mod, exptime, bin_centers=_t)[1]
+
+            chisq[j] = np.sum(((_f_obs - _f_mod) / _f_err) ** 2)
+
+        # STEP 2: isolate relevant portions of {tc_offset, chisq} vectors
+        delta_chisq = 2.0
+
+        loop = True
+        while loop:
+            # grab data near chisq minimum
+            tc_fit = tc_offset[chisq < chisq.min() + delta_chisq]
+            x2_fit = chisq[chisq < chisq.min() + delta_chisq]
+
+            # eliminate points far from the local minimum
+            faraway = np.abs(tc_fit - np.median(tc_fit)) / np.median(
+                np.diff(tc_fit)
+            ) > 1 + 0.5 * len(tc_fit)
+
+            tc_fit = tc_fit[~faraway]
+            x2_fit = x2_fit[~faraway]
+
+            # check stopping conditions
+            if len(x2_fit) > 7:
+                loop = False
+            if delta_chisq >= 16:
+                loop = False
+
+            # increment chisq
+            delta_chisq *= np.sqrt(2)
+
+        # STEP 3: fit a parabola to local chisq minimum
+        if len(tc_fit) <= 3:
+            return np.nan, np.nan, "too few chisq points"
+
+        # polynomial fitting
+        quad_coeffs = robust_polyfit(tc_fit, x2_fit, 2)
+        quad_model = np.polyval(quad_coeffs, tc_fit)
+        qtc_min = -quad_coeffs[1] / (2 * quad_coeffs[0])
+
+        # transit time
+        _tti = np.nanmean([qtc_min, np.mean(tc_fit)])
+
+        # check that the fit is well-conditioned
+        convex_local_min = quad_coeffs[0] > 0
+        within_bounds = (_tti > tc_fit.min()) and (_tti < tc_fit.max())
+
+        if not (convex_local_min and within_bounds):
+            return np.nan, np.nan, "ill-conditioned"
+
+        # scaled error; sqrt is real only for a convex fit
+        qtc_err = np.sqrt(1 / quad_coeffs[0])
+        return _tti, qtc_err * (1 + np.std(x2_fit - quad_model)), None
+
     def _cross_correlation_times(
         self,
         tm,
@@ -75,13 +191,12 @@ class QuickFitTransitTimes(BaseAlg):
     ):
         """
         Fit transit times using the Mazeh+13 / Holczer+16 cross-correlation method
+
+        Overlapping transits are skipped; the data window around each transit is
+        rel_window_size * duration + abs_window_size_buffer (days) wide
         """
         # shorthand
-        lc = tm.litecurve
         p = tm.planets[planet_no]
-
-        ttime = np.full(len(p.transit_times.ttime_mod), np.nan)
-        ttime_err = np.full(len(p.transit_times.ttime_mod), np.nan)
 
         assert len(p.transit_times.ttime_mod) == len(overlap[planet_no]), (
             f"Mismatched sizes for ttime ({len(p.transit_times.ttime_mod)}) "
@@ -90,6 +205,18 @@ class QuickFitTransitTimes(BaseAlg):
 
         transit_obsmode = tm.transit_obsmode[planet_no]
         ntransit = len(p.transit_times.ttime_mod)
+        transit_window_size = rel_window_size * p.duration + abs_window_size_buffer
+
+        # one template per observing mode
+        templates = {
+            obsmode: self._construct_template(
+                tm, planet_no, obsmode, transit_window_size
+            )
+            for obsmode in tm.unique_obsmodes
+        }
+
+        ttime = np.full(ntransit, np.nan)
+        ttime_err = np.full(ntransit, np.nan)
         skipped = {
             "overlapping": int(np.sum(overlap[planet_no])),
             "no in-transit data": 0,
@@ -97,108 +224,21 @@ class QuickFitTransitTimes(BaseAlg):
             "ill-conditioned": 0,
         }
 
-        for obsmode in tm.unique_obsmodes:
-            exptime = EXPTIME[obsmode]
-            supersample = tm.supersample[obsmode]
-            exptime_ioff = tm.exptime_offsets[obsmode]
+        for i, tc in enumerate(p.transit_times.ttime_mod):
+            if overlap[planet_no][i]:
+                continue
 
-            transit_window_size = rel_window_size * p.duration + abs_window_size_buffer
-            time_template, flux_template = self._construct_template(
-                tm, planet_no, obsmode, transit_window_size
+            obsmode = transit_obsmode[i]
+            ttime[i], ttime_err[i], skip_reason = self._fit_one_transit(
+                tm,
+                obsmode,
+                tc,
+                p.duration,
+                transit_window_size,
+                *templates[obsmode],
             )
-
-            # primary loop for fitting transit times
-            for i, tc in enumerate(p.transit_times.ttime_mod):
-                if (not overlap[planet_no][i]) and (transit_obsmode[i] == obsmode):
-                    # STEP 0: pull data near a single transit
-                    in_transit = np.abs(lc.time - tc) < p.duration / 2
-                    in_window = np.abs(lc.time - tc) < transit_window_size / 2
-
-                    if np.sum(in_transit) == 0:
-                        skipped["no in-transit data"] += 1
-                    else:
-                        _t = lc.time[in_window]
-                        _f_obs = lc.flux[in_window]
-                        _f_err = lc.error[in_window]
-
-                        _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).ravel()
-
-                        # remove any residual out-of-transit trend
-                        use = ~in_transit[in_window]
-                        if np.any(use):
-                            _slope, _intercept = robust_polyfit(_t[use], _f_obs[use], 1)
-                            _f_obs /= _intercept + _slope * _t
-
-                        # STEP 1: generate tc_offset vs chisq vectors
-                        gridstep = exptime / supersample / 1.618 / 3
-                        tc_offset = np.arange(0, transit_window_size / 2, gridstep)
-                        tc_offset = tc + np.hstack([-tc_offset[:-1][::-1], tc_offset])
-                        chisq = np.zeros_like(tc_offset)
-
-                        for j, tc_o in enumerate(tc_offset):
-                            _f_mod = np.interp(
-                                _t_supersample - tc_o, time_template, flux_template
-                            )
-                            _f_mod = bin_data(
-                                _t_supersample, _f_mod, exptime, bin_centers=_t
-                            )[1]
-
-                            chisq[j] = np.sum(((_f_obs - _f_mod) / _f_err) ** 2)
-
-                        # STEP 2: isolate relevant portions of
-                        # {tc_offset, chisq} vectors
-                        delta_chisq = 2.0
-
-                        loop = True
-                        while loop:
-                            # grab data near chisq minimum
-                            tc_fit = tc_offset[chisq < chisq.min() + delta_chisq]
-                            x2_fit = chisq[chisq < chisq.min() + delta_chisq]
-
-                            # eliminate points far from the local minimum
-                            faraway = np.abs(tc_fit - np.median(tc_fit)) / np.median(
-                                np.diff(tc_fit)
-                            ) > 1 + 0.5 * len(tc_fit)
-
-                            tc_fit = tc_fit[~faraway]
-                            x2_fit = x2_fit[~faraway]
-
-                            # check stopping conditions
-                            if len(x2_fit) > 7:
-                                loop = False
-                            if delta_chisq >= 16:
-                                loop = False
-
-                            # increment chisq
-                            delta_chisq *= np.sqrt(2)
-
-                        # STEP 3: fit a parabola to local chisq minimum
-                        if len(tc_fit) <= 3:
-                            skipped["too few chisq points"] += 1
-                        else:
-                            # polynomial fitting
-                            quad_coeffs = robust_polyfit(tc_fit, x2_fit, 2)
-                            quad_model = np.polyval(quad_coeffs, tc_fit)
-                            qtc_min = -quad_coeffs[1] / (2 * quad_coeffs[0])
-
-                            # transit time
-                            _tti = np.nanmean([qtc_min, np.mean(tc_fit)])
-
-                            # check that the fit is well-conditioned
-                            convex_local_min = quad_coeffs[0] > 0
-                            within_bounds = (_tti > tc_fit.min()) and (
-                                _tti < tc_fit.max()
-                            )
-
-                            if convex_local_min and within_bounds:
-                                # scaled error; sqrt is real only for a convex fit
-                                qtc_err = np.sqrt(1 / quad_coeffs[0])
-                                ttime[i] = _tti
-                                ttime_err[i] = qtc_err * (
-                                    1 + np.std(x2_fit - quad_model)
-                                )
-                            else:
-                                skipped["ill-conditioned"] += 1
+            if skip_reason is not None:
+                skipped[skip_reason] += 1
 
         nfit = int(np.sum(~np.isnan(ttime)))
         logger.info(

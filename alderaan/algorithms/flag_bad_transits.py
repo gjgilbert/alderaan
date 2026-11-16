@@ -66,14 +66,9 @@ class FlagBadTransits(BaseAlg):
 
         return quality
 
-    def _check_rms(self, rel_size=None, abs_size=None, sigma_cut=5.0):
-        if (rel_size is None) and (abs_size is None):
-            raise ValueError("either rel_size or abs_size must be provided")
-
-        if rel_size is None:
-            rel_size = 0.0
-        if abs_size is None:
-            abs_size = 0.0
+    def _check_rms(self, rel_size=0.0, abs_size=0.0, sigma_cut=5.0):
+        if rel_size == 0 and abs_size == 0:
+            raise ValueError("either rel_size or abs_size must be nonzero")
 
         lc = self.litecurve
 

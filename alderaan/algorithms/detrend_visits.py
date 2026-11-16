@@ -35,7 +35,11 @@ class DetrendVisits(BaseAlg):
 
         self.durations = np.array([p.duration for p in self.planets])
 
-    def _min_period(self, obsmode):
+    def _min_oscillation_period(self, obsmode):
+        """
+        Floor on the stellar oscillation period (days): 5 x the longest planet
+        transit duration, or a fixed number of cadences, whichever is longer
+        """
         if obsmode == "short cadence":
             return np.max([5 * np.max(self.durations), 91 * EXPTIME["short cadence"]])
         if obsmode == "long cadence":
@@ -88,18 +92,18 @@ class DetrendVisits(BaseAlg):
         return break_locs
 
     @staticmethod
-    def _estimate_oscillation_period(time, flux, min_period):
+    def _estimate_oscillation_period(time, flux, min_oscillation_period):
         lombscargle = LombScargle(time, flux)
 
         min_freq = 1 / (time.max() - time.min())
-        max_freq = 1 / min_period
+        max_freq = 1 / min_oscillation_period
 
         xf, yf = lombscargle.autopower(
             minimum_frequency=min_freq, maximum_frequency=max_freq
         )
 
         peak_freq = xf[np.argmax(yf)]
-        peak_per = np.max([1.0 / peak_freq, 1.001 * min_period])
+        peak_per = np.max([1.0 / peak_freq, 1.001 * min_oscillation_period])
 
         return peak_per
 
@@ -109,15 +113,15 @@ class DetrendVisits(BaseAlg):
         oscillation_periods = np.zeros(len(visits))
         for j, v in enumerate(visits):
             use = lc.visit == v
-            min_period = self._min_period(lc.obsmode[use][0])
+            min_oscillation_period = self._min_oscillation_period(lc.obsmode[use][0])
             oscillation_periods[j] = self._estimate_oscillation_period(
-                lc.time[use], lc.flux[use], min_period
+                lc.time[use], lc.flux[use], min_oscillation_period
             )
             logger.debug(
                 "visit %d: Lomb-Scargle oscillation period %.2f d (floor %.2f d)",
                 v,
                 oscillation_periods[j],
-                1.001 * min_period,
+                1.001 * min_oscillation_period,
             )
 
         osc_per_mu = np.nanmedian(oscillation_periods)
@@ -159,7 +163,9 @@ class DetrendVisits(BaseAlg):
         gp_term : str
             "RotationTerm" or "SHOTerm"
         nominal_gp_period : float
+            nominal stellar oscillation period (days); centers the GP period prior
         minimum_gp_period : float
+            floor on the GP (stellar oscillation) period (days)
         transit_mask : ndarray
         gap_tolerance_cadences : int
         jump_tolerance : float
@@ -289,7 +295,8 @@ class DetrendVisits(BaseAlg):
         if info is not None and not info.success:
             logger.debug("visit %d: %s GP optimizer: %s", visit, gp_term, info.message)
         logger.info(
-            "visit %d: %s GP, %d segments, ramp = %s, P = %.2f d (nominal %.2f d), "
+            "visit %d: %s GP, %d segments, ramp = %s, oscillation P = %.2f d "
+            "(nominal %.2f d), "
             "Q0 = %.2f, sigma = %.2e",
             visit,
             gp_term,
@@ -310,12 +317,15 @@ class DetrendVisits(BaseAlg):
         cadno,
         visit,
         obsmode,
-        oscillation_periods,
+        nominal_oscillation_period,
         tight_mask,
     ):
         """
         Detrend one visit, falling back to successively simpler GP models;
         returns the predicted trend (same length as time)
+
+        nominal_oscillation_period is the stellar oscillation period (days)
+        shared by all visits
         """
 
         if obsmode == "short cadence":
@@ -329,7 +339,7 @@ class DetrendVisits(BaseAlg):
         else:
             raise ValueError(f"unsupported obsmode: {obsmode}")
 
-        min_period = self._min_period(obsmode)
+        min_oscillation_period = self._min_oscillation_period(obsmode)
         mask = self._transit_mask(time, obsmode, tight_mask)
         logger.debug(
             "visit %d: %s transit mask covers %d of %d cadences; gap tolerance = %d",
@@ -354,8 +364,8 @@ class DetrendVisits(BaseAlg):
                 cadno,
                 visit,
                 "RotationTerm",
-                np.nanmedian(oscillation_periods),
-                min_period,
+                nominal_oscillation_period,
+                min_oscillation_period,
                 transit_mask=mask,
                 gap_tolerance_cadences=gap_tolerance_cadences,
                 jump_tolerance=5.0,
@@ -375,8 +385,8 @@ class DetrendVisits(BaseAlg):
                 cadno,
                 visit,
                 "RotationTerm",
-                np.nanmedian(oscillation_periods),
-                min_period,
+                nominal_oscillation_period,
+                min_oscillation_period,
                 transit_mask=mask,
                 gap_tolerance_cadences=gap_tolerance_cadences,
                 jump_tolerance=5.0,
@@ -395,8 +405,8 @@ class DetrendVisits(BaseAlg):
             cadno,
             visit,
             "SHOTerm",
-            np.nanmedian(oscillation_periods),
-            min_period,
+            nominal_oscillation_period,
+            min_oscillation_period,
             transit_mask=mask,
             gap_tolerance_cadences=gap_tolerance_cadences,
             jump_tolerance=5.0,
@@ -422,7 +432,9 @@ class DetrendVisits(BaseAlg):
         lc = self.litecurve
         visits = np.unique(lc.visit)
 
+        # one stellar oscillation period per visit; all visits share the median
         oscillation_periods = self._estimate_oscillation_periods(lc)
+        nominal_oscillation_period = np.nanmedian(oscillation_periods)
 
         for v in visits:
             use = lc.visit == v
@@ -432,7 +444,7 @@ class DetrendVisits(BaseAlg):
                 lc.cadno[use],
                 v,
                 lc.obsmode[use][0],
-                oscillation_periods,
+                nominal_oscillation_period,
                 tight_mask,
             )
             lc.flux[use] /= pred

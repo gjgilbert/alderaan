@@ -68,7 +68,7 @@ class BaseAlg:
         self.planets = deepcopy(planets)
         self.star = deepcopy(star)
 
-    def make_transit_mask(self, rel_size=None, abs_size=None, time=None):
+    def make_transit_mask(self, rel_size=0.0, abs_size=0.0, time=None):
         """
         Mask cadences near a transit of any planet
 
@@ -88,13 +88,8 @@ class BaseAlg:
         mask : ndarray, bool
             True for cadences near a transit of any planet
         """
-        if (rel_size is None) & (abs_size is None):
-            raise ValueError("either rel_size or abs_size must be provided")
-
-        if rel_size is None:
-            rel_size = 0.0
-        if abs_size is None:
-            abs_size = 0.0
+        if rel_size == 0 and abs_size == 0:
+            raise ValueError("either rel_size or abs_size must be nonzero")
 
         if time is None:
             time = self.litecurve.time
