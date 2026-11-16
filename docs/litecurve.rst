@@ -3,6 +3,5 @@
 Litecurve
 =========
 
-.. automodule:: alderaan.litecurve
+.. automodule:: alderaan.data_models.litecurve
    :members:
-   

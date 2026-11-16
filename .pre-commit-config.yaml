@@ -1,0 +1,32 @@
+# Pre-commit hooks: Ruff (format + lint) plus standard safety hooks.
+# One-time setup:  pre-commit install
+# Run on all files: pre-commit run --all-files
+# Ruff config (line length, rules, excludes) lives in pyproject.toml [tool.ruff].
+exclude: '^legacy/'
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.17
+    hooks:
+      # Ruff scope: the pipeline package, its tests, and tools/.
+      - id: ruff-check
+        args: [--fix]
+        types_or: [file]
+        files: ^(alderaan|tests|tools)/.*\.py$
+      - id: ruff-format
+        types_or: [file]
+        files: ^(alderaan|tests|tools)/.*\.py$
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # Externally-sourced data that must not be reformatted: catalogs/ directories.
+      - id: trailing-whitespace
+        exclude: '/catalogs/'
+      - id: end-of-file-fixer
+        exclude: '/catalogs/'
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1000]

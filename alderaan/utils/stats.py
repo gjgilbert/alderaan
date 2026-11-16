@@ -1,11 +1,20 @@
-__all__ = ['uniform_ppf',
-           'loguniform_ppf',
-           'norm_ppf',
-           'set_sigma_cutoff',
-           ]
+"""Statistical helpers: ppf transforms, robust fits, sigma cutoffs, binning, R-hat"""
+
+__all__ = [
+    "uniform_ppf",
+    "loguniform_ppf",
+    "norm_ppf",
+    "sigma_cutoff",
+    "robust_polyfit",
+    "weighted_percentile",
+    "bin_data",
+    "legendre_p1",
+    "split_rhat",
+]
 
 
 import numpy as np
+from numpy.polynomial import Legendre, Polynomial
 from scipy.special import erfinv
 from scipy.stats import norm as scipy_norm
 
@@ -14,13 +23,19 @@ def uniform_ppf(u, a, b):
     """
     Transform from U(0,1) --> Uniform(a,b)
 
-    Args:
-        u (array-like) : samples from standard uniform distribution U(0,1)
-        a (float) : lower bound on transformed distribution U(a,b)
-        b (float) : upper bound on transformed distribution U(a,b)
+    Parameters
+    ----------
+    u : array-like
+        samples from standard uniform distribution U(0,1)
+    a : float
+        lower bound on transformed distribution U(a,b)
+    b : float
+        upper bound on transformed distribution U(a,b)
 
-    Returns:
-        array-like : transformed samples from uniform distribution
+    Returns
+    -------
+    x : array-like
+        transformed samples from uniform distribution
     """
     return u * (b - a) + a
 
@@ -29,13 +44,19 @@ def loguniform_ppf(u, a, b):
     """
     Transform from U(0,1) --> LogUniform(a,b)
 
-    Args:
-        u (array-like) : samples from standard uniform distribution U(0,1)
-        a (float) : lower bound on transformed distribution lnU(a,b)
-        b (float) : upper bound on transformed distribution lnU(a,b)
+    Parameters
+    ----------
+    u : array-like
+        samples from standard uniform distribution U(0,1)
+    a : float
+        lower bound on transformed distribution lnU(a,b)
+    b : float
+        upper bound on transformed distribution lnU(a,b)
 
-    Returns:
-        x (array-like) : transformed samples from log-uniform distribution
+    Returns
+    -------
+    x : array-like
+        transformed samples from log-uniform distribution
     """
     return np.exp(u * np.log(b) + (1 - u) * np.log(a))
 
@@ -44,25 +65,183 @@ def norm_ppf(u, mu, sig, eps=1e-12):
     """
     Transform from U(0,1) --> Normal(mu,sig)
 
-    Args:
-        u (array-like) : samples from standard uniform distribution U(0,1)
-        mu (float) : mean of transformed distribution N(mu,sig)
-        sig (float) : standard deviation of transformed distribution N(mu,sig)
-        eps (float) : provides numerical stability in the inverse error function at edges
+    Parameters
+    ----------
+    u : array-like
+        samples from standard uniform distribution U(0,1)
+    mu : float
+        mean of transformed distribution N(mu,sig)
+    sig : float
+        standard deviation of transformed distribution N(mu,sig)
+    eps : float
+        numerical stability in the inverse error function at the edges
 
     Returns
     -------
-        array-like : transformed samples from Normal distribution
+    x : array-like
+        transformed samples from Normal distribution
     """
     return mu + sig * np.sqrt(2) * erfinv((2 * u - 1) / (1 + eps))
 
 
-def set_sigma_cutoff(npts, sigma_min=3.0):
+def sigma_cutoff(npts, sigma_min=3.0):
     """
-    Set sigma cutoff such that not even one outlier is expected if distribution is normal
+    Set sigma cutoff such that not even one outlier is expected
+    if distribution is normal
 
-    Args:
-        npts (int) : number of points
-        sigma_min (float) : minimum sigma cutoff, default=3.0
+    Parameters
+    ----------
+    npts : int
+        number of points
+    sigma_min : float
+        minimum sigma cutoff (default = 3.0)
     """
     return np.max([sigma_min, scipy_norm.interval((npts - 1) / npts)[1]])
+
+
+def robust_polyfit(x, y, deg):
+    """
+    Drop-in replacement for np.polyfit(x, y, deg) that solves the least squares fit
+    in a Legendre basis over the span of x, which stays well conditioned where the
+    power-basis Vandermonde matrix does not
+
+    Parameters
+    ----------
+    x : ndarray
+        independent variable
+    y : ndarray
+        dependent variable, shape (M,) or (M, K)
+    deg : int
+        degree of the fitted polynomial
+
+    Returns
+    -------
+    coeffs : ndarray
+        power-basis coefficients, highest order first (same as np.polyfit);
+        shape (deg + 1,) or (deg + 1, K)
+    """
+    y = np.asarray(y)
+    if y.ndim == 2:
+        return np.column_stack([robust_polyfit(x, yk, deg) for yk in y.T])
+
+    series = Legendre.fit(x, y, deg)
+
+    # convert() trims trailing zero coefficients; np.polyfit always returns deg + 1
+    coeffs = np.zeros(deg + 1)
+    converted = series.convert(kind=Polynomial).coef
+    coeffs[: converted.size] = converted
+
+    return coeffs[::-1]
+
+
+def weighted_percentile(a, q, w=None):
+    """
+    Compute the q-th percentile of data array a, with optional weights w
+
+    Similar to np.percentile, but allows for weights (not axis-wise)
+
+    Parameters
+    ----------
+    a : array-like
+        data
+    q : float or array-like
+        percentile(s) in [0, 100]
+    w : array-like
+        optional weights, same length as a
+
+    Returns
+    -------
+    percentile : float or ndarray
+        percentile value(s)
+    """
+    a = np.asarray(a)
+    q = np.asarray(q)
+
+    if w is None:
+        return np.percentile(a, q)
+
+    if not (np.all(q >= 0) and np.all(q <= 100)):
+        raise ValueError("quantiles should be in [0, 100]")
+
+    order = np.argsort(a)
+    a = a[order]
+    w = np.asarray(w)[order]
+
+    weighted_quantiles = np.cumsum(w) - 0.5 * w
+    weighted_quantiles -= weighted_quantiles[0]
+    weighted_quantiles /= weighted_quantiles[-1]
+
+    return np.interp(q / 100.0, weighted_quantiles, a)
+
+
+def bin_data(time, data, binsize, bin_centers=None):
+    """Bin a 1D timeseries data array
+
+    If bin_centers is not provided, bins will be linearly spaced
+    between (time.min(),time.max())
+
+    Parameters
+    ----------
+    time : ndarray
+        time values
+    data : ndarray
+        corresponding data to be binned
+    binsize : float
+        bin size for output data, in same units as time
+    bin_centers : ndarray
+        (optional) pre-defined bin centers
+
+    Returns
+    -------
+    bin_centers : ndarray
+    binned_data : ndarray
+    """
+    if bin_centers is None:
+        bin_centers = np.hstack(
+            [
+                np.arange(time.mean(), time.min() - binsize / 2, -binsize)[::-1],
+                np.arange(time.mean(), time.max() + binsize / 2, binsize)[1:],
+            ]
+        )
+
+    binned_data = np.zeros(len(bin_centers))
+    for i, t0 in enumerate(bin_centers):
+        binned_data[i] = np.mean(data[np.abs(time - t0) < binsize / 2])
+
+    return bin_centers, binned_data
+
+
+def legendre_p1(x, domain):
+    """
+    First Legendre polynomial P1 of x, with domain (x_min, x_max) mapped onto
+    the Legendre window [-1, 1] (numpy convention): x_min -> -1, x_max -> +1
+
+    Parameters
+    ----------
+    x : array-like
+    domain : (float, float)
+
+    Returns
+    -------
+    ndarray
+    """
+    return Legendre.basis(1, domain=domain)(x)
+
+
+def split_rhat(draws):
+    """
+    Split R-hat of a single chain: first vs second half of the draws
+
+    Parameters
+    ----------
+    draws : ndarray, shape (ndraw, nparam)
+
+    Returns
+    -------
+    rhat : ndarray, shape (nparam,)
+    """
+    m = len(draws) // 2
+    halves = np.stack([draws[:m], draws[m : 2 * m]])
+    within = halves.var(axis=1, ddof=1).mean(axis=0)
+    between = halves.mean(axis=1).var(axis=0, ddof=1)
+    return np.sqrt(((m - 1) / m * within + between) / within)

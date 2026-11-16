@@ -1,10 +1,9 @@
-.. module:: alderaan.utils.io:
+.. _utils.astro:
 
 astro
 =====
 
-Utility functions for common astronomical calculations 
+Utility functions for common astronomical calculations
 
 .. automodule:: alderaan.utils.astro
    :members:
-   

@@ -136,3 +136,7 @@ temp*
 
 # line profiler
 *.lprof
+tests/profiling/reports/
+
+# local scratch notes
+notes/

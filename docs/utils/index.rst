@@ -5,5 +5,8 @@ utils
    :maxdepth: 1
 
    astro
-   io
-   
+   kepler
+   logger
+   optimize
+   plotting
+   stats
