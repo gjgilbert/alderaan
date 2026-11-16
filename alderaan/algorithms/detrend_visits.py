@@ -49,9 +49,14 @@ class DetrendVisits(BaseAlg):
     @staticmethod
     def _identify_breaks(cadno, flux, gap_tolerance_cadences, jump_tolerance, mask):
         """
-        Identify gaps (breaks in times) and jumps (sudden flux changes) in a litecurve
+        Split a visit into contiguous segments at gaps (breaks in times) and jumps
+        (sudden flux changes); returns an integer segment ID (0..n_seg-1) per cadence
             * GAPS are consecutive missing cadences in the TIME domain
-            * JUMPS are large cadence-to-cadence FLUX variations
+            * JUMPS are large cadence-to-cadence FLUX variations outside the mask
+        Breaks closer than gap_tolerance_cadences to the previous candidate or the
+        end are dropped. A segment with no unmasked cadences is merged into the
+        preceding segment (leading ones into the first segment with unmasked
+        cadences), with a warning.
 
         Parameters
         ----------
@@ -59,37 +64,37 @@ class DetrendVisits(BaseAlg):
             number of cadences to be considered a (time) gap
         jump_tolerance : float
             sigma threshold for identifying (flux) jumps
-        mask : array-like, bool
-            1 near transit, 0 far from transit
+        mask : ndarray, bool
+            True near transit
         """
-        # identify GAPS in time
-        gaps = np.pad(np.diff(cadno), (1, 0), "constant", constant_values=(1, 0))
-        gap_locs = np.pad(
-            np.where(gaps > gap_tolerance_cadences)[0],
-            (1, 1),
-            "constant",
-            constant_values=(0, len(gaps) + 1),
-        )
+        # first cadence after each GAP in time
+        gap_locs = np.where(np.diff(cadno) > gap_tolerance_cadences)[0] + 1
 
-        # identify JUMPS in flux
+        # first cadence after each JUMP in flux
         jumps = np.pad(np.diff(flux), (1, 0), "constant", constant_values=(0, 0))
         jump_size = np.abs(jumps - np.median(jumps)) / mad_std(jumps)
-        jump_locs = np.where(~mask.astype(bool) & (jump_size > jump_tolerance))[0]
+        jump_locs = np.where(~mask & (jump_size > jump_tolerance))[0]
 
-        # combine breaks
-        break_locs = np.sort(np.unique(np.hstack([gap_locs, jump_locs])))
+        # candidate segment starts; drop those too close to the previous or the end
+        starts = np.unique(np.hstack([gap_locs, jump_locs]))
+        starts = starts[(starts > 0) & (starts < len(cadno))]
+        too_close = np.diff(np.hstack([0, starts])) < gap_tolerance_cadences
+        if len(starts) and len(cadno) - starts[-1] < gap_tolerance_cadences:
+            too_close[-1] = True
+        seg_start = np.zeros(len(cadno), dtype=bool)
+        seg_start[starts[~too_close]] = True
+        seg_id = np.cumsum(seg_start)
 
-        # fix edge behavior
-        bad = np.hstack([False, np.diff(break_locs) < gap_tolerance_cadences])
-        if bad[-1]:
-            bad[-2:] = (True, False)
-        break_locs = break_locs[~bad]
-        break_locs[-1] -= 2
+        # a segment with no unmasked cadences is unconstrained; merge it
+        has_oot = np.bincount(seg_id, weights=~mask) > 0
+        if not has_oot.all():
+            logger.warning(
+                "merging %d fully masked segment(s) into a neighbor",
+                np.sum(~has_oot),
+            )
+            seg_id = np.cumsum(has_oot & (np.cumsum(has_oot) > 1))[seg_id]
 
-        assert break_locs[0] == 0, "unexpected edge behavior"
-        assert break_locs[-1] == len(cadno) - 1, "unexpected edge behavior"
-
-        return break_locs
+        return seg_id
 
     @staticmethod
     def _estimate_oscillation_period(time, flux, min_oscillation_period):
@@ -137,6 +142,19 @@ class DetrendVisits(BaseAlg):
 
         return oscillation_periods
 
+    @staticmethod
+    def _mean_fxn(time, seg_id, seg_t0, flux0, ramp_amp, log_tau):
+        """
+        GP mean: per-segment baseline flux0 x (1 + exponential ramp), the ramp
+        starting at seg_t0 (segment start time from all cadences, so the mean is
+        the same whichever cadences it is evaluated on)
+        """
+        return flux0[seg_id] * (
+            1
+            + ramp_amp[seg_id]
+            * T.exp(-(time - seg_t0[seg_id]) / T.exp(log_tau[seg_id]))
+        )
+
     def _detrend_gp(
         self,
         time,
@@ -178,36 +196,16 @@ class DetrendVisits(BaseAlg):
         # for each segment
         # gp parameters are shared between all segments
 
-        break_locs = self._identify_breaks(
+        seg_id = self._identify_breaks(
             cadno, flux, gap_tolerance_cadences, jump_tolerance, transit_mask
         )
-
-        n_seg = len(break_locs) - 1
-        seg_id = np.zeros(len(time), dtype=int)
-
-        for i in range(n_seg):
-            seg_id[break_locs[i] : break_locs[i + 1]] = i
-        # break_locs[-1] is the last cadence, which belongs to the last segment
-        seg_id[break_locs[-1]] = n_seg - 1
+        n_seg = seg_id.max() + 1
+        # ramp origin per segment, from all cadences, so fit and prediction agree
+        seg_t0 = np.array([time[seg_id == i].min() for i in range(n_seg)])
 
         # priors from out-of-transit cadences only, as in the likelihood
         oot = ~transit_mask
         approx_mean = [np.mean(flux[oot & (seg_id == i)]) for i in range(n_seg)]
-
-        # convenience function
-        def _mean_fxn(time, seg_id, flux0, ramp_amp, log_tau):
-            nseg = len(np.unique(seg_id))
-            mean = T.zeros(len(time))
-
-            for i in range(nseg):
-                t_min = time[seg_id == i].min()
-                mean += (
-                    flux0[i]
-                    * (1 + ramp_amp[i] * T.exp(-(time - t_min) / T.exp(log_tau[i])))
-                    * (seg_id == i)
-                )
-
-            return mean
 
         # pymc model
         with pm.Model() as model:
@@ -251,10 +249,13 @@ class DetrendVisits(BaseAlg):
             # set up the gp
             mean_oot = pm.Deterministic(
                 "mean_oot",
-                _mean_fxn(time[oot], seg_id[oot], flux0, ramp_amp, log_tau),
+                self._mean_fxn(
+                    time[oot], seg_id[oot], seg_t0, flux0, ramp_amp, log_tau
+                ),
             )
             mean_all = pm.Deterministic(
-                "mean_all", _mean_fxn(time, seg_id, flux0, ramp_amp, log_tau)
+                "mean_all",
+                self._mean_fxn(time, seg_id, seg_t0, flux0, ramp_amp, log_tau),
             )
             log_var = pm.Normal(
                 "log_var",
@@ -378,61 +379,32 @@ class DetrendVisits(BaseAlg):
             )
 
         # use successively simpler models as fallbacks
-        try:
-            return self._detrend_gp(
-                time,
-                flux,
-                cadno,
-                visit,
-                "RotationTerm",
-                nominal_oscillation_period,
-                min_oscillation_period,
-                transit_mask=mask,
-                gap_tolerance_cadences=gap_tolerance_cadences,
-                jump_tolerance=5.0,
-                correct_ramp=True,
-            )
-        except LinAlgError as e:
-            logger.warning(
-                "visit %d: RotationTerm GP with ramp failed (%s); refitting w/o ramp",
-                visit,
-                e,
-            )
-
-        try:
-            return self._detrend_gp(
-                time,
-                flux,
-                cadno,
-                visit,
-                "RotationTerm",
-                nominal_oscillation_period,
-                min_oscillation_period,
-                transit_mask=mask,
-                gap_tolerance_cadences=gap_tolerance_cadences,
-                jump_tolerance=5.0,
-                correct_ramp=False,
-            )
-        except LinAlgError as e:
-            logger.warning(
-                "visit %d: RotationTerm GP failed (%s); falling back to SHOTerm",
-                visit,
-                e,
-            )
-
-        return self._detrend_gp(
-            time,
-            flux,
-            cadno,
-            visit,
-            "SHOTerm",
-            nominal_oscillation_period,
-            min_oscillation_period,
-            transit_mask=mask,
-            gap_tolerance_cadences=gap_tolerance_cadences,
-            jump_tolerance=5.0,
-            correct_ramp=False,
-        )
+        models = [("RotationTerm", True), ("RotationTerm", False), ("SHOTerm", False)]
+        for gp_term, correct_ramp in models:
+            try:
+                return self._detrend_gp(
+                    time,
+                    flux,
+                    cadno,
+                    visit,
+                    gp_term,
+                    nominal_oscillation_period,
+                    min_oscillation_period,
+                    transit_mask=mask,
+                    gap_tolerance_cadences=gap_tolerance_cadences,
+                    jump_tolerance=5.0,
+                    correct_ramp=correct_ramp,
+                )
+            except LinAlgError as e:
+                if (gp_term, correct_ramp) == models[-1]:
+                    raise
+                logger.warning(
+                    "visit %d: %s GP (ramp = %s) failed (%s); trying a simpler model",
+                    visit,
+                    gp_term,
+                    correct_ramp,
+                    e,
+                )
 
     def perform(self, method):
         """

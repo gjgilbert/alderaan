@@ -1,9 +1,9 @@
 """
 Tests for alderaan/algorithms/detrend_visits.py
 
-Fast tier: break identification, Lomb-Scargle period estimate, method check.
-Slow tier: GP detrending of a synthetic two-visit litecurve with a slow stellar
-trend, a data gap, and injected transits.
+Fast tier: segment identification, Lomb-Scargle period estimate, method check.
+Slow tier: GP mean function ramp origin; GP detrending of a synthetic two-visit
+litecurve with a slow stellar trend, a data gap, and injected transits.
 """
 
 import copy
@@ -93,19 +93,41 @@ class TestIdentifyBreaks:
     def test_time_gap_splits_segments(self):
         cadno, flux, mask = self._series()
         cadno[500:] += 50
-        breaks = DetrendVisits._identify_breaks(cadno, flux, 13, 5.0, mask)
-        np.testing.assert_array_equal(breaks, [0, 500, len(cadno) - 1])
+        seg_id = DetrendVisits._identify_breaks(cadno, flux, 13, 5.0, mask)
+        np.testing.assert_array_equal(seg_id, np.arange(len(cadno)) >= 500)
 
     def test_flux_jump_splits_segments_outside_transit_mask_only(self):
         cadno, flux, mask = self._series()
         flux[300:] += 0.01
 
-        breaks = DetrendVisits._identify_breaks(cadno, flux, 13, 5.0, mask)
-        np.testing.assert_array_equal(breaks, [0, 300, len(cadno) - 1])
+        seg_id = DetrendVisits._identify_breaks(cadno, flux, 13, 5.0, mask)
+        np.testing.assert_array_equal(seg_id, np.arange(len(cadno)) >= 300)
 
         mask[295:305] = True
-        breaks = DetrendVisits._identify_breaks(cadno, flux, 13, 5.0, mask)
-        np.testing.assert_array_equal(breaks, [0, len(cadno) - 1])
+        seg_id = DetrendVisits._identify_breaks(cadno, flux, 13, 5.0, mask)
+        assert not seg_id.any()
+
+    def test_fully_masked_segment_merges_into_previous(self, caplog):
+        cadno, flux, mask = self._series()
+        cadno[500:] += 50
+        cadno[530:] += 50
+        mask[500:530] = True
+        seg_id = DetrendVisits._identify_breaks(cadno, flux, 13, 5.0, mask)
+        np.testing.assert_array_equal(seg_id, np.arange(len(cadno)) >= 530)
+        assert "fully masked" in caplog.text
+
+
+class TestMeanFunction:
+    @pytest.mark.slow
+    def test_ramp_origin_independent_of_evaluated_cadences(self):
+        # segment 1 starts at t=10; drop its first cadences, as a transit mask would
+        time = np.arange(20.0)
+        seg_id = (time >= 10).astype(int)
+        args = (np.array([0.0, 10.0]), np.ones(2), np.full(2, 0.1), np.zeros(2))
+        oot = (time < 10) | (time > 12)
+        full = DetrendVisits._mean_fxn(time, seg_id, *args).eval()
+        sub = DetrendVisits._mean_fxn(time[oot], seg_id[oot], *args).eval()
+        np.testing.assert_allclose(sub, full[oot])
 
 
 class TestOscillationPeriod:
