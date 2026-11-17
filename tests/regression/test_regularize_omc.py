@@ -102,14 +102,13 @@ class TestSelectBestModel:
         results = {}
         for k, pred in preds.items():
             _, _, lnlike = RegularizeOMC._calculate_outlier_probability(
-                yobs, pred, yerr
+                yobs, yerr, pred
             )
-            keep = np.ones(len(yobs), dtype=bool)
+            good_mix = np.ones(len(yobs), dtype=bool)
             results[k] = {
                 "pred": pred,
-                "keep": keep,
+                "good_mix": good_mix,
                 "lnlike": lnlike,
-                "nchange": 0,
                 "dof": dofs[k],
             }
         return results
@@ -155,7 +154,7 @@ class TestSelectBestModel:
 def _contaminated_line(seed=1):
     """
     Linear OMC with 1 min white noise; 15% of transits late by 4-8 min, mostly
-    inside the 5 sigma screen; returns (xtime, yobs, yerr, truth, bad)
+    inside the 5 sigma clip; returns (xtime, yobs, yerr, truth, bad)
     """
     rng = np.random.default_rng(seed)
     xtime = np.arange(300) * PERIOD
@@ -167,28 +166,27 @@ def _contaminated_line(seed=1):
     return xtime, yobs, yerr, truth, bad
 
 
-def _poly_fits(xtime, yobs, yerr, screen, orders=(1, 2, 3)):
+def _poly_fits(xtime, yobs, yerr, good_clip, orders=(1, 2, 3)):
     results = {}
     for k in orders:
         results[f"poly_{k}"] = RegularizeOMC._fit_with_rejection(
-            lambda q, k=k: RegularizeOMC._poly_model(xtime, yobs, yerr, q, k),
             yobs,
             yerr,
-            screen,
+            good_clip,
+            lambda mask, k=k: RegularizeOMC._poly_model(xtime, yobs, yerr, mask, k),
         )
-        results[f"poly_{k}"]["dof"] = 1 + k
     return results
 
 
 class TestFitWithRejection:
     def test_rejection_improves_fit(self):
         xtime, yobs, yerr, truth, bad = _contaminated_line()
-        screen = RegularizeOMC._flag_outliers(yobs, yerr)
-        r = _poly_fits(xtime, yobs, yerr, screen, orders=(1,))["poly_1"]
-        plain = RegularizeOMC._poly_model(xtime, yobs, yerr, screen, 1)["pred"]
+        good_clip = RegularizeOMC._sigma_clip(yobs, yerr)
+        r = _poly_fits(xtime, yobs, yerr, good_clip, orders=(1,))["poly_1"]
+        plain = RegularizeOMC._poly_model(xtime, yobs, yerr, good_clip, 1)["pred"]
 
-        assert np.sum(~r["keep"] & bad) > 0.9 * np.sum(bad)
-        assert np.sum(~r["keep"] & ~bad) < 0.05 * np.sum(~bad)
+        assert np.sum(~r["good_mix"] & bad) > 0.9 * np.sum(bad)
+        assert np.sum(~r["good_mix"] & ~bad) < 0.05 * np.sum(~bad)
         assert _rms(r["pred"] - truth) < 0.5 * _rms(plain - truth)
 
     def test_clean_data_unchanged(self):
@@ -196,11 +194,11 @@ class TestFitWithRejection:
         xtime = np.arange(300) * PERIOD
         yerr = np.full(300, TIME_ERR)
         yobs = rng.normal(0, TIME_ERR, 300)
-        screen = RegularizeOMC._flag_outliers(yobs, yerr)
-        r = _poly_fits(xtime, yobs, yerr, screen, orders=(1,))["poly_1"]
-        plain = RegularizeOMC._poly_model(xtime, yobs, yerr, screen, 1)["pred"]
+        good_clip = RegularizeOMC._sigma_clip(yobs, yerr)
+        r = _poly_fits(xtime, yobs, yerr, good_clip, orders=(1,))["poly_1"]
+        plain = RegularizeOMC._poly_model(xtime, yobs, yerr, good_clip, 1)["pred"]
 
-        np.testing.assert_array_equal(r["keep"], screen)
+        np.testing.assert_array_equal(r["good_mix"], good_clip)
         np.testing.assert_array_equal(r["pred"], plain)
 
 
@@ -222,7 +220,7 @@ class TestPolyModel:
         b = np.concatenate([yobs[q] / yerr[q], np.zeros(3)])
         C = np.linalg.lstsq(A, b, rcond=None)[0]
         np.testing.assert_allclose(fit["pred"], X @ C, rtol=1e-9, atol=1e-15)
-        np.testing.assert_allclose(fit["trend"], (X @ C)[q], rtol=1e-9, atol=1e-15)
+        assert fit["dof"] == 3
 
 
 class TestSinModel:
@@ -261,24 +259,24 @@ class TestOutlierScreen:
     def test_judged_against_own_errors(self):
         # 8 min is 8 sigma for the precise point, 2 sigma for the noisy one
         yobs, yerr = _mixed_error_omc()
-        quality = RegularizeOMC._flag_outliers(yobs, yerr)
-        np.testing.assert_array_equal(np.flatnonzero(~quality), [50])
+        good_clip = RegularizeOMC._sigma_clip(yobs, yerr)
+        np.testing.assert_array_equal(np.flatnonzero(~good_clip), [50])
 
     def test_equal_errors_depend_only_on_scatter(self):
         yobs, _ = _mixed_error_omc()
         np.testing.assert_array_equal(
-            RegularizeOMC._flag_outliers(yobs, np.full(200, 1 / 1440)),
-            RegularizeOMC._flag_outliers(yobs, np.full(200, 7 / 1440)),
+            RegularizeOMC._sigma_clip(yobs, np.full(200, 1 / 1440)),
+            RegularizeOMC._sigma_clip(yobs, np.full(200, 7 / 1440)),
         )
 
 
 class TestOutlierProbability:
     def test_judged_against_own_errors(self):
         yobs, yerr = _mixed_error_omc()
-        out_prob, out_class, _ = RegularizeOMC._calculate_outlier_probability(
-            yobs, np.zeros_like(yobs), yerr
+        out_prob, out_flag, _ = RegularizeOMC._calculate_outlier_probability(
+            yobs, yerr, np.zeros_like(yobs)
         )
-        assert out_class[50]
+        assert out_flag[50]
         assert out_prob[50] > out_prob[51]
 
     def test_clean_residuals_with_excess_scatter_not_flagged(self):
@@ -286,10 +284,10 @@ class TestOutlierProbability:
         rng = np.random.default_rng(4)
         yerr = np.full(400, 1 / 1440)
         yobs = rng.normal(0, 1.5 * yerr)
-        _, out_class, _ = RegularizeOMC._calculate_outlier_probability(
-            yobs, np.zeros_like(yobs), yerr
+        _, out_flag, _ = RegularizeOMC._calculate_outlier_probability(
+            yobs, yerr, np.zeros_like(yobs)
         )
-        assert not np.any(out_class)
+        assert not np.any(out_flag)
 
     def test_recovers_injected_outliers(self):
         rng = np.random.default_rng(5)
@@ -297,10 +295,10 @@ class TestOutlierProbability:
         yobs = rng.normal(0, yerr)
         bad = rng.choice(400, 20, replace=False)
         yobs[bad] += rng.choice([-1, 1], 20) * rng.uniform(8, 20, 20) / 1440
-        _, out_class, _ = RegularizeOMC._calculate_outlier_probability(
-            yobs, np.zeros_like(yobs), yerr
+        _, out_flag, _ = RegularizeOMC._calculate_outlier_probability(
+            yobs, yerr, np.zeros_like(yobs)
         )
-        np.testing.assert_array_equal(np.flatnonzero(out_class), np.sort(bad))
+        np.testing.assert_array_equal(np.flatnonzero(out_flag), np.sort(bad))
 
 
 @pytest.mark.slow
@@ -360,17 +358,16 @@ class TestSelect:
         return star, planets, lc, linear, ttv, err, xtime, tt.ttime_obs - xtime
 
     @staticmethod
-    def _first_search(xtime, yobs, err):
-        screen = RegularizeOMC._flag_outliers(yobs, err)
-        return RegularizeOMC._identify_significant_frequencies(
-            xtime, yobs, screen, 0.03
-        )[0]
+    def _first_search_significant(xtime, yobs, err):
+        good_clip = RegularizeOMC._sigma_clip(yobs, err)
+        _, fap = RegularizeOMC._lomb_scargle_peak(xtime, yobs, good_clip)
+        return fap < 0.03
 
     def test_periodic_signal_from_outliers_is_rejected(self, caplog):
         # white noise: the outliers alone give a significant first-search peak,
         # and the sinusoid is selected unless the second search rejects it
         star, planets, lc, _, _, err, xtime, yobs = self._contaminated_sinusoid(15, 0)
-        assert self._first_search(xtime, yobs, err) is not None
+        assert self._first_search_significant(xtime, yobs, err)
 
         with caplog.at_level(logging.INFO, logger="alderaan.algorithms.regularize_omc"):
             RegularizeOMC(star, planets, lc).perform(method="select")
@@ -382,7 +379,7 @@ class TestSelect:
         star, planets, lc, linear, ttv, err, xtime, yobs = self._contaminated_sinusoid(
             2, 0.8
         )
-        assert self._first_search(xtime, yobs, err) is None
+        assert not self._first_search_significant(xtime, yobs, err)
 
         with caplog.at_level(logging.INFO, logger="alderaan.algorithms.regularize_omc"):
             planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")

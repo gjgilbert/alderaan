@@ -40,7 +40,8 @@ class RegularizeOMC(BaseAlg):
         return res / np.sqrt(yerr**2 + excess_var)
 
     @staticmethod
-    def _flag_outliers(yobs, yerr, sigma_cut=5.0):
+    def _sigma_clip(yobs, yerr, sigma_cut=5.0):
+        """Robust sigma clip about a smoothed trend; True for transits kept"""
         if len(yobs) > 16:
             ysmooth = uniform_filter(median_filter(yobs, size=5, mode="mirror"), size=5)
         else:
@@ -50,26 +51,21 @@ class RegularizeOMC(BaseAlg):
         z = RegularizeOMC._normalized_residuals(yobs - ysmooth, yerr)
         scatter = mad_std(z)
         if len(yobs) > 4 and scatter > 0:
-            quality = np.abs(z) / scatter < sigma_cut
-        else:
-            quality = np.ones(len(yobs), dtype=bool)
-
-        return quality
+            return np.abs(z) / scatter < sigma_cut
+        return np.ones(len(yobs), dtype=bool)
 
     @staticmethod
-    def _smooth(index, yobs, quality):
+    def _smooth(index, yobs, mask):
         """
         Savitzky-Golay smooth of OMC over consecutive epochs; returns values at index
 
         OMC is first linearly interpolated onto every epoch from index.min() to
         index.max(), so the filter window spans a fixed number of epochs
         """
-        q = quality
         epochs = np.arange(index.min(), index.max() + 1)
         npts = len(epochs)
 
-        interpolator = make_interp_spline(index[q], yobs[q], k=1)
-        ysmooth = interpolator(epochs)
+        ysmooth = make_interp_spline(index[mask], yobs[mask], k=1)(epochs)
 
         if npts >= 8:
             window_length = int(np.log2(npts)) + 1
@@ -79,7 +75,7 @@ class RegularizeOMC(BaseAlg):
         return ysmooth[index - index.min()]
 
     @staticmethod
-    def _poly_model(xtime, yobs, yerr, quality, polyorder):
+    def _poly_model(xtime, yobs, yerr, mask, polyorder):
         """
         Fit TTV observed-minus-calculated data with a polynomial
 
@@ -94,23 +90,21 @@ class RegularizeOMC(BaseAlg):
         Returns
         -------
         fit : dict
-            'trend' at quality cadences and 'pred' at all xtime
+            'pred' at all xtime; 'dof' = polyorder + 1
         """
-        q = quality
 
-        # create Vandermonde matrices on xtime mapped to [-1, 1], for conditioning
+        # create Vandermonde matrix on xtime mapped to [-1, 1], for conditioning
         x = legendre_p1(xtime, (xtime.min(), xtime.max()))
-        Xt = np.vander(x[q], N=polyorder + 1, increasing=True)
-        Xp = np.vander(x, N=polyorder + 1, increasing=True)
+        X = np.vander(x, N=polyorder + 1, increasing=True)
 
-        w = 1 / yerr[q] ** 2
-        A = Xt.T @ (w[:, None] * Xt) + np.eye(polyorder + 1) / 10**2
-        C = np.linalg.solve(A, Xt.T @ (w * yobs[q]))
+        w = 1 / yerr[mask] ** 2
+        A = X[mask].T @ (w[:, None] * X[mask]) + np.eye(polyorder + 1) / 10**2
+        C = np.linalg.solve(A, X[mask].T @ (w * yobs[mask]))
 
-        return {"trend": Xt @ C, "pred": Xp @ C}
+        return {"pred": X @ C, "dof": polyorder + 1}
 
     @staticmethod
-    def _sin_model(xtime, yobs, yerr, quality, ttv_period=None):
+    def _sin_model(xtime, yobs, yerr, mask, ttv_period):
         """
         Fit TTV observed-minus-calculated data with a line plus a single-frequency
         sinusoid; the line absorbs any offset and slope left by the linear
@@ -129,25 +123,16 @@ class RegularizeOMC(BaseAlg):
         Returns
         -------
         fit : dict
-            posterior mean 'trend' at quality cadences and 'pred' at all xtime
+            posterior mean 'pred' at all xtime; 'dof' = 5
         """
-        q = quality
 
-        # nominal TTV period
-        if ttv_period is None:
-            ttv_period = 2 * (xtime[q].max() - xtime[q].min())
-
-        df = 1 / (xtime[q].max() - xtime[q].min())
-        amp_sd = 5 * np.std(yobs[q])
+        df = 1 / (xtime[mask].max() - xtime[mask].min())
+        amp_sd = 5 * np.std(yobs[mask])
 
         # line on xtime mapped to [-1, 1], for conditioning, as in _poly_model
         x = legendre_p1(xtime, (xtime.min(), xtime.max()))
-        w = 1 / yerr[q] ** 2
+        w = 1 / yerr[mask] ** 2
         prior_prec = np.array([1 / 10**2, 1 / 10**2, 1 / amp_sd**2, 1 / amp_sd**2])
-
-        def design(f):
-            phase = 2 * np.pi * f * xtime
-            return np.column_stack([np.ones_like(x), x, np.sin(phase), np.cos(phase)])
 
         freqs = 1 / ttv_period + df * np.linspace(-3, 3, 3001)
         freqs = freqs[freqs > 0]
@@ -155,9 +140,10 @@ class RegularizeOMC(BaseAlg):
         log_post = np.zeros(len(freqs))
         preds = np.zeros((len(freqs), len(xtime)))
         for i, f in enumerate(freqs):
-            X = design(f)
-            A = X[q].T @ (w[:, None] * X[q]) + np.diag(prior_prec)
-            b = X[q].T @ (w * yobs[q])
+            phase = 2 * np.pi * f * xtime
+            X = np.column_stack([np.ones_like(x), x, np.sin(phase), np.cos(phase)])
+            A = X[mask].T @ (w[:, None] * X[mask]) + np.diag(prior_prec)
+            b = X[mask].T @ (w * yobs[mask])
             C = np.linalg.solve(A, b)
             # log marginal likelihood over the linear coefficients, up to a
             # constant in f, plus the log prior on f
@@ -174,22 +160,20 @@ class RegularizeOMC(BaseAlg):
             logger.warning(
                 "sinusoid OMC model: frequency posterior spans < 5 grid points"
             )
-        pred = weights @ preds
 
-        return {"trend": pred[q], "pred": pred}
+        return {"pred": weights @ preds, "dof": 5}
 
     @staticmethod
-    def _matern32_model(xtime, yobs, yerr, quality):
+    def _matern32_model(xtime, yobs, yerr, mask):
         """
         Fit TTV observed-minus-calculated data with a regularized Matern-3/2 GP
 
         Returns
         -------
         fit : dict
-            posterior median 'trend' at quality cadences, 'pred' at all xtime,
-            and 'dof' = sum(predictive variance / yerr^2)
+            posterior median 'pred' at all xtime and
+            'dof' = sum(predictive variance / yerr^2) over mask
         """
-        q = quality
 
         # delta between each transit time
         dx = np.mean(np.diff(xtime))
@@ -201,7 +185,7 @@ class RegularizeOMC(BaseAlg):
             log_sigma, rho, mean = theta
             kernel = GPterms.Matern32Term(sigma=np.exp(log_sigma), rho=rho)
             gp = celerite2.GaussianProcess(kernel, mean=mean)
-            gp.compute(xtime[q], yerr=yerr[q])
+            gp.compute(xtime[mask], yerr=yerr[mask])
             return gp
 
         # priors: log_sigma ~ N(log_ymax, 5) truncated above at log_ymax;
@@ -210,30 +194,25 @@ class RegularizeOMC(BaseAlg):
             return np.array(
                 [
                     norm_ppf(u[0] / 2, log_ymax, 5.0),
-                    uniform_ppf(u[1], 2 * dx, xtime[q].max() - xtime[q].min()),
-                    norm_ppf(u[2], np.mean(yobs[q]), np.std(yobs[q])),
+                    uniform_ppf(u[1], 2 * dx, xtime[mask].max() - xtime[mask].min()),
+                    norm_ppf(u[2], np.mean(yobs[mask]), np.std(yobs[mask])),
                 ]
             )
 
         def loglike(theta):
-            return make_gp(theta).log_likelihood(yobs[q])
+            return make_gp(theta).log_likelihood(yobs[mask])
 
         draws = RegularizeOMC._sample(loglike, prior_transform, 3)
 
         # medians over (at most) the first 500 equal-weight draws
-        trend, pred, dof = [], [], []
+        pred, dof = [], []
         for d in draws[:500]:
             gp = make_gp(d)
-            mu, var = gp.predict(yobs[q], xtime[q], return_var=True)
-            trend.append(mu)
-            pred.append(gp.predict(yobs[q], xtime))
-            dof.append(np.sum(var / yerr[q] ** 2))
+            _, var = gp.predict(yobs[mask], xtime[mask], return_var=True)
+            pred.append(gp.predict(yobs[mask], xtime))
+            dof.append(np.sum(var / yerr[mask] ** 2))
 
-        return {
-            "trend": np.median(trend, 0),
-            "pred": np.median(pred, 0),
-            "dof": np.median(dof),
-        }
+        return {"pred": np.median(pred, 0), "dof": np.median(dof)}
 
     @staticmethod
     def _sample(loglike, prior_transform, ndim):
@@ -259,95 +238,48 @@ class RegularizeOMC(BaseAlg):
         return results.samples_equal(rstate=np.random.default_rng(SEED))
 
     @staticmethod
-    def _identify_significant_frequencies(xtime, yobs, quality, critical_fap):
+    def _lomb_scargle_peak(xtime, yobs, mask):
         """
-        Identify significant periodic frequencies using a Lomb-Scargle periodogram
-
-        Parameters
-        ----------
-        critical_fap : float
-            false alarm probability threshold to consider a frequency significant
-        """
-        q = quality
-        npts = np.sum(quality)
-
-        peakfreq = None
-        peakfap = 1.0
-
-        if npts >= 8:
-            try:
-                xf, yf, freqs, faps = RegularizeOMC._ls_estimator(
-                    xtime[q], yobs[q], fap=critical_fap
-                )
-
-                if len(freqs) > 0:
-                    if freqs[0] > xf.min():
-                        peakfreq = freqs[0]
-                        peakfap = faps[0]
-
-            except Exception:
-                logger.warning(
-                    "Lomb-Scargle TTV search failed (%d transits); "
-                    "assuming no periodic signal",
-                    npts,
-                    exc_info=True,
-                )
-
-        return peakfreq, peakfap
-
-    @staticmethod
-    def _ls_estimator(x, y, fap=0.1, max_peaks=2):
-        """
-        Generate a Lomb-Scargle periodogram and identify significant frequencies
+        Highest peak of a Lomb-Scargle periodogram of OMC data and its
+        bootstrap false alarm probability
         * assumes that data are nearly evenly sampled
         * optimized for finding marginal periodic TTV signals in OMC data
-        * may not perform well for other applications
-
-        Parameters
-        ----------
-        x : array-like
-            1D array of x data values; should be monotonically increasing
-        y : array-like
-            1D array of corresponding y data values, len(x)
-        fap : float
-            false alarm probability threshold to consider a frequency significant
-            (default=0.1)
 
         Returns
         -------
-        xf : ndarray
-            1D array of frequencies
-        yf : ndarray
-            1D array of corresponding response
-        freqs : list
-            signficant frequencies
-        faps : list
-            corresponding false alarm probabilities
+        freq : float or None
+            peak frequency; None for < 8 transits, a peak at the lowest searched
+            frequency, or a failed search
+        fap : float
+            false alarm probability of the peak (1.0 when freq is None)
         """
-        # sampling frequency
-        fsamp = 1 / np.min(x[1:] - x[:-1])
+        npts = np.sum(mask)
+        if npts < 8:
+            return None, 1.0
 
-        # Hann window to reduce ringing
-        hann = signal.windows.hann(len(x))
-        hann /= np.sum(hann)
+        x = xtime[mask]
+        y = yobs[mask]
 
-        # identify any egregious outliers
-        out = np.abs(y - np.median(y)) / mad_std(y - np.median(y)) > 5.0
-        xt = x[~out]
-        yt = y[~out]
+        try:
+            # sampling frequency
+            fsamp = 1 / np.min(x[1:] - x[:-1])
 
-        freqs = []
-        faps = []
+            # Hann window to reduce ringing
+            hann = signal.windows.hann(len(x))
+            hann /= np.sum(hann)
 
-        # frequency grid, shared by the search and its false alarm probability
-        grid = dict(
-            minimum_frequency=1.5 / (xt.max() - xt.min()),
-            maximum_frequency=0.25 * fsamp,
-            samples_per_peak=10,
-        )
+            # identify any egregious outliers
+            out = np.abs(y - np.median(y)) / mad_std(y - np.median(y)) > 5.0
+            xt = x[~out]
+            yt = y[~out]
 
-        loop = True
-        while loop:
+            # frequency grid, shared by the search and its false alarm probability
+            grid = dict(
+                minimum_frequency=1.5 / (xt.max() - xt.min()),
+                maximum_frequency=0.25 * fsamp,
+                samples_per_peak=10,
+            )
+
             lombscargle = LombScargle(xt, yt * hann[~out])
             xf, yf = lombscargle.autopower(**grid)
 
@@ -359,65 +291,58 @@ class RegularizeOMC(BaseAlg):
                 **grid,
             )
 
-            # output first iteration of LS periodogram
-            if len(freqs) == 0:
-                xf_out = xf
-                yf_out = yf
+        except Exception:
+            logger.warning(
+                "Lomb-Scargle TTV search failed (%d transits); "
+                "assuming no periodic signal",
+                npts,
+                exc_info=True,
+            )
+            return None, 1.0
 
-            if peak_fap < fap:
-                yt -= lombscargle.model(xt, peak_freq) * len(xt)
-                freqs.append(peak_freq)
-                faps.append(peak_fap)
+        # a peak at the lowest searched frequency is a rising edge, not a period
+        if peak_freq <= xf.min():
+            return None, 1.0
 
-            else:
-                loop = False
-
-            if len(freqs) >= max_peaks:
-                loop = False
-
-        return xf_out, yf_out, freqs, faps
+        return peak_freq, peak_fap
 
     @staticmethod
-    def _fit_with_rejection(fit_fn, yobs, yerr, screen):
+    def _fit_with_rejection(yobs, yerr, good_clip, fit_fn):
         """
-        Fit an OMC model on screen, reject its mixture outliers, and refit once
+        Fit an OMC model on good_clip, reject its mixture outliers, and refit once
 
         Parameters
         ----------
+        good_clip : ndarray of bool
+            transits passing the sigma clip
         fit_fn : callable
-            fit_fn(quality) -> fit dict with 'pred' at all transits
-        screen : ndarray of bool
-            transits passing the initial outlier screen
+            fit_fn(mask) -> fit dict with 'pred' at all transits and 'dof'
 
         Returns
         -------
         result : dict
-            'pred' at all transits; 'keep' = screen minus mixture outliers, the
-            transits of the final fit; 'out_prob'; 'lnlike', the mixture
-            log-likelihood over screen; 'nchange', screen transits whose flag
-            changes after the refit; 'fit', the final fit dict
+            'pred' and 'dof' of the final fit; 'good_mix' = good_clip minus
+            mixture outliers, the transits of the final fit; 'out_prob';
+            'lnlike', the mixture log-likelihood over good_clip
         """
-        fit = fit_fn(screen)
-        out_prob, flag, lnlike = RegularizeOMC._calculate_outlier_probability(
-            yobs, fit["pred"], yerr, mask=screen
+        fit = fit_fn(good_clip)
+        out_prob, out_flag, lnlike = RegularizeOMC._calculate_outlier_probability(
+            yobs, yerr, fit["pred"], mask=good_clip
         )
-        keep = screen & ~flag
+        good_mix = good_clip & ~out_flag
 
-        nchange = 0
-        if np.any(keep != screen):
-            fit = fit_fn(keep)
-            out_prob, flag_refit, lnlike = RegularizeOMC._calculate_outlier_probability(
-                yobs, fit["pred"], yerr, mask=screen
+        if np.any(good_mix != good_clip):
+            fit = fit_fn(good_mix)
+            out_prob, _, lnlike = RegularizeOMC._calculate_outlier_probability(
+                yobs, yerr, fit["pred"], mask=good_clip
             )
-            nchange = np.sum(screen & (flag != flag_refit))
 
         return {
             "pred": fit["pred"],
-            "keep": keep,
+            "dof": fit["dof"],
+            "good_mix": good_mix,
             "out_prob": out_prob,
             "lnlike": lnlike,
-            "nchange": nchange,
-            "fit": fit,
         }
 
     @staticmethod
@@ -426,74 +351,65 @@ class RegularizeOMC(BaseAlg):
         Parameters
         ----------
         results : dict
-            _fit_with_rejection results with 'dof' added, keyed by model name;
-            every 'lnlike' is summed over the same (screen) transits
+            _fit_with_rejection results keyed by model name; every 'lnlike' is
+            summed over the same (good_clip) transits
         npts : int
-            number of transits passing the screen
+            number of transits passing the sigma clip
 
         Returns
         -------
-        name : str
+        best : str
             name (dict key) of selected best model
         """
-        dofs = {k: r["dof"] for k, r in results.items()}
-
         # AIC and BIC for each model
         aic = {}
         bic = {}
 
         for k, r in results.items():
-            aic[k] = 2 * dofs[k] - 2 * r["lnlike"]
-            bic[k] = dofs[k] * np.log(npts) - 2 * r["lnlike"]
+            aic[k] = 2 * r["dof"] - 2 * r["lnlike"]
+            bic[k] = r["dof"] * np.log(npts) - 2 * r["lnlike"]
             logger.debug(
-                "%s OMC model: dof = %.1f, %d rejected (%d flags change after "
-                "refit), lnL = %.1f, AIC = %.1f, BIC = %.1f",
+                "%s OMC model: dof = %.1f, %d rejected, lnL = %.1f, "
+                "AIC = %.1f, BIC = %.1f",
                 k,
-                dofs[k],
-                npts - np.sum(r["keep"]),
-                r["nchange"],
+                r["dof"],
+                npts - np.sum(r["good_mix"]),
                 r["lnlike"],
                 aic[k],
                 bic[k],
             )
 
-        preferred_by_aic = min(aic, key=aic.get)
-        preferred_by_bic = min(bic, key=bic.get)
+        aic_best = min(aic, key=aic.get)
+        bic_best = min(bic, key=bic.get)
 
-        # Case 1: AIC and BIC match recommendation
-        if preferred_by_aic == preferred_by_bic:
-            best_omc_model_name = preferred_by_aic
+        # Case 1: AIC and BIC agree
+        if aic_best == bic_best:
+            best = aic_best
             reason = "AIC and BIC agree"
 
-        # Case 2: Select parametric models over Matern-3/2 GP
-        elif np.any(np.array([preferred_by_aic, preferred_by_bic]) == "matern32"):
+        # Case 2: select the parametric model over the Matern-3/2 GP
+        elif "matern32" in (aic_best, bic_best):
+            best = bic_best if aic_best == "matern32" else aic_best
             reason = "parametric model preferred over matern32"
-            if preferred_by_aic == "matern32":
-                best_omc_model_name = preferred_by_bic
-            elif preferred_by_bic == "matern32":
-                best_omc_model_name = preferred_by_aic
 
-        # Case 3: Select model with more degrees of freedom
+        # Case 3: select the model with more degrees of freedom (AIC on ties)
         else:
+            best = max((aic_best, bic_best), key=lambda k: results[k]["dof"])
             reason = "more degrees of freedom"
-            if dofs[preferred_by_aic] >= dofs[preferred_by_bic]:
-                best_omc_model_name = preferred_by_aic
-            elif dofs[preferred_by_aic] < dofs[preferred_by_bic]:
-                best_omc_model_name = preferred_by_bic
 
         logger.debug(
             "AIC prefers %s, BIC prefers %s; selecting %s (%s)",
-            preferred_by_aic,
-            preferred_by_bic,
-            best_omc_model_name,
+            aic_best,
+            bic_best,
+            best,
             reason,
         )
 
-        return best_omc_model_name
+        return best
 
     @staticmethod
     def _calculate_outlier_probability(
-        yobs, ymod, yerr, mask=None, maxiter=200, tol=1e-6
+        yobs, yerr, ymod, mask=None, maxiter=200, tol=1e-6
     ):
         """
         Calculate the probability that each measured omc transit time is an outlier
@@ -510,10 +426,10 @@ class RegularizeOMC(BaseAlg):
         ----------
         yobs : ndarray
             observed omc values
-        ymod : ndarray
-            regularized model for yobs
         yerr : ndarray
             measurement errors on yobs
+        ymod : ndarray
+            regularized model for yobs
         mask : ndarray of bool, optional
             transits the mixture is fit to and lnlike is summed over (default all);
             probabilities are returned for every transit
@@ -522,7 +438,7 @@ class RegularizeOMC(BaseAlg):
         -------
         out_prob : ndarray
             probability that each transit time is an outlier
-        out_class : ndarray
+        out_flag : ndarray
             boolean flag that each transit time is an outlier
         lnlike : float
             mixture log-likelihood over mask
@@ -540,10 +456,10 @@ class RegularizeOMC(BaseAlg):
             return ln_fg, ln_bg
 
         # fit on mask only
-        r, r2, e2 = res[mask], res[mask] ** 2, err2[mask]
+        r2, e2 = res[mask] ** 2, err2[mask]
 
         # start: foreground within 3 sigma of the normalized residuals
-        z = RegularizeOMC._normalized_residuals(r, yerr[mask])
+        z = RegularizeOMC._normalized_residuals(res[mask], yerr[mask])
         fg_prob = (np.abs(z) < 3 * mad_std(z)).astype(float)
         f = np.clip(np.mean(1 - fg_prob), 1e-3, 0.5)
         jit2 = 0.0
@@ -577,88 +493,74 @@ class RegularizeOMC(BaseAlg):
 
         return 1 - fg_prob, fg_prob < 0.5, np.sum(ln_tot[mask])
 
-    def _identify_periodic_signals(self, xtime, yobs, quality):
-        planets = self.planets
-        npl = len(planets)
+    def _identify_periodic_signals(self, xtime, yobs, mask):
+        """
+        Significant periodic TTV frequency for each planet (None if none):
+        FAP < 0.03, or FAP < 0.3 with a matching frequency (within 1/baseline)
+        in another planet of a multiplanet system
+        """
+        npl = len(self.planets)
 
-        if npl == 1:
-            critical_fap = 0.03
-        elif npl > 1:
-            critical_fap = 0.3
+        peaks = [
+            self._lomb_scargle_peak(xtime[n], yobs[n], mask[n]) for n in range(npl)
+        ]
+        candidate = [f if fap < 0.3 else None for f, fap in peaks]
+
+        close = np.zeros((npl, npl), dtype=bool)
+        for i in range(npl):
+            df = 1 / (xtime[i].max() - xtime[i].min())
+            for j in range(i + 1, npl):
+                if candidate[i] is not None and candidate[j] is not None:
+                    if np.abs(candidate[i] - candidate[j]) < df:
+                        close[i, j] = True
+                        close[j, i] = True
 
         freq = [None] * npl
-        fap = [None] * npl
-
-        for n in range(npl):
-            freq[n], fap[n] = self._identify_significant_frequencies(
-                xtime[n], yobs[n], quality[n], critical_fap
-            )
-
-        # single planet systems : use direct search output (FAP < 0.03)
-        # multiplanet systems : FAP < 0.03, or FAP < 0.3 with a matching frequency
-        # in another planet
-        if npl > 1:
-            close = np.zeros((npl, npl), dtype=bool)
-
-            for i in range(npl):
-                df_min = 1 / (xtime[i].max() - xtime[i].min())
-
-                for j in range(i + 1, npl):
-                    if freq[i] is not None and freq[j] is not None:
-                        df_ij = np.abs(freq[i] - freq[j])
-
-                        if df_ij < df_min:
-                            close[i, j] = True
-                            close[j, i] = True
-
-            for i in range(npl):
-                if not np.any(close[i]) and fap[i] > 0.03:
-                    # freq is None (fap = 1) when no candidate was found
-                    if freq[i] is not None:
-                        logger.debug(
-                            "planet %d: candidate TTV period %.1f d (FAP = %.3g) "
-                            "rejected; no matching frequency in other planets",
-                            i,
-                            1 / freq[i],
-                            fap[i],
-                        )
-                    freq[i] = None
-                    fap[i] = None
-
-        for n in range(npl):
-            if freq[n] is not None:
+        for n, (f, fap) in enumerate(peaks):
+            if f is not None and (fap < 0.03 or (fap < 0.3 and np.any(close[n]))):
+                freq[n] = f
                 logger.info(
                     "planet %d: periodic TTV signal at P = %.1f d (FAP = %.3g)",
                     n,
-                    1 / freq[n],
-                    fap[n],
+                    1 / f,
+                    fap,
                 )
-            else:
-                logger.info("planet %d: no significant periodic TTV signal", n)
+                continue
+
+            if npl > 1 and candidate[n] is not None:
+                logger.debug(
+                    "planet %d: candidate TTV period %.1f d (FAP = %.3g) "
+                    "rejected; no matching frequency in other planets",
+                    n,
+                    1 / f,
+                    fap,
+                )
+            logger.info("planet %d: no significant periodic TTV signal", n)
 
         return freq
 
-    def _fit_candidates(self, xtime, yobs, yerr, quality, freq):
+    def _fit_candidates(self, xtime, yobs, yerr, good_clip, freq):
         """
         Fit each candidate OMC model with outlier rejection; the candidate set is
-        set by the screen (quality) and the Lomb-Scargle frequency
+        set by the sigma clip and the Lomb-Scargle frequency (None if no sinusoid)
 
         Returns
         -------
         results : dict
-            _fit_with_rejection results with 'dof', keyed by model name
+            _fit_with_rejection results keyed by model name
         """
-        npts = np.sum(quality)
+        npts = np.sum(good_clip)
 
         results = {}
 
-        def fit(name, fit_fn):
-            results[name] = self._fit_with_rejection(fit_fn, yobs, yerr, quality)
-
         # Matern-3/2 model | don't use GP on very noisy data
         if (npts >= 8) & (np.median(yerr) <= 0.5 * mad_std(yobs)):
-            fit("matern32", lambda q: self._matern32_model(xtime, yobs, yerr, q))
-            results["matern32"]["dof"] = results["matern32"]["fit"]["dof"]
+            results["matern32"] = self._fit_with_rejection(
+                yobs,
+                yerr,
+                good_clip,
+                lambda mask: self._matern32_model(xtime, yobs, yerr, mask),
+            )
         else:
             logger.debug(
                 "matern32 OMC model skipped: %d transits (need 8), median error "
@@ -671,28 +573,33 @@ class RegularizeOMC(BaseAlg):
         # Polynomial model | require 2^N transits, at most do 3rd order
         max_polyorder = np.max([1, np.min([3, int(np.log2(npts)) - 1])])
         for polyorder in range(1, max_polyorder + 1):
-            fit(
-                f"poly_{polyorder}",
-                lambda q, k=polyorder: self._poly_model(xtime, yobs, yerr, q, k),
+            results[f"poly_{polyorder}"] = self._fit_with_rejection(
+                yobs,
+                yerr,
+                good_clip,
+                lambda mask, k=polyorder: self._poly_model(xtime, yobs, yerr, mask, k),
             )
-            results[f"poly_{polyorder}"]["dof"] = 1 + polyorder
 
-        # Sinusoidal model
-        if npts >= 8 and freq is not None:
-            fit(
-                "sinusoid",
-                lambda q: self._sin_model(xtime, yobs, yerr, q, ttv_period=1 / freq),
+        # Sinusoidal model | freq is None for < 8 sigma-clipped transits
+        if freq is not None:
+            results["sinusoid"] = self._fit_with_rejection(
+                yobs,
+                yerr,
+                good_clip,
+                lambda mask: self._sin_model(
+                    xtime, yobs, yerr, mask, ttv_period=1 / freq
+                ),
             )
-            results["sinusoid"]["dof"] = 5
 
         return results
 
     @staticmethod
-    def _regularized_transit_times(tt, measured, ymod, keep, out_prob, out_flag):
+    def _regularized_transit_times(tt, measured, ymod, good_mix, out_prob):
         """
         Regularized transit times at every transit of tt: OMC model added to the
         current linear ephemeris, linearly interpolated over transits that are
-        unmeasured or not kept by the model fit
+        unmeasured or not kept by the model fit; measured transits not kept are
+        flagged as outliers
 
         Parameters
         ----------
@@ -702,12 +609,11 @@ class RegularizeOMC(BaseAlg):
             True where tt.ttime_obs is finite
         ymod : ndarray
             OMC model relative to tt.linear_ephemeris(), at measured transits
-        keep : ndarray
-            True for measured transits used in the final model fit
+        good_mix : ndarray
+            True for measured transits used in the final model fit; the rest
+            are flagged as outliers
         out_prob : ndarray
             outlier probability at measured transits (NaN if not computed)
-        out_flag : ndarray
-            True for measured transits flagged as outliers
 
         Returns
         -------
@@ -717,13 +623,13 @@ class RegularizeOMC(BaseAlg):
         ttime_mod = tt.linear_ephemeris()[measured] + ymod
 
         interpolator = make_interp_spline(
-            tt.index[measured][keep], ttime_mod[keep], k=1
+            tt.index[measured][good_mix], ttime_mod[good_mix], k=1
         )
 
         out_prob_full = np.full(len(tt.index), np.nan)
         out_prob_full[measured] = out_prob
         out_flag_full = np.zeros(len(tt.index), dtype=bool)
-        out_flag_full[measured] = out_flag
+        out_flag_full[measured] = ~good_mix
 
         return TransitTimes(
             tt.mission,
@@ -737,7 +643,7 @@ class RegularizeOMC(BaseAlg):
             quality=tt.quality,
         )
 
-    def _select(self, xtime, yobs, yerr, quality, check_periodic):
+    def _select(self, xtime, yobs, yerr, good_clip, check_periodic):
         """
         Fit candidate models with outlier rejection, select one per planet, then
         search for a periodic signal once more on the selected model's kept
@@ -755,16 +661,17 @@ class RegularizeOMC(BaseAlg):
         npl = len(self.planets)
 
         if check_periodic:
-            freq = self._identify_periodic_signals(xtime, yobs, quality)
+            freq = self._identify_periodic_signals(xtime, yobs, good_clip)
         else:
             freq = [None] * npl
 
         results = [
-            self._fit_candidates(xtime[n], yobs[n], yerr[n], quality[n], freq[n])
+            self._fit_candidates(xtime[n], yobs[n], yerr[n], good_clip[n], freq[n])
             for n in range(npl)
         ]
         best = [
-            self._select_best_model(results[n], np.sum(quality[n])) for n in range(npl)
+            self._select_best_model(results[n], np.sum(good_clip[n]))
+            for n in range(npl)
         ]
 
         if not check_periodic:
@@ -772,14 +679,14 @@ class RegularizeOMC(BaseAlg):
 
         # Lomb-Scargle once more, without the selected model's outliers; a
         # sinusoid is offered only at a period significant after rejection
-        keep = [results[n][best[n]]["keep"] for n in range(npl)]
-        freq2 = self._identify_periodic_signals(xtime, yobs, keep)
+        good_mix = [results[n][best[n]]["good_mix"] for n in range(npl)]
+        freq2 = self._identify_periodic_signals(xtime, yobs, good_mix)
 
         for n in range(npl):
-            df_min = 1 / (xtime[n].max() - xtime[n].min())
+            df = 1 / (xtime[n].max() - xtime[n].min())
             had_sinusoid = "sinusoid" in results[n]
 
-            if freq2[n] is None or np.sum(quality[n]) < 8:
+            if freq2[n] is None:
                 if not had_sinusoid:
                     continue
                 del results[n]["sinusoid"]
@@ -790,7 +697,7 @@ class RegularizeOMC(BaseAlg):
                     1 / freq[n],
                 )
 
-            elif had_sinusoid and np.abs(freq2[n] - freq[n]) < df_min:
+            elif had_sinusoid and np.abs(freq2[n] - freq[n]) < df:
                 logger.info(
                     "planet %d: periodic TTV signal at P = %.1f d confirmed after "
                     "outlier rejection",
@@ -807,16 +714,15 @@ class RegularizeOMC(BaseAlg):
                     1 / freq2[n],
                 )
                 results[n]["sinusoid"] = self._fit_with_rejection(
-                    lambda q, n=n: self._sin_model(
-                        xtime[n], yobs[n], yerr[n], q, ttv_period=1 / freq2[n]
-                    ),
                     yobs[n],
                     yerr[n],
-                    quality[n],
+                    good_clip[n],
+                    lambda mask, n=n: self._sin_model(
+                        xtime[n], yobs[n], yerr[n], mask, ttv_period=1 / freq2[n]
+                    ),
                 )
-                results[n]["sinusoid"]["dof"] = 5
 
-            best[n] = self._select_best_model(results[n], np.sum(quality[n]))
+            best[n] = self._select_best_model(results[n], np.sum(good_clip[n]))
 
         return results, best
 
@@ -843,10 +749,8 @@ class RegularizeOMC(BaseAlg):
         if method not in ("smooth", "select"):
             raise ValueError(f"method must be 'smooth' or 'select', got {method!r}")
 
-        planets = self.planets
-
         # fit measured transit times only; unmeasured ones are filled by the model
-        tts = [p.transit_times for p in planets]
+        tts = [p.transit_times for p in self.planets]
         measured = [np.isfinite(tt.ttime_obs) for tt in tts]
         # OMC x-axis: the linear ephemeris (noise-free and sorted), as in legacy
         xtime = [tt.linear_ephemeris()[m] for tt, m in zip(tts, measured)]
@@ -857,42 +761,42 @@ class RegularizeOMC(BaseAlg):
         # 'smooth' runs on catalog times whose errors may be missing: equal weights
         if method == "smooth":
             yerr = [np.ones_like(y) for y in yobs]
-        quality = [self._flag_outliers(y, e) for y, e in zip(yobs, yerr)]
+        good_clip = [self._sigma_clip(y, e) for y, e in zip(yobs, yerr)]
 
         if method == "select":
-            results, best = self._select(xtime, yobs, yerr, quality, check_periodic)
+            results, best = self._select(xtime, yobs, yerr, good_clip, check_periodic)
 
-        for n, p in enumerate(planets):
+        for n, p in enumerate(self.planets):
             old_period = p.period
 
             if method == "smooth":
-                ymod = self._smooth(tts[n].index[measured[n]], yobs[n], quality[n])
-                keep = quality[n]
+                ymod = self._smooth(tts[n].index[measured[n]], yobs[n], good_clip[n])
+                good_mix = good_clip[n]
                 out_prob = np.full(len(yobs[n]), np.nan)
                 model_name = "smooth"
 
             elif method == "select":
                 model_name = best[n]
                 r = results[n][model_name]
-                ymod, keep, out_prob = r["pred"], r["keep"], r["out_prob"]
+                ymod, good_mix, out_prob = r["pred"], r["good_mix"], r["out_prob"]
 
             transit_times = self._regularized_transit_times(
-                p.transit_times, measured[n], ymod, keep, out_prob, ~keep
+                p.transit_times, measured[n], ymod, good_mix, out_prob
             )
             try:
                 p.set_transit_times(transit_times)
             except ValueError as e:
                 raise ValueError(f"planet {n}, OMC method {method!r}: {e}") from e
             logger.info(
-                "planet %d: %s OMC model; %d measured, %d fail initial screen, "
+                "planet %d: %s OMC model; %d measured, %d sigma-clipped, "
                 "%d rejected by model; P = %.6f -> %.6f d, ttv_buffer = %.1f min",
                 n,
                 model_name,
-                len(quality[n]),
-                np.sum(~quality[n]),
-                np.sum(quality[n] & ~keep),
+                len(good_clip[n]),
+                np.sum(~good_clip[n]),
+                np.sum(good_clip[n] & ~good_mix),
                 old_period,
-                planets[n].period,
+                p.period,
                 transit_times.ttv_buffer() * 1440,
             )
 
