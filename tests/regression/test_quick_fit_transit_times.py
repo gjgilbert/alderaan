@@ -5,7 +5,8 @@ Recovery of injected per-transit time offsets (TTVs) from a synthetic detrended
 long cadence litecurve, including a transit that overlaps a second planet's;
 low quality transits stay unmeasured; high-SNR short cadence transits are
 measured by cross-correlation; transits with a sibling in the window go to
-the optimizer.
+the optimizer, including a planet whose every transit has a USP sibling in
+the window.
 """
 
 import numpy as np
@@ -142,3 +143,14 @@ class TestQuickFitTransitTimes:
 
         tt = new_planets[0].transit_times
         assert abs(tt.ttime_obs[4] - ttime_true[0][4]) < 4 * tt.error_obs[4]
+
+    def test_planet_with_usp_sibling_measured_by_optimizer(self):
+        # a 0.84 d sibling lies inside every cross-correlation window of the
+        # 12 d planet, so all its transits are measured by the optimizer
+        truth = [(0.837, 100.3, 0.013, 0.3, 1.8 / 24), (12.0, 103.0, 0.02, 0.3, 7 / 24)]
+        star, planets, litecurve, ttime_true = _synthetic_system(truth)
+        new_planets, _ = QuickFitTransitTimes(star, planets, litecurve).perform()
+
+        tt = new_planets[1].transit_times
+        assert np.all(np.isfinite(tt.ttime_obs)) and np.all(np.isfinite(tt.error_obs))
+        assert np.all(np.abs(tt.ttime_obs - ttime_true[1]) < 4 * tt.error_obs)

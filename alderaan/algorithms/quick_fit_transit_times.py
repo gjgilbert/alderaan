@@ -331,7 +331,8 @@ class QuickFitTransitTimes(BaseAlg):
         Fit each transit time independently using least squares optimization
 
         Fits transits where fit is True, with a Normal(start, T14/3) prior bounded
-        to the fit window. NaN where not fit, failed, or likelihood did not improve
+        to the fit window. Returns times and errors (from the Jacobian); NaN where
+        not fit, failed, or likelihood did not improve
         """
         lc = tm.litecurve
         overlap = overlap[planet_no]
@@ -339,6 +340,7 @@ class QuickFitTransitTimes(BaseAlg):
 
         ttime_old = tm.planets[planet_no].transit_times.ttime_mod
         ttime_new = np.full_like(ttime_old, np.nan)
+        error_new = np.full_like(ttime_old, np.nan)
         prior_sd = np.array([p.duration / 3 for p in tm.planets])
         nfail = 0
 
@@ -422,7 +424,10 @@ class QuickFitTransitTimes(BaseAlg):
                 result.nfev,
             )
             if result.success and logp_final >= logp_initial:
+                k = np.sum(~fix[:planet_no])
+                cov = np.linalg.inv(result.jac.T @ result.jac)
                 ttime_new[i] = theta[planet_no]
+                error_new[i] = np.sqrt(cov[k, k])
             else:
                 nfail += 1
 
@@ -434,7 +439,7 @@ class QuickFitTransitTimes(BaseAlg):
                 np.sum(fit),
             )
 
-        return ttime_new
+        return ttime_new, error_new
 
     def perform(self):
         """
@@ -494,33 +499,28 @@ class QuickFitTransitTimes(BaseAlg):
         tm = TransitModel(star, planets, litecurve)
         overlap = self.identify_overlapping_transits(rel_size=1.0, abs_size=1 / 24)
         ttime_opt = [None] * npl
+        error_opt = [None] * npl
 
         for n, p in enumerate(planets):
             q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
             fit = p.transit_times.quality & ~q
-            ttime_opt[n] = self._optimize_times(tm, n, overlap, fit)
+            ttime_opt[n], error_opt[n] = self._optimize_times(tm, n, overlap, fit)
 
         # measured times: cross-correlation, else optimizer; ttime_mod = ttime_obs
         # where measured, else the previous model
         for n, p in enumerate(planets):
             good = p.transit_times.quality
-            error_obs = error_cc[n]
             tc_error_pred = self._predicted_tc_error(tm, n)
 
             q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
             measured = good & (q | np.isfinite(ttime_opt[n]))
             ttime_new = np.where(q, ttime_cc[n], ttime_opt[n])
-            # predicted error ~ Cramer-Rao bound: floor on the cc error
-            error_new = np.maximum(error_obs, tc_error_pred)
-            error_fill = np.nanpercentile(error_new, 90)
-            error_new[~q] = error_fill
+            # predicted error ~ Cramer-Rao bound: floor on the measured error
+            error_new = np.maximum(
+                np.where(q, error_cc[n], error_opt[n]), tc_error_pred
+            )
             ttime_new[~measured] = np.nan
             error_new[~measured] = np.nan
-            if not np.isfinite(error_fill):
-                raise RuntimeError(
-                    f"planet {n}: no valid cross-correlation errors; "
-                    "all transit errors are NaN"
-                )
 
             tt = p.transit_times
             p.set_transit_times(
@@ -537,14 +537,13 @@ class QuickFitTransitTimes(BaseAlg):
 
             omc = p.transit_times.ttime_obs - p.transit_times.linear_ephemeris()
             logger.info(
-                "planet %d: %d cross-correlation + %d optimizer times "
-                "(optimizer error = %.2f min), %d unmeasured, %d low quality; "
+                "planet %d: %d cross-correlation + %d optimizer times, "
+                "%d unmeasured, %d low quality; "
                 "P = %.6f d, epoch = %.5f BKJD, OMC rms = %.2f min, "
                 "median error = %.2f min",
                 n,
                 np.sum(q),
                 np.sum(~q & measured),
-                error_fill * 1440,
                 np.sum(good & ~measured),
                 np.sum(~good),
                 planets[n].period,
