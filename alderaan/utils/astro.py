@@ -68,7 +68,7 @@ def approx_transit_depth(p, b):
 def approx_tc_error(ror, b, T14, exptime, sigma_f):
     """
     Predict uncertainty on mid-transit time
-    See Carter+2008
+    See Price & Rogers 2014 (finite integration time; Carter+2008 as exptime -> 0)
 
     Parameters
     ----------
@@ -85,6 +85,11 @@ def approx_tc_error(ror, b, T14, exptime, sigma_f):
     else:
         tau_over_T14 = 0.5
 
-    sigma_tc = (T14 / Q) * np.sqrt(0.5 * tau_over_T14)
+    tau = tau_over_T14 * T14
+
+    if tau >= exptime:
+        sigma_tc = np.sqrt(tau * T14 / 2) / Q / np.sqrt(1 - exptime / (3 * tau))
+    else:
+        sigma_tc = np.sqrt(exptime * T14 / 2) / Q / np.sqrt(1 - tau / (3 * exptime))
 
     return sigma_tc

@@ -3,8 +3,8 @@ Tests for alderaan/algorithms/quick_fit_transit_times.py
 
 Recovery of injected per-transit time offsets (TTVs) from a synthetic detrended
 long cadence litecurve, including a transit that overlaps a second planet's;
-low quality transits stay unmeasured; known bugs T1 (fast) and T2 (slow) as
-strict xfails.
+low quality transits stay unmeasured; high-SNR short cadence transits are
+measured by cross-correlation; known bug T1 as a strict xfail.
 """
 
 import numpy as np
@@ -17,6 +17,7 @@ from alderaan.transit_model import exposure_offsets, transit_flux
 from alderaan.utils.astro import approx_transit_depth
 
 LC = "long cadence"
+SC = "short cadence"
 U1, U2 = 0.4, 0.25
 NOISE = 1e-4
 TTV_AMP = 10 / 1440  # days
@@ -26,15 +27,16 @@ TTV_AMP = 10 / 1440  # days
 TRUTH = [(5.3, 102.1, 0.08, 0.3, 0.15), (11.7, 111.65, 0.07, 0.4, 0.2)]
 
 
-def _synthetic_system(truth, seed=0, noise=NOISE):
+def _synthetic_system(truth, seed=0, noise=NOISE, obsmode=LC):
     """
     Star, planets on linear ephemerides with known shapes, a 60-day detrended
-    litecurve whose transits carry sinusoidal TTVs, and the true transit times
+    single-obsmode litecurve whose transits carry sinusoidal TTVs, and the true
+    transit times
     """
     rng = np.random.default_rng(seed)
-    cadno = np.arange(int(60 / EXPTIME[LC]))
-    time = 100.0 + cadno * EXPTIME[LC]
-    offsets = exposure_offsets(EXPTIME[LC], 15)
+    cadno = np.arange(int(60 / EXPTIME[obsmode]))
+    time = 100.0 + cadno * EXPTIME[obsmode]
+    offsets = exposure_offsets(EXPTIME[obsmode], 15)
     star = Star("Kepler", "SYN", 1.01, 1, U1, U2)
 
     flux = np.ones_like(time)
@@ -74,7 +76,7 @@ def _synthetic_system(truth, seed=0, noise=NOISE):
         np.full_like(time, noise),
         cadno,
         np.ones_like(cadno),
-        np.full(len(time), LC),
+        np.full(len(time), obsmode),
     )
     return star, planets, litecurve, ttime_true
 
@@ -115,6 +117,20 @@ class TestQuickFitTransitTimes:
         assert new.ttime_mod[3] == tt.ttime_mod[3]
         assert np.all(np.isfinite(new.ttime_obs[quality]))
 
+    def test_high_snr_transits_measured_by_cross_correlation(self):
+        # short cadence (no supersampling) at per-transit SNR ~ 500, the highest
+        # expected for a Kepler planet; the tc grid must resolve the tc error
+        ror, impact, T14 = 0.1, 0.3, 0.1
+        depth = approx_transit_depth(ror, impact)
+        noise = depth * np.sqrt(T14 / EXPTIME[SC]) / 500
+        star, planets, litecurve, ttime_true = _synthetic_system(
+            [(5.3, 102.1, ror, impact, T14)], noise=noise, obsmode=SC
+        )
+        new_planets, _ = QuickFitTransitTimes(star, planets, litecurve).perform()
+
+        tt = new_planets[0].transit_times
+        assert np.all(np.abs(tt.ttime_obs - ttime_true[0]) < 4 * tt.error_obs)
+
 
 class TestKnownBugs:
     @pytest.mark.xfail(strict=True, reason="T1 (notes/bugfixes.md)")
@@ -128,14 +144,3 @@ class TestKnownBugs:
 
         tt = new_planets[0].transit_times
         assert abs(tt.ttime_obs[4] - ttime_true[0][4]) < 4 * tt.error_obs[4]
-
-    @pytest.mark.slow
-    @pytest.mark.xfail(strict=True, reason="T2 (notes/bugfixes.md)")
-    def test_high_snr_transits_measured_by_cross_correlation(self):
-        star, planets, litecurve, ttime_true = _synthetic_system(
-            [(5.3, 102.1, 0.15, 0.3, 0.15)], noise=2e-6
-        )
-        new_planets, _ = QuickFitTransitTimes(star, planets, litecurve).perform()
-
-        tt = new_planets[0].transit_times
-        assert np.all(np.abs(tt.ttime_obs - ttime_true[0]) < 4 * tt.error_obs)

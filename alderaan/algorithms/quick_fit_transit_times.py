@@ -66,8 +66,37 @@ class QuickFitTransitTimes(BaseAlg):
         return time_template, flux_template
 
     @staticmethod
+    def _predicted_tc_error(tm, planet_no):
+        """
+        Predicted transit time uncertainty at each transit of one planet, from
+        its transit shape and the median photometric error of the transit's
+        visit and obsmode (Price & Rogers 2014)
+        """
+        p = tm.planets[planet_no]
+        lc = tm.litecurve
+        transit_visit = lc.visit_at(p.transit_times.ttime_mod)
+        transit_obsmode = tm.transit_obsmode[planet_no]
+
+        tc_error_pred = np.zeros(len(transit_visit))
+        for visit, obsmode in set(zip(transit_visit, transit_obsmode)):
+            use = (lc.visit == visit) & (lc.obsmode == obsmode)
+            sigma_f = np.median(lc.error[use])
+            tc_error_pred[(transit_visit == visit) & (transit_obsmode == obsmode)] = (
+                approx_tc_error(p.ror, p.impact, p.duration, EXPTIME[obsmode], sigma_f)
+            )
+
+        return tc_error_pred
+
+    @staticmethod
     def _fit_one_transit(
-        tm, obsmode, tc, duration, transit_window_size, time_template, flux_template
+        tm,
+        obsmode,
+        tc,
+        duration,
+        tc_error_pred,
+        transit_window_size,
+        time_template,
+        flux_template,
     ):
         """
         Cross-correlation fit of a single transit time
@@ -84,6 +113,8 @@ class QuickFitTransitTimes(BaseAlg):
             current transit time estimate
         duration : float
             planet transit duration (days)
+        tc_error_pred : float
+            predicted transit time uncertainty (days); caps the tc grid step
         transit_window_size : float
             full width of the data window around tc (days)
         time_template, flux_template : ndarray
@@ -122,8 +153,9 @@ class QuickFitTransitTimes(BaseAlg):
             _slope, _intercept = robust_polyfit(_t[use], _f_obs[use], 1)
             _f_obs /= _intercept + _slope * _t
 
-        # STEP 1: generate tc_offset vs chisq vectors
-        gridstep = exptime / supersample / 1.618 / 3
+        # STEP 1: generate tc_offset vs chisq vectors; the step must resolve the
+        # chisq minimum (width ~ tc error), else too few points pass STEP 2
+        gridstep = min(exptime / supersample / 5, tc_error_pred)
         tc_offset = np.arange(0, transit_window_size / 2, gridstep)
         tc_offset = tc + np.hstack([-tc_offset[:-1][::-1], tc_offset])
         chisq = np.zeros_like(tc_offset)
@@ -216,6 +248,7 @@ class QuickFitTransitTimes(BaseAlg):
             )
             for obsmode in tm.unique_obsmodes
         }
+        tc_error_pred = self._predicted_tc_error(tm, planet_no)
 
         ttime = np.full(ntransit, np.nan)
         ttime_err = np.full(ntransit, np.nan)
@@ -236,6 +269,7 @@ class QuickFitTransitTimes(BaseAlg):
                 obsmode,
                 tc,
                 p.duration,
+                tc_error_pred[i],
                 transit_window_size,
                 *templates[obsmode],
             )
@@ -482,19 +516,14 @@ class QuickFitTransitTimes(BaseAlg):
         for n, p in enumerate(planets):
             good = p.transit_times.quality
             error_obs = error_cc[n]
-            error_exp = np.zeros_like(error_obs)
-
-            for obsmode in tm.unique_obsmodes:
-                exptime = EXPTIME[obsmode]
-                sigma_f = np.median(litecurve.error[litecurve.obsmode == obsmode])
-                error_exp[tm.transit_obsmode[n] == obsmode] = approx_tc_error(
-                    p.ror, p.impact, p.duration, exptime, sigma_f
-                )
+            tc_error_pred = self._predicted_tc_error(tm, n)
 
             q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
             measured = good & (q | np.isfinite(ttime_opt[n]))
             ttime_new = np.where(q, ttime_cc[n], ttime_opt[n])
-            error_new = np.sqrt(error_obs**2 + error_exp**2)
+            # predicted error approximates the Cramer-Rao bound: a smaller
+            # cross-correlation error is not credible (NaN stays NaN)
+            error_new = np.maximum(error_obs, tc_error_pred)
             error_fill = np.nanpercentile(error_new, 90)
             error_new[~q] = error_fill
             ttime_new[~measured] = np.nan

@@ -70,3 +70,19 @@ class TestApproxTcError:
         assert approx_tc_error(0.1, 0.3, 0.15, 0.02, 1e-3) < base
         # grazing geometry degrades timing precision
         assert approx_tc_error(0.05, 0.99, 0.15, 0.02, 1e-3) > base
+
+    def test_finite_integration_time(self):
+        # Price & Rogers 2014; ingress tau = T14 * ror / (1 - b^2) = 0.01
+        ror, b, T14, sigma_f = 0.05, 0.0, 0.2, 1e-3
+        tau = T14 * ror
+        # instantaneous limit (exptime << tau) recovers Carter+2008, with the
+        # sampling rate 1/exptime factored out
+        exptime = 1e-6
+        carter = np.sqrt(tau * T14 / 2) / (np.sqrt(T14 / exptime) * ror**2 / sigma_f)
+        npt.assert_allclose(
+            approx_tc_error(ror, b, T14, exptime, sigma_f), carter, rtol=1e-4
+        )
+        # continuous at exptime = tau
+        lo = approx_tc_error(ror, b, T14, tau * (1 - 1e-9), sigma_f)
+        hi = approx_tc_error(ror, b, T14, tau * (1 + 1e-9), sigma_f)
+        npt.assert_allclose(lo, hi, rtol=1e-6)
