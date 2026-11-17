@@ -153,8 +153,9 @@ class QuickFitTransitTimes(BaseAlg):
             _f_obs /= _intercept + _slope * _t
 
         # STEP 1: chisq vs trial tc; step resolves the tc error
+        # trial transits stay fully inside the data window
         gridstep = min(exptime / supersample / 5, tc_error_pred)
-        tc_offset = np.arange(0, transit_window_size / 2, gridstep)
+        tc_offset = np.arange(0, (transit_window_size - duration) / 2, gridstep)
         tc_offset = tc + np.hstack([-tc_offset[:-1][::-1], tc_offset])
         chisq = np.zeros_like(tc_offset)
 

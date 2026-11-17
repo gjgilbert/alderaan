@@ -84,7 +84,7 @@ def parse_holczer16_catalog(filepath, koi_id):
 
     Automatically corrects for zero-point offsets between catalogs
       - Holczer+2016 used BJD - 2454900
-      - Kepler Project used BJKD = BJD - 2454833
+      - Kepler Project used BKJD = BJD - 2454833
 
     Parameters
     ----------
