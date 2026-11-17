@@ -114,7 +114,7 @@ class QuickFitTransitTimes(BaseAlg):
         duration : float
             planet transit duration (days)
         tc_error_pred : float
-            predicted transit time uncertainty (days); caps the tc grid step
+            predicted transit time uncertainty (days)
         transit_window_size : float
             full width of the data window around tc (days)
         time_template, flux_template : ndarray
@@ -145,16 +145,14 @@ class QuickFitTransitTimes(BaseAlg):
 
         _t_supersample = (exptime_ioff + _t.reshape(_t.size, 1)).ravel()
 
-        # remove any residual out-of-transit trend, excluding +/- T14 (as legacy)
-        # so ingress/egress stays out of the baseline when tc is off by < T14/2
+        # remove residual out-of-transit trend, excluding +/- T14
         near_transit = np.abs(lc.time - tc) < duration
         use = ~near_transit[in_window]
         if np.any(use):
             _slope, _intercept = robust_polyfit(_t[use], _f_obs[use], 1)
             _f_obs /= _intercept + _slope * _t
 
-        # STEP 1: generate tc_offset vs chisq vectors; the step must resolve the
-        # chisq minimum (width ~ tc error), else too few points pass STEP 2
+        # STEP 1: chisq vs trial tc; step resolves the tc error
         gridstep = min(exptime / supersample / 5, tc_error_pred)
         tc_offset = np.arange(0, transit_window_size / 2, gridstep)
         tc_offset = tc + np.hstack([-tc_offset[:-1][::-1], tc_offset])
@@ -328,26 +326,24 @@ class QuickFitTransitTimes(BaseAlg):
 
         return lnlike
 
-    def _optimize_times(self, tm, planet_no, overlap, relative_window_size=3.0):
+    def _optimize_times(self, tm, planet_no, overlap, fit, relative_window_size=3.0):
         """
         Fit each transit time independently using least squares optimization
 
-        Each varied transit time has a Normal(start, T14/3) prior (as legacy) and
-        is bounded to the fit window. Returns NaN where the fit failed, did not
-        improve the likelihood, or the transit is low quality
+        Fits transits where fit is True, with a Normal(start, T14/3) prior bounded
+        to the fit window. NaN where not fit, failed, or likelihood did not improve
         """
         lc = tm.litecurve
         overlap = overlap[planet_no]
         obsmode = tm.transit_obsmode[planet_no]
 
         ttime_old = tm.planets[planet_no].transit_times.ttime_mod
-        quality = tm.planets[planet_no].transit_times.quality
         ttime_new = np.full_like(ttime_old, np.nan)
         prior_sd = np.array([p.duration / 3 for p in tm.planets])
         nfail = 0
 
         for i, tc in enumerate(ttime_old):
-            if not quality[i]:
+            if not fit[i]:
                 continue
 
             if not overlap[i]:
@@ -432,11 +428,10 @@ class QuickFitTransitTimes(BaseAlg):
 
         if nfail > 0:
             logger.warning(
-                "planet %d: optimizer failed for %d of %d transits "
-                "(unmeasured unless cross-correlation succeeded)",
+                "planet %d: optimizer failed for %d of %d transits (unmeasured)",
                 planet_no,
                 nfail,
-                np.sum(quality),
+                np.sum(fit),
             )
 
         return ttime_new
@@ -479,8 +474,7 @@ class QuickFitTransitTimes(BaseAlg):
             ttime_cc[n][large] = np.nan
             error_cc[n][large] = np.nan
 
-        # interim transit times for the optimizer: cross-correlation measurements
-        # where available, otherwise the previous model
+        # optimizer starting times: cross-correlation, else the previous model
         for n, p in enumerate(planets):
             q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
             tt = p.transit_times
@@ -496,18 +490,18 @@ class QuickFitTransitTimes(BaseAlg):
                 )
             )
 
-        # fit transit times using least squares optimization
+        # least squares optimization where cross-correlation failed
         tm = TransitModel(star, planets, litecurve)
         overlap = self.identify_overlapping_transits(rel_size=1.0, abs_size=1 / 24)
         ttime_opt = [None] * npl
 
-        for n in range(npl):
-            ttime_opt[n] = self._optimize_times(tm, n, overlap)
+        for n, p in enumerate(planets):
+            q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
+            fit = p.transit_times.quality & ~q
+            ttime_opt[n] = self._optimize_times(tm, n, overlap, fit)
 
-        # measured transit times, prioritizing cross-correlation over optimization;
-        # no model yet (ttime_mod = ttime_obs) until RegularizeOMC, except where
-        # neither method succeeded or the transit is low quality: those stay
-        # unmeasured at their previous model time
+        # measured times: cross-correlation, else optimizer; ttime_mod = ttime_obs
+        # where measured, else the previous model
         for n, p in enumerate(planets):
             good = p.transit_times.quality
             error_obs = error_cc[n]
@@ -516,8 +510,7 @@ class QuickFitTransitTimes(BaseAlg):
             q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
             measured = good & (q | np.isfinite(ttime_opt[n]))
             ttime_new = np.where(q, ttime_cc[n], ttime_opt[n])
-            # predicted error approximates the Cramer-Rao bound: a smaller
-            # cross-correlation error is not credible (NaN stays NaN)
+            # predicted error ~ Cramer-Rao bound: floor on the cc error
             error_new = np.maximum(error_obs, tc_error_pred)
             error_fill = np.nanpercentile(error_new, 90)
             error_new[~q] = error_fill
