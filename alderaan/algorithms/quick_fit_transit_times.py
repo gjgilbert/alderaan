@@ -219,27 +219,33 @@ class QuickFitTransitTimes(BaseAlg):
         self,
         tm,
         planet_no,
-        overlap,
         rel_window_size=5.0,
         abs_window_size_buffer=1 / 24,
     ):
         """
         Fit transit times using the Mazeh+13 / Holczer+16 cross-correlation method
 
-        Overlapping transits are skipped; the data window around each transit is
-        rel_window_size * duration + abs_window_size_buffer (days) wide
+        The data window around each transit is rel_window_size * duration +
+        abs_window_size_buffer (days) wide; transits with a sibling transit
+        inside the window are skipped
         """
         # shorthand
         p = tm.planets[planet_no]
 
-        assert len(p.transit_times.ttime_mod) == len(overlap[planet_no]), (
-            f"Mismatched sizes for ttime ({len(p.transit_times.ttime_mod)}) "
-            f"and overlap ({len(overlap[planet_no])})"
-        )
-
         transit_obsmode = tm.transit_obsmode[planet_no]
         ntransit = len(p.transit_times.ttime_mod)
         transit_window_size = rel_window_size * p.duration + abs_window_size_buffer
+
+        # a sibling transit inside the data window could capture the template
+        sibling_in_window = np.zeros(ntransit, dtype=bool)
+        for j, pj in enumerate(tm.planets):
+            if j != planet_no:
+                dt = np.abs(
+                    p.transit_times.ttime_mod[:, None] - pj.transit_times.ttime_mod
+                )
+                sibling_in_window |= np.any(
+                    dt < transit_window_size / 2 + pj.duration / 2, axis=1
+                )
 
         # one template per observing mode
         templates = {
@@ -253,14 +259,14 @@ class QuickFitTransitTimes(BaseAlg):
         ttime = np.full(ntransit, np.nan)
         ttime_err = np.full(ntransit, np.nan)
         skipped = {
-            "overlapping": int(np.sum(overlap[planet_no])),
+            "sibling in window": int(np.sum(sibling_in_window)),
             "no in-transit data": 0,
             "too few chisq points": 0,
             "ill-conditioned": 0,
         }
 
         for i, tc in enumerate(p.transit_times.ttime_mod):
-            if overlap[planet_no][i]:
+            if sibling_in_window[i]:
                 continue
 
             obsmode = transit_obsmode[i]
@@ -449,22 +455,11 @@ class QuickFitTransitTimes(BaseAlg):
 
         # fit transit times using Mazeh+13 / Holczer+16 cross-correlation method
         tm = TransitModel(star, planets, litecurve)
-        overlap = self.identify_overlapping_transits(rel_size=1.0, abs_size=1 / 24)
         ttime_cc = [None] * npl
         error_cc = [None] * npl
 
-        for n in range(npl):
-            if np.any(overlap[n]):
-                logger.info(
-                    "planet %d: %d of %d transits overlap another planet "
-                    "(fit jointly by the optimizer, not cross-correlation)",
-                    n,
-                    np.sum(overlap[n]),
-                    len(overlap[n]),
-                )
-
         for n, p in enumerate(planets):
-            ttime_cc[n], error_cc[n] = self._cross_correlation_times(tm, n, overlap)
+            ttime_cc[n], error_cc[n] = self._cross_correlation_times(tm, n)
 
             assert len(ttime_cc[n]) == len(p.transit_times.ttime_mod)
 

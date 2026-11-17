@@ -4,7 +4,8 @@ Tests for alderaan/algorithms/quick_fit_transit_times.py
 Recovery of injected per-transit time offsets (TTVs) from a synthetic detrended
 long cadence litecurve, including a transit that overlaps a second planet's;
 low quality transits stay unmeasured; high-SNR short cadence transits are
-measured by cross-correlation; known bug T1 as a strict xfail.
+measured by cross-correlation; transits with a sibling in the window go to
+the optimizer.
 """
 
 import numpy as np
@@ -131,11 +132,8 @@ class TestQuickFitTransitTimes:
         tt = new_planets[0].transit_times
         assert np.all(np.abs(tt.ttime_obs - ttime_true[0]) < 4 * tt.error_obs)
 
-
-class TestKnownBugs:
-    @pytest.mark.xfail(strict=True, reason="T1 (notes/bugfixes.md)")
-    def test_cross_correlation_ignores_nearby_companion_transit(self):
-        # a deep companion transit 4 hr before planet 0's transit 4: outside the
+    def test_cross_correlation_ignores_nearby_sibling_transit(self):
+        # a deep sibling transit 4 hr before planet 0's transit 4: outside the
         # overlap criterion but inside the cross-correlation window
         tc4 = 102.1 + 4 * 5.3
         truth = [(5.3, 102.1, 0.04, 0.3, 2 / 24), (25.0, tc4 - 4 / 24, 0.12, 0.3, 0.15)]
