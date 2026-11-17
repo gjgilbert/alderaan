@@ -3,7 +3,7 @@ Tests for alderaan/algorithms/quick_fit_transit_times.py
 
 Recovery of injected per-transit time offsets (TTVs) from a synthetic detrended
 long cadence litecurve, including a transit that overlaps a second planet's;
-low quality transits stay unmeasured; high-SNR short cadence transits are
+low quality and undetected transits stay unmeasured; high-SNR short cadence transits are
 measured by cross-correlation; transits with a sibling in the window go to
 the optimizer, including a planet whose every transit has a USP sibling in
 the window.
@@ -118,6 +118,20 @@ class TestQuickFitTransitTimes:
         assert np.isnan(new.ttime_obs[3]) and np.isnan(new.error_obs[3])
         assert new.ttime_mod[3] == tt.ttime_mod[3]
         assert np.all(np.isfinite(new.ttime_obs[quality]))
+
+    def test_undetected_transit_is_not_measured(self):
+        # transit 3 removed from the photometry: no trial transit beats a flat line
+        star, planets, litecurve, ttime_true = _synthetic_system(TRUTH[:1])
+        near = np.abs(litecurve.time - ttime_true[0][3]) < TRUTH[0][4]
+        rng = np.random.default_rng(1)
+        litecurve.flux[near] = 1 + NOISE * rng.standard_normal(np.sum(near))
+        tt = planets[0].transit_times
+        new_planets, _ = QuickFitTransitTimes(star, planets, litecurve).perform()
+
+        new = new_planets[0].transit_times
+        assert np.isnan(new.ttime_obs[3]) and np.isnan(new.error_obs[3])
+        assert new.ttime_mod[3] == tt.ttime_mod[3]
+        assert np.sum(np.isnan(new.ttime_obs)) == 1
 
     def test_high_snr_transits_measured_by_cross_correlation(self):
         # short cadence (no supersampling) at per-transit SNR ~ 500, the highest

@@ -165,6 +165,10 @@ class QuickFitTransitTimes(BaseAlg):
 
             chisq[j] = np.sum(((_f_obs - _f_mod) / _f_err) ** 2)
 
+        # no trial transit fits better than no transit at all
+        if chisq.min() >= np.sum(((_f_obs - 1) / _f_err) ** 2):
+            return np.nan, np.nan, "no detection"
+
         # STEP 2: isolate relevant portions of {tc_offset, chisq} vectors
         delta_chisq = 2.0
 
@@ -227,6 +231,13 @@ class QuickFitTransitTimes(BaseAlg):
         The data window around each transit is rel_window_size * duration +
         abs_window_size_buffer (days) wide; transits with a sibling transit
         inside the window are skipped
+
+        Returns
+        -------
+        ttime, ttime_err : ndarray
+            fitted transit times and uncertainties; NaN where not fit
+        sibling_in_window : ndarray of bool
+            a sibling transit is inside the data window (not fit)
         """
         # shorthand
         p = tm.planets[planet_no]
@@ -260,6 +271,7 @@ class QuickFitTransitTimes(BaseAlg):
         skipped = {
             "sibling in window": int(np.sum(sibling_in_window)),
             "no in-transit data": 0,
+            "no detection": 0,
             "too few chisq points": 0,
             "ill-conditioned": 0,
         }
@@ -291,7 +303,7 @@ class QuickFitTransitTimes(BaseAlg):
             ", ".join(f"{v} {k}" for k, v in skipped.items()),
         )
 
-        return ttime, ttime_err
+        return ttime, ttime_err, sibling_in_window
 
     @staticmethod
     def _window_flux(theta, tm, obsmode, t_obs):
@@ -458,9 +470,12 @@ class QuickFitTransitTimes(BaseAlg):
         tm = TransitModel(star, planets, litecurve)
         ttime_cc = [None] * npl
         error_cc = [None] * npl
+        sibling_in_window = [None] * npl
 
         for n, p in enumerate(planets):
-            ttime_cc[n], error_cc[n] = self._cross_correlation_times(tm, n)
+            ttime_cc[n], error_cc[n], sibling_in_window[n] = (
+                self._cross_correlation_times(tm, n)
+            )
 
             assert len(ttime_cc[n]) == len(p.transit_times.ttime_mod)
 
@@ -468,7 +483,7 @@ class QuickFitTransitTimes(BaseAlg):
             ttime_cc[n][~p.transit_times.quality] = np.nan
             error_cc[n][~p.transit_times.quality] = np.nan
 
-            # discard fits with outsized errors; they fall back to the optimizer
+            # discard fits with outsized errors
             large = error_cc[n] > 8 * np.nanmedian(error_cc[n])
             if np.any(large):
                 logger.info(
@@ -496,15 +511,15 @@ class QuickFitTransitTimes(BaseAlg):
                 )
             )
 
-        # least squares optimization where cross-correlation failed
+        # least squares optimization where a sibling transit blocked
+        # cross-correlation
         tm = TransitModel(star, planets, litecurve)
         overlap = self.identify_overlapping_transits(rel_size=1.0, abs_size=1 / 24)
         ttime_opt = [None] * npl
         error_opt = [None] * npl
 
         for n, p in enumerate(planets):
-            q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
-            fit = p.transit_times.quality & ~q
+            fit = p.transit_times.quality & sibling_in_window[n]
             ttime_opt[n], error_opt[n] = self._optimize_times(tm, n, overlap, fit)
 
         # measured times: cross-correlation, else optimizer; ttime_mod = ttime_obs
