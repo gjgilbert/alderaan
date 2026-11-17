@@ -484,6 +484,8 @@ class QuickFitTransitTimes(BaseAlg):
             error_cc[n][~p.transit_times.quality] = np.nan
 
             # discard fits with outsized errors
+            if np.all(np.isnan(error_cc[n])):
+                continue
             large = error_cc[n] > 8 * np.nanmedian(error_cc[n])
             if np.any(large):
                 logger.info(

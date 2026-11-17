@@ -1,5 +1,7 @@
 """Tests for alderaan.algorithms.regularize_omc.RegularizeOMC"""
 
+import logging
+
 import numpy as np
 import pytest
 
@@ -96,33 +98,110 @@ class TestSelectBestModel:
     """AIC/BIC model selection on fixed model predictions"""
 
     @staticmethod
-    def _fits(**trends):
-        return {k: {"trend": v, "pred": v} for k, v in trends.items()}
+    def _results(yobs, yerr, dofs, **preds):
+        results = {}
+        for k, pred in preds.items():
+            _, _, lnlike = RegularizeOMC._calculate_outlier_probability(
+                yobs, pred, yerr
+            )
+            keep = np.ones(len(yobs), dtype=bool)
+            results[k] = {
+                "pred": pred,
+                "keep": keep,
+                "lnlike": lnlike,
+                "nchange": 0,
+                "dof": dofs[k],
+            }
+        return results
 
     def test_prefers_model_matching_the_data(self):
         x = np.linspace(-1, 1, 50)
         yobs = 2 * x**2
         yerr = np.full(50, 0.01)
-        q = np.ones(50, dtype=bool)
-        fits = self._fits(poly_1=x, poly_2=yobs)
-
-        _, name = RegularizeOMC._select_best_model(
-            yobs, yerr, q, fits, {"poly_1": 2, "poly_2": 3}
+        results = self._results(
+            yobs, yerr, {"poly_1": 2, "poly_2": 3}, poly_1=x, poly_2=yobs
         )
-        assert name == "poly_2"
+        assert RegularizeOMC._select_best_model(results, 50) == "poly_2"
 
     def test_parametric_model_preferred_when_criteria_disagree_on_gp(self):
         # matern32 fits slightly better, at a cost AIC accepts but BIC rejects
         npts = 100
         yobs = np.zeros(npts)
         yerr = np.ones(npts)
-        q = np.ones(npts, dtype=bool)
-        fits = self._fits(matern32=np.zeros(npts), poly_1=np.full(npts, np.sqrt(0.06)))
-
-        _, name = RegularizeOMC._select_best_model(
-            yobs, yerr, q, fits, {"matern32": 4.0, "poly_1": 2}
+        results = self._results(
+            yobs,
+            yerr,
+            {"matern32": 4.0, "poly_1": 2},
+            matern32=np.zeros(npts),
+            poly_1=np.full(npts, np.sqrt(0.06)),
         )
-        assert name == "poly_1"
+        assert RegularizeOMC._select_best_model(results, npts) == "poly_1"
+
+    def test_rejecting_misfit_transits_is_not_rewarded(self):
+        # 'wrong' misses 20 transits by 6 sigma and would reject them; scored on
+        # its own kept transits it would beat 'right', which fits all of them
+        rng = np.random.default_rng(8)
+        npts = 200
+        yerr = np.ones(npts)
+        yobs = rng.normal(0, 1, npts)
+        wrong = np.zeros(npts)
+        wrong[:20] = 6.0
+        results = self._results(
+            yobs, yerr, {"right": 2, "wrong": 2}, right=np.zeros(npts), wrong=wrong
+        )
+        assert RegularizeOMC._select_best_model(results, npts) == "right"
+
+
+def _contaminated_line(seed=1):
+    """
+    Linear OMC with 1 min white noise; 15% of transits late by 4-8 min, mostly
+    inside the 5 sigma screen; returns (xtime, yobs, yerr, truth, bad)
+    """
+    rng = np.random.default_rng(seed)
+    xtime = np.arange(300) * PERIOD
+    truth = 3 / 1440 * (xtime / xtime.max() - 0.5)
+    yerr = np.full(300, TIME_ERR)
+    yobs = truth + rng.normal(0, TIME_ERR, 300)
+    bad = rng.random(300) < 0.15
+    yobs[bad] += rng.uniform(4, 8, bad.sum()) * TIME_ERR
+    return xtime, yobs, yerr, truth, bad
+
+
+def _poly_fits(xtime, yobs, yerr, screen, orders=(1, 2, 3)):
+    results = {}
+    for k in orders:
+        results[f"poly_{k}"] = RegularizeOMC._fit_with_rejection(
+            lambda q, k=k: RegularizeOMC._poly_model(xtime, yobs, yerr, q, k),
+            yobs,
+            yerr,
+            screen,
+        )
+        results[f"poly_{k}"]["dof"] = 1 + k
+    return results
+
+
+class TestFitWithRejection:
+    def test_rejection_improves_fit(self):
+        xtime, yobs, yerr, truth, bad = _contaminated_line()
+        screen = RegularizeOMC._flag_outliers(yobs, yerr)
+        r = _poly_fits(xtime, yobs, yerr, screen, orders=(1,))["poly_1"]
+        plain = RegularizeOMC._poly_model(xtime, yobs, yerr, screen, 1)["pred"]
+
+        assert np.sum(~r["keep"] & bad) > 0.9 * np.sum(bad)
+        assert np.sum(~r["keep"] & ~bad) < 0.05 * np.sum(~bad)
+        assert _rms(r["pred"] - truth) < 0.5 * _rms(plain - truth)
+
+    def test_clean_data_unchanged(self):
+        rng = np.random.default_rng(7)
+        xtime = np.arange(300) * PERIOD
+        yerr = np.full(300, TIME_ERR)
+        yobs = rng.normal(0, TIME_ERR, 300)
+        screen = RegularizeOMC._flag_outliers(yobs, yerr)
+        r = _poly_fits(xtime, yobs, yerr, screen, orders=(1,))["poly_1"]
+        plain = RegularizeOMC._poly_model(xtime, yobs, yerr, screen, 1)["pred"]
+
+        np.testing.assert_array_equal(r["keep"], screen)
+        np.testing.assert_array_equal(r["pred"], plain)
 
 
 class TestPolyModel:
@@ -144,6 +223,26 @@ class TestPolyModel:
         C = np.linalg.lstsq(A, b, rcond=None)[0]
         np.testing.assert_allclose(fit["pred"], X @ C, rtol=1e-9, atol=1e-15)
         np.testing.assert_allclose(fit["trend"], (X @ C)[q], rtol=1e-9, atol=1e-15)
+
+
+class TestSinModel:
+    def test_recovers_line_plus_sinusoid(self):
+        # a residual offset and slope (e.g. from a biased linear ephemeris) plus
+        # a 400 d sinusoid; the LS period estimate is off by 0.5 / baseline
+        rng = np.random.default_rng(9)
+        xtime = np.arange(150) * PERIOD
+        yerr = np.full(150, TIME_ERR)
+        truth = (
+            2 * TIME_ERR
+            + 3 * TIME_ERR * xtime / xtime.max()
+            + 4 * TIME_ERR * np.sin(2 * np.pi * xtime / 400 + 1.0)
+        )
+        yobs = truth + rng.normal(0, TIME_ERR, 150)
+        q = np.ones(150, dtype=bool)
+        ttv_period = 1 / (1 / 400 + 0.5 / np.ptp(xtime))
+
+        fit = RegularizeOMC._sin_model(xtime, yobs, yerr, q, ttv_period)
+        assert _rms(fit["pred"] - truth) < 0.25 * TIME_ERR
 
 
 def _mixed_error_omc():
@@ -176,29 +275,32 @@ class TestOutlierScreen:
 class TestOutlierProbability:
     def test_judged_against_own_errors(self):
         yobs, yerr = _mixed_error_omc()
-        out_prob, out_class = RegularizeOMC._calculate_outlier_probability(
+        out_prob, out_class, _ = RegularizeOMC._calculate_outlier_probability(
             yobs, np.zeros_like(yobs), yerr
         )
         assert out_class[50]
         assert out_prob[50] > out_prob[51]
 
+    def test_clean_residuals_with_excess_scatter_not_flagged(self):
+        # Gaussian residuals 1.5x wider than the errors: jitter, not outliers
+        rng = np.random.default_rng(4)
+        yerr = np.full(400, 1 / 1440)
+        yobs = rng.normal(0, 1.5 * yerr)
+        _, out_class, _ = RegularizeOMC._calculate_outlier_probability(
+            yobs, np.zeros_like(yobs), yerr
+        )
+        assert not np.any(out_class)
 
-class TestGibbsMixture:
-    def test_recovers_injected_mixture(self):
+    def test_recovers_injected_outliers(self):
         rng = np.random.default_rng(5)
-        n = 500
-        broad = rng.random(n) > 0.9
-        res = np.where(broad, rng.normal(0, 3.0, n), rng.normal(0, 0.3, n))
-
-        mu, tau = RegularizeOMC._gibbs_mixture(res)
-        scales = np.median(1 / np.sqrt(tau), axis=0)
-
-        # compare with each component's realized scatter
-        realized = [np.std(res[broad]), np.std(res[~broad])]
-        np.testing.assert_allclose(scales, realized, rtol=0.15)
-        assert abs(np.median(mu)) < 0.1
-        assert np.all(tau[:, 0] <= tau[:, 1])
-        np.testing.assert_array_equal(RegularizeOMC._gibbs_mixture(res)[0], mu)
+        yerr = np.full(400, 1 / 1440)
+        yobs = rng.normal(0, yerr)
+        bad = rng.choice(400, 20, replace=False)
+        yobs[bad] += rng.choice([-1, 1], 20) * rng.uniform(8, 20, 20) / 1440
+        _, out_class, _ = RegularizeOMC._calculate_outlier_probability(
+            yobs, np.zeros_like(yobs), yerr
+        )
+        np.testing.assert_array_equal(np.flatnonzero(out_class), np.sort(bad))
 
 
 @pytest.mark.slow
@@ -210,8 +312,8 @@ class TestSample:
         def prior_transform(u):
             return 2 * u - 1
 
-        a = RegularizeOMC._sample(loglike, prior_transform, 2, "toy")
-        b = RegularizeOMC._sample(loglike, prior_transform, 2, "toy")
+        a = RegularizeOMC._sample(loglike, prior_transform, 2)
+        b = RegularizeOMC._sample(loglike, prior_transform, 2)
         np.testing.assert_array_equal(a, b)
         np.testing.assert_allclose(np.median(a, 0), 0.3, atol=0.03)
 
@@ -232,6 +334,62 @@ class TestSelect:
         measured = np.isfinite(tt.ttime_obs)
         assert np.all((tt.out_prob[measured] >= 0) & (tt.out_prob[measured] <= 1))
         assert np.isnan(tt.out_prob[20])
+
+    @staticmethod
+    def _contaminated_sinusoid(seed, amp):
+        """
+        150 transits, 2 min errors, an amp-sigma 400 d TTV, and 30 transits offset
+        by 4-8 sigma; returns (star, planets, lc, linear, ttv, err, xtime, yobs)
+        """
+        rng = np.random.default_rng(seed)
+        n = 150
+        index = np.arange(n)
+        linear = EPOCH + PERIOD * index
+        err = np.full(n, 2 / 1440)
+        ttv = amp * err * np.sin(2 * np.pi * linear / 400 + rng.uniform(0, 6.28))
+        omc = ttv + rng.normal(0, 1, n) * err
+        bad = rng.choice(n, 30, replace=False)
+        omc[bad] += rng.choice([-1, 1], 30) * rng.uniform(4, 8, 30) * err[bad]
+
+        star, planets, lc, _ = _system(ntransit=n)
+        planets[0].set_transit_times(
+            TransitTimes("Kepler", "SYN", index, linear + omc, error_obs=err)
+        )
+        tt = planets[0].transit_times
+        xtime = tt.linear_ephemeris()
+        return star, planets, lc, linear, ttv, err, xtime, tt.ttime_obs - xtime
+
+    @staticmethod
+    def _first_search(xtime, yobs, err):
+        screen = RegularizeOMC._flag_outliers(yobs, err)
+        return RegularizeOMC._identify_significant_frequencies(
+            xtime, yobs, screen, 0.03
+        )[0]
+
+    def test_periodic_signal_from_outliers_is_rejected(self, caplog):
+        # white noise: the outliers alone give a significant first-search peak,
+        # and the sinusoid is selected unless the second search rejects it
+        star, planets, lc, _, _, err, xtime, yobs = self._contaminated_sinusoid(15, 0)
+        assert self._first_search(xtime, yobs, err) is not None
+
+        with caplog.at_level(logging.INFO, logger="alderaan.algorithms.regularize_omc"):
+            RegularizeOMC(star, planets, lc).perform(method="select")
+        assert "sinusoid rejected" in caplog.text
+        assert "sinusoid OMC model;" not in caplog.text
+
+    def test_periodic_signal_hidden_by_outliers_is_recovered(self, caplog):
+        # 0.8 sigma TTV: found only once the outliers are rejected
+        star, planets, lc, linear, ttv, err, xtime, yobs = self._contaminated_sinusoid(
+            2, 0.8
+        )
+        assert self._first_search(xtime, yobs, err) is None
+
+        with caplog.at_level(logging.INFO, logger="alderaan.algorithms.regularize_omc"):
+            planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
+        assert "sinusoid added" in caplog.text
+        assert "sinusoid OMC model;" in caplog.text
+        tt = planets_out[0].transit_times
+        assert _rms((tt.ttime_mod - linear - ttv) / err) < 0.25
 
 
 @pytest.mark.slow

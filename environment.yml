@@ -14,7 +14,6 @@ dependencies:
   - pandas==2.3.3
   - pillow==13.0.0
   - rebound==5.0.1
-  - scikit-learn==1.9.1
   - scipy==1.18.1
   # dev
   - ipywidgets==8.1.9
