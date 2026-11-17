@@ -36,16 +36,23 @@ class RegularizeOMC(BaseAlg):
     """
 
     @staticmethod
-    def _flag_outliers(yobs, sigma_cut=5.0):
+    def _normalized_residuals(res, yerr):
+        """Residuals over measurement error combined with excess (unmodeled) scatter"""
+        excess_var = max(0.0, mad_std(res) ** 2 - np.median(yerr) ** 2)
+        return res / np.sqrt(yerr**2 + excess_var)
+
+    @staticmethod
+    def _flag_outliers(yobs, yerr, sigma_cut=5.0):
         if len(yobs) > 16:
             ysmooth = uniform_filter(median_filter(yobs, size=5, mode="mirror"), size=5)
         else:
             ysmooth = np.median(yobs)
 
         # zero scatter (e.g. times from a linear ephemeris): nothing to flag
-        scatter = mad_std(yobs - ysmooth)
+        z = RegularizeOMC._normalized_residuals(yobs - ysmooth, yerr)
+        scatter = mad_std(z)
         if len(yobs) > 4 and scatter > 0:
-            quality = np.abs(yobs - ysmooth) / scatter < sigma_cut
+            quality = np.abs(z) / scatter < sigma_cut
         else:
             quality = np.ones(len(yobs), dtype=bool)
 
@@ -479,7 +486,7 @@ class RegularizeOMC(BaseAlg):
         return mu_draws, tau_draws
 
     @staticmethod
-    def _calculate_outlier_probability(yobs, ymod):
+    def _calculate_outlier_probability(yobs, ymod, yerr):
         """
         Calculate the probability that each measured omc transit time is an outlier
         Assumes a two-component Gaussian mixture model to calculate outlier probabilty
@@ -491,6 +498,8 @@ class RegularizeOMC(BaseAlg):
             observed omc values
         ymod : ndarray
             regularized model for yobs
+        yerr : ndarray
+            measurement errors on yobs
 
         Returns
         -------
@@ -500,7 +509,7 @@ class RegularizeOMC(BaseAlg):
             boolean flag that each transit time is an outlier
         """
         # normalize and center residuals
-        res = yobs - ymod
+        res = RegularizeOMC._normalized_residuals(yobs - ymod, yerr)
         res = res / np.std(res)
         res -= np.mean(res)
 
@@ -715,7 +724,10 @@ class RegularizeOMC(BaseAlg):
             (tt.ttime_obs - tt.linear_ephemeris())[m] for tt, m in zip(tts, measured)
         ]
         yerr = [tt.error_obs[m] for tt, m in zip(tts, measured)]
-        quality = [self._flag_outliers(y) for y in yobs]
+        # 'smooth' runs on catalog times whose errors may be missing: equal weights
+        if method == "smooth":
+            yerr = [np.ones_like(y) for y in yobs]
+        quality = [self._flag_outliers(y, e) for y, e in zip(yobs, yerr)]
 
         ymod = [None] * npl
 
@@ -738,7 +750,7 @@ class RegularizeOMC(BaseAlg):
                     xtime[n], yobs[n], yerr[n], quality[n], freq[n]
                 )
                 out_prob, out_class = self._calculate_outlier_probability(
-                    yobs[n], ymod[n]
+                    yobs[n], ymod[n], yerr[n]
                 )
 
             transit_times = self._regularized_transit_times(

@@ -146,6 +146,43 @@ class TestPolyModel:
         np.testing.assert_allclose(fit["trend"], (X @ C)[q], rtol=1e-9, atol=1e-15)
 
 
+def _mixed_error_omc():
+    """
+    White-noise OMC alternating precise (1 min) and noisy (4 min) errors; points
+    50 (precise) and 51 (noisy) are both offset by +8 min
+    """
+    rng = np.random.default_rng(3)
+    yerr = np.where(np.arange(200) % 2 == 0, 1.0, 4.0) / 1440
+    yobs = rng.normal(0, yerr)
+    yobs[[50, 51]] = 8 / 1440
+    return yobs, yerr
+
+
+class TestOutlierScreen:
+    def test_judged_against_own_errors(self):
+        # 8 min is 8 sigma for the precise point, 2 sigma for the noisy one
+        yobs, yerr = _mixed_error_omc()
+        quality = RegularizeOMC._flag_outliers(yobs, yerr)
+        np.testing.assert_array_equal(np.flatnonzero(~quality), [50])
+
+    def test_equal_errors_depend_only_on_scatter(self):
+        yobs, _ = _mixed_error_omc()
+        np.testing.assert_array_equal(
+            RegularizeOMC._flag_outliers(yobs, np.full(200, 1 / 1440)),
+            RegularizeOMC._flag_outliers(yobs, np.full(200, 7 / 1440)),
+        )
+
+
+class TestOutlierProbability:
+    def test_judged_against_own_errors(self):
+        yobs, yerr = _mixed_error_omc()
+        out_prob, out_class = RegularizeOMC._calculate_outlier_probability(
+            yobs, np.zeros_like(yobs), yerr
+        )
+        assert out_class[50]
+        assert out_prob[50] > out_prob[51]
+
+
 class TestGibbsMixture:
     def test_recovers_injected_mixture(self):
         rng = np.random.default_rng(5)
