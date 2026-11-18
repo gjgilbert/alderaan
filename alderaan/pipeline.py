@@ -137,6 +137,7 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     planets, litecurve = FlagBadTransits(star, planets, litecurve).perform()
     planets, litecurve = QuickFitTransitShape(star, planets, litecurve).perform()
     planets, litecurve = QuickFitTransitTimes(star, planets, litecurve).perform()
+    planets, litecurve = FlagBadTransits(star, planets, litecurve).perform()
     planets, litecurve = RegularizeOMC(star, planets, litecurve).perform(
         method="select"
     )

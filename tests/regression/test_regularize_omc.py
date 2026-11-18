@@ -93,6 +93,32 @@ class TestSmooth:
             np.abs(tt.ttime_mod[[0, 60, 61]] - truth[[0, 60, 61]]) < 3 * TIME_ERR
         )
 
+    def test_low_quality_times_are_unmeasured(self):
+        # low quality (FlagBadTransits) measured times are not fit: they come
+        # back unmeasured, filled by the model
+        star, planets, lc, truth = _system(outliers=[40, 90])
+        tt = planets[0].transit_times
+        quality = np.ones(len(tt.index), dtype=bool)
+        quality[[40, 90]] = False
+        planets[0].set_transit_times(
+            TransitTimes(
+                "Kepler",
+                "SYN",
+                tt.index,
+                tt.ttime_obs,
+                error_obs=tt.error_obs,
+                ttime_mod=tt.ttime_mod,
+                quality=quality,
+            )
+        )
+        planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="smooth")
+
+        tt = planets_out[0].transit_times
+        assert np.all(np.isnan(tt.ttime_obs[[40, 90]]))
+        assert np.all(np.isnan(tt.error_obs[[40, 90]]))
+        assert not np.any(tt.out_flag)
+        assert np.all(np.abs(tt.ttime_mod[[40, 90]] - truth[[40, 90]]) < 3 * TIME_ERR)
+
 
 class TestSelectBestModel:
     """AIC/BIC model selection on fixed model predictions"""

@@ -108,6 +108,19 @@ class TestNoise:
         planets_out, _ = FlagBadTransits(star, planets + [p2], lc).perform()
         assert planets_out[0].transit_times.quality[12]
 
+    def test_few_transits_skip_noise_check(self):
+        # 7 transits: too few for the noise spread, but coverage is still checked
+        star, planets, lc = _system(t_max=20.0)
+        assert len(planets[0].transit_times.index) == 7
+        window = np.abs(lc.time - _tc(planets, 3)) < 1.5 * DURATION
+        rng = np.random.default_rng(3)
+        lc.flux[window] = 1 + rng.normal(0, 10 * NOISE, window.sum())
+        lc.select(np.abs(lc.time - _tc(planets, 5)) > 2 * DURATION)
+
+        index = _run(star, planets, lc)
+        assert 3 in index
+        assert 5 not in index
+
 
 @pytest.mark.slow
 class TestFlagBadTransitsK00137:

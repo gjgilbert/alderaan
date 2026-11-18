@@ -1,4 +1,4 @@
-"""Profile ``FlagBadTransits`` (both passes) on K00137.
+"""Profile ``FlagBadTransits`` (every pass) on K00137.
 
 Run with ``make profile-flag_bad_transits`` or
 ``python tests/profiling/profile_flag_bad_transits.py``.
@@ -14,7 +14,7 @@ from alderaan.algorithms import FlagBadTransits
 
 def run():
     return P.profile_algorithm(
-        FlagBadTransits, "FlagBadTransits (both passes)", "flag_bad_transits"
+        FlagBadTransits, "FlagBadTransits (every pass)", "flag_bad_transits"
     )
 
 

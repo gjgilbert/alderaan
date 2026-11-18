@@ -93,6 +93,7 @@ STEPS = [
     Step("flag_pass1", FlagBadTransits, {}, False),
     Step("quick_fit_shape", QuickFitTransitShape, {}, False),
     Step("quick_fit_times", QuickFitTransitTimes, {}, False),
+    Step("flag_measured", FlagBadTransits, {}, False),
     Step("omc_select", RegularizeOMC, {"method": "select"}, False),
     Step("clip_transit_model", ClipOutliers, {"method": "transit_model"}, False),
     Step("detrend_tight_mask", DetrendVisits, {"method": "tight_mask"}, True),

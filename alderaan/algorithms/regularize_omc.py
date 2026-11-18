@@ -606,7 +606,7 @@ class RegularizeOMC(BaseAlg):
         tt : TransitTimes
             current transit times; ttime_obs is NaN where unmeasured
         measured : ndarray, bool
-            True where tt.ttime_obs is finite
+            True where tt.ttime_obs is finite and tt.quality is True
         ymod : ndarray
             OMC model relative to tt.linear_ephemeris(), at measured transits
         good_mix : ndarray
@@ -618,7 +618,8 @@ class RegularizeOMC(BaseAlg):
         Returns
         -------
         transit_times : TransitTimes
-            same index, ttime_obs, and error_obs as tt
+            same index as tt; ttime_obs and error_obs as tt where measured, NaN
+            elsewhere
         """
         ttime_mod = tt.linear_ephemeris()[measured] + ymod
 
@@ -635,8 +636,8 @@ class RegularizeOMC(BaseAlg):
             tt.mission,
             tt.target,
             tt.index,
-            ttime_obs=tt.ttime_obs,
-            error_obs=tt.error_obs,
+            ttime_obs=np.where(measured, tt.ttime_obs, np.nan),
+            error_obs=np.where(measured, tt.error_obs, np.nan),
             ttime_mod=interpolator(tt.index),
             out_prob=out_prob_full,
             out_flag=out_flag_full,
@@ -749,9 +750,10 @@ class RegularizeOMC(BaseAlg):
         if method not in ("smooth", "select"):
             raise ValueError(f"method must be 'smooth' or 'select', got {method!r}")
 
-        # fit measured transit times only; unmeasured ones are filled by the model
+        # fit measured, quality (FlagBadTransits) transit times only; the rest are
+        # returned unmeasured and filled by the model
         tts = [p.transit_times for p in self.planets]
-        measured = [np.isfinite(tt.ttime_obs) for tt in tts]
+        measured = [tt.quality & np.isfinite(tt.ttime_obs) for tt in tts]
         # OMC x-axis: the linear ephemeris (noise-free and sorted), as in legacy
         xtime = [tt.linear_ephemeris()[m] for tt, m in zip(tts, measured)]
         yobs = [

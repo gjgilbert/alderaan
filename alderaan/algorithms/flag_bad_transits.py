@@ -81,10 +81,9 @@ class FlagBadTransits(BaseAlg):
                 measured = use & np.isfinite(rms)
 
                 # too few transits to estimate the noise spread
-                if np.sum(measured) < 2 or not mad_std(rms[measured]) > 0:
-                    logger.warning(
-                        "planet %d (%s): rms spread undefined from %d transits; "
-                        "noise check skipped",
+                if np.sum(measured) < 8:
+                    logger.info(
+                        "planet %d (%s): %d transits (< 8); noise check skipped",
                         n,
                         om,
                         np.sum(measured),
