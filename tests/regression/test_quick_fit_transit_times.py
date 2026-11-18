@@ -158,6 +158,31 @@ class TestQuickFitTransitTimes:
         tt = new_planets[0].transit_times
         assert abs(tt.ttime_obs[4] - ttime_true[0][4]) < 4 * tt.error_obs[4]
 
+    def test_cross_correlation_stays_out_of_data_gap(self):
+        # transit 3 is absent and its window's data ends 1.5 T14 after it, with a
+        # dip on the last two cadences: a trial transit must lie in covered data
+        star, planets, litecurve, ttime_true = _synthetic_system(TRUTH[:1])
+        tc3, T14 = ttime_true[0][3], TRUTH[0][4]
+        rng = np.random.default_rng(1)
+        near = np.abs(litecurve.time - tc3) < T14
+        litecurve.flux[near] = 1 + NOISE * rng.standard_normal(np.sum(near))
+        keep = ~((litecurve.time > tc3 + 1.5 * T14) & (litecurve.time < tc3 + 1.0))
+        edge = np.flatnonzero(keep & (litecurve.time <= tc3 + 1.5 * T14))[-2:]
+        litecurve.flux[edge] -= approx_transit_depth(*TRUTH[0][2:4])
+        lc = LiteCurve(
+            "Kepler",
+            "SYN",
+            *(
+                getattr(litecurve, k)[keep]
+                for k in ("time", "flux", "error", "cadno", "visit", "obsmode")
+            ),
+        )
+        new_planets, _ = QuickFitTransitTimes(star, planets, lc).perform()
+
+        ttime = new_planets[0].transit_times.ttime_obs[3]
+        data_end = litecurve.time[edge[-1]]
+        assert np.isnan(ttime) or ttime + T14 / 2 <= data_end
+
     def test_planet_with_usp_sibling_measured_by_optimizer(self):
         # a 0.84 d sibling lies inside every cross-correlation window of the
         # 12 d planet, so all its transits are measured by the optimizer

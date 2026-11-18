@@ -139,6 +139,20 @@ class QuickFitTransitTimes(BaseAlg):
         if np.sum(in_transit) == 0:
             return np.nan, np.nan, "no in-transit data"
 
+        # trim the window at data gaps > T14/2 (window edges included), keeping
+        # the stretch of coverage around tc
+        edges = np.hstack(
+            [
+                tc - transit_window_size / 2,
+                lc.time[in_window],
+                tc + transit_window_size / 2,
+            ]
+        )
+        gap = np.diff(edges) > duration / 2
+        t_lo = np.max(edges[1:][gap & (edges[1:] <= tc)], initial=edges[0])
+        t_hi = np.min(edges[:-1][gap & (edges[:-1] >= tc)], initial=edges[-1])
+        in_window &= (lc.time >= t_lo) & (lc.time <= t_hi)
+
         _t = lc.time[in_window]
         _f_obs = lc.flux[in_window]
         _f_err = lc.error[in_window]
@@ -157,6 +171,12 @@ class QuickFitTransitTimes(BaseAlg):
         gridstep = min(exptime / supersample / 5, tc_error_pred)
         tc_offset = np.arange(0, (transit_window_size - duration) / 2, gridstep)
         tc_offset = tc + np.hstack([-tc_offset[:-1][::-1], tc_offset])
+        # trial transits stay inside the covered (gap-trimmed) data
+        tc_offset = tc_offset[
+            (tc_offset - duration / 2 >= t_lo) & (tc_offset + duration / 2 <= t_hi)
+        ]
+        if len(tc_offset) == 0:
+            return np.nan, np.nan, "no in-transit data"
         chisq = np.zeros_like(tc_offset)
 
         for j, tc_o in enumerate(tc_offset):
