@@ -471,26 +471,89 @@ class TestSelectFewTransits:
             assert tt.out_flag[7]
             assert np.sum(tt.out_flag) == 1
 
+    @pytest.mark.parametrize("ntransit", [15, 16])
+    def test_matern32_needs_16_transits(self, ntransit):
+        # 30 min TTV, 1 min errors: the GP is offered only from 16 transits
+        err = np.full(ntransit, 1 / 1440)
+        omc = 30 * np.sin(np.arange(ntransit)) / 1440
+        star, planets, lc = _system_with_omc(omc, err)
+        tt = planets[0].transit_times
+        x = tt.linear_ephemeris()
+        y = tt.ttime_obs - x
+        results = RegularizeOMC(star, planets, lc)._fit_candidates(
+            x, y, err, np.ones(ntransit, dtype=bool), None
+        )
+        assert ("matern32" in results) == (ntransit >= 16)
+
+    def test_ttv_ramp(self):
+        # 9 transits ending in a 140 min ramp (K00564.02): select prefers the
+        # parabola over a line that flags the ramp's end; the parabola still
+        # fails the chi2 test, so the measured times are adopted
+        omc = np.array([-1.6, -6.0, -29.3, -6.5, -3.1, 5.1, 34.3, 79.3, 139.1]) / 1440
+        err = np.array([4.2, 3.6, 6.7, 4.1, 3.9, 4.1, 4.1, 4.0, 4.0]) / 1440
+        star, planets, lc = _system_with_omc(omc, err)
+        tt = planets[0].transit_times
+        x = tt.linear_ephemeris()
+        results = RegularizeOMC(star, planets, lc)._fit_candidates(
+            x, tt.ttime_obs - x, err, np.ones(9, dtype=bool), None
+        )
+        assert RegularizeOMC._select_best_model(results, 9) == "poly_2"
+
+        ttime_obs = tt.ttime_obs.copy()
+        planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
+        tt_out = planets_out[0].transit_times
+        np.testing.assert_allclose(tt_out.ttime_mod, ttime_obs, rtol=0, atol=1e-9)
+        assert not np.any(tt_out.out_flag)
+
     def test_fewer_than_3_measured_times_raise(self):
         star, planets, lc, _ = _system(ntransit=5, missing=[0, 1, 2])
         with pytest.raises(ValueError, match="needs at least 3"):
             RegularizeOMC(star, planets, lc).perform(method="select")
 
 
-@pytest.mark.slow
-class TestSelect:
-    def test_ttv_ramp_fit_not_flagged(self, caplog):
-        # 9 transits ending in a 140 min ramp (K00564.02): a curved model fits
-        # every point; a line would need to flag the ramp's end
-        omc = np.array([-1.6, -6.0, -29.3, -6.5, -3.1, 5.1, 34.3, 79.3, 139.1]) / 1440
-        err = np.array([4.2, 3.6, 6.7, 4.1, 3.9, 4.1, 4.1, 4.0, 4.0]) / 1440
+class TestSelectMatern32Gate:
+    @staticmethod
+    def _perform(omc, err, caplog):
         star, planets, lc = _system_with_omc(omc, err)
+        ttime_obs = planets[0].transit_times.ttime_obs.copy()
         with caplog.at_level(logging.INFO, logger="alderaan.algorithms.regularize_omc"):
             planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
+        return planets_out[0].transit_times, ttime_obs
 
-        assert not np.any(planets_out[0].transit_times.out_flag)
-        assert "poly_1 OMC model;" not in caplog.text
+    def test_interpolating_gp_adopts_measured_times(self, caplog):
+        # 20 transits of a random-walk TTV (10 min steps, 1 min errors) and one
+        # 60 min bad time: matern32 is selected with dof/N > 0.5, so the
+        # measured times are adopted; the bad time stays flagged, interpolated
+        x = np.arange(20)
+        omc = np.cumsum(np.random.default_rng(3).normal(0, 10, 20))
+        omc -= np.polyval(np.polyfit(x, omc, 1), x)
+        omc[9] += 60
+        tt, ttime_obs = self._perform(omc / 1440, np.full(20, 1 / 1440), caplog)
 
+        assert "matern32 OMC model dof/N" in caplog.text
+        assert np.flatnonzero(tt.out_flag).tolist() == [9]
+        good = ~tt.out_flag
+        np.testing.assert_allclose(
+            tt.ttime_mod[good], ttime_obs[good], rtol=0, atol=1e-9
+        )
+        np.testing.assert_allclose(
+            tt.ttime_mod[9], 0.5 * (ttime_obs[8] + ttime_obs[10]), rtol=0, atol=1e-9
+        )
+
+    def test_regularizing_gp_kept(self, caplog):
+        # 40 transits of a smooth 20 min bump, 2 min errors: matern32 is
+        # selected with dof/N <= 0.5 and kept
+        x = np.arange(40)
+        omc = 20 * np.exp(-0.5 * ((x - 25) / 5) ** 2)
+        omc += np.random.default_rng(1).normal(0, 2, 40)
+        tt, ttime_obs = self._perform(omc / 1440, np.full(40, 2 / 1440), caplog)
+
+        assert "matern32 OMC model;" in caplog.text
+        assert np.max(np.abs(tt.ttime_mod - ttime_obs)) > 1 / 1440
+
+
+@pytest.mark.slow
+class TestSelect:
     def test_recovers_ttv_and_flags_outliers(self):
         outliers = [12, 30]
         star, planets, lc, truth = _system(ntransit=48, outliers=outliers, missing=[20])

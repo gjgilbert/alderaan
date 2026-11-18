@@ -624,8 +624,10 @@ class RegularizeOMC(BaseAlg):
 
         results = {}
 
-        # Matern-3/2 model | don't use GP on very noisy data
-        if (npts >= 8) & (np.median(yerr) <= 0.5 * mad_std(yobs)):
+        # Matern-3/2 model | don't use GP on very noisy data; with < 16 transits
+        # the GP nearly interpolates the measured times (dof ~ N), leaving the
+        # chi2 test of the measured times (perform) without power
+        if (npts >= 16) & (np.median(yerr) <= 0.5 * mad_std(yobs)):
             results["matern32"] = self._fit_with_rejection(
                 yobs,
                 yerr,
@@ -634,7 +636,7 @@ class RegularizeOMC(BaseAlg):
             )
         else:
             logger.debug(
-                "matern32 OMC model skipped: %d transits (need 8), median error "
+                "matern32 OMC model skipped: %d transits (need 16), median error "
                 "%.2e d (need <= %.2e d = 0.5 mad_std(OMC))",
                 npts,
                 np.median(yerr),
@@ -807,7 +809,9 @@ class RegularizeOMC(BaseAlg):
             'select' : fit candidate models, each rejecting its outliers; select
                        by AIC/BIC. With < 16 measured times, the measured times
                        are adopted instead if they fail a chi-squared test
-                       against the selected model
+                       against the selected model; with >= 16, they are
+                       adopted (outlier flags kept) if matern32 is selected
+                       with dof/N > 0.5
         check_periodic : bool
             search for periodic TTV signals before model selection, and again
             after outlier rejection ('select' only)
@@ -880,6 +884,18 @@ class RegularizeOMC(BaseAlg):
                         good_mix = np.ones(len(yobs[n]), dtype=bool)
                         out_prob = np.full(len(yobs[n]), np.nan)
                         model_name = "independent"
+
+                # >= 16 transits: a GP with dof/N > 0.5 mostly reproduces the
+                # measured times; adopt them (mixture outlier flags kept)
+                elif model_name == "matern32" and r["dof"] / np.sum(good_mix) > 0.5:
+                    logger.info(
+                        "planet %d: matern32 OMC model dof/N = %.2f > 0.5; "
+                        "measured times adopted",
+                        n,
+                        r["dof"] / np.sum(good_mix),
+                    )
+                    ymod = yobs[n]
+                    model_name = "independent"
 
             transit_times = self._regularized_transit_times(
                 p.transit_times, measured[n], ymod, good_mix, out_prob
