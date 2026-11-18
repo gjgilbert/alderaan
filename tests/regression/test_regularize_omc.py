@@ -227,6 +227,43 @@ class TestFitWithRejection:
         np.testing.assert_array_equal(r["good_mix"], good_clip)
         np.testing.assert_array_equal(r["pred"], plain)
 
+    def test_outliers_stay_a_minority(self):
+        # 16 transits of a TTV a line can't fit (K01582.01's 8, twice): the
+        # mixture would call 12 of them outliers
+        xtime = np.arange(16) * 186.4
+        yobs = np.tile([85.2, -5.3, -64.4, -65.9, -32.8, 31.5, 56.4, -4.7], 2) / 1440
+        yerr = np.tile([4.2, 4.0, 4.0, 3.8, 3.7, 3.9, 4.1, 3.8], 2) / 1440
+        good_clip = np.ones(16, dtype=bool)
+        r = _poly_fits(xtime, yobs, yerr, good_clip, orders=(1,))["poly_1"]
+
+        np.testing.assert_array_equal(r["good_mix"], good_clip)
+
+    def test_leave_one_out_flags_single_outlier(self):
+        # 12 transits on a line with 2 min noise; transit 5 is off by 20 sigma
+        rng = np.random.default_rng(5)
+        xtime = np.arange(12) * PERIOD
+        yerr = np.full(12, 2 / 1440)
+        yobs = rng.normal(0, 1, 12) * yerr
+        yobs[5] += 20 * yerr[5]
+        good_clip = np.ones(12, dtype=bool)
+        r = _poly_fits(xtime, yobs, yerr, good_clip, orders=(1,))["poly_1"]
+
+        np.testing.assert_array_equal(np.flatnonzero(~r["good_mix"]), [5])
+        assert np.all(np.isnan(r["out_prob"]))
+
+    def test_leave_one_out_false_flag_rate(self):
+        # clean 12-transit planets are flagged at about alpha = 0.01
+        rng = np.random.default_rng(6)
+        xtime = np.arange(12) * PERIOD
+        yerr = np.full(12, 2 / 1440)
+        good_clip = np.ones(12, dtype=bool)
+        nflag = 0
+        for _ in range(500):
+            yobs = rng.normal(0, 1, 12) * yerr
+            r = _poly_fits(xtime, yobs, yerr, good_clip, orders=(1,))["poly_1"]
+            nflag += np.any(~r["good_mix"])
+        assert nflag / 500 < 0.03
+
 
 class TestPolyModel:
     def test_matches_weighted_least_squares_with_prior(self):
@@ -247,6 +284,24 @@ class TestPolyModel:
         C = np.linalg.lstsq(A, b, rcond=None)[0]
         np.testing.assert_allclose(fit["pred"], X @ C, rtol=1e-9, atol=1e-15)
         assert fit["dof"] == 3
+
+    def test_leverage_gives_leave_one_out_residuals(self):
+        # r_i / (1 - S_ii) equals the residual of a refit without transit i
+        rng = np.random.default_rng(8)
+        xtime = np.sort(rng.uniform(100, 1500, 10))
+        yerr = rng.uniform(0.5, 2.0, 10) * 1e-3
+        yobs = 1e-3 * np.cos(xtime / 300) + yerr * rng.normal(size=10)
+        q = np.ones(10, dtype=bool)
+
+        fit = RegularizeOMC._poly_model(xtime, yobs, yerr, q, 2)
+        loo = (yobs - fit["pred"]) / (1 - fit["leverage"])
+        for i in range(10):
+            # same [-1, 1] mapping: refit with transit i down-weighted to nothing
+            err_i = yerr.copy()
+            err_i[i] = 1e6
+            refit = RegularizeOMC._poly_model(xtime, yobs, err_i, q, 2)
+            np.testing.assert_allclose(loo[i], yobs[i] - refit["pred"][i], rtol=1e-6)
+        np.testing.assert_allclose(np.sum(fit["leverage"]), 3, rtol=1e-3)
 
 
 class TestSinModel:
@@ -287,6 +342,12 @@ class TestOutlierScreen:
         yobs, yerr = _mixed_error_omc()
         good_clip = RegularizeOMC._sigma_clip(yobs, yerr)
         np.testing.assert_array_equal(np.flatnonzero(~good_clip), [50])
+
+    def test_few_transits_not_clipped(self):
+        # 9 transits ending in a 140 min ramp (K00564.02): every point is TTV
+        yobs = np.array([-1.6, -6.0, -29.3, -6.5, -3.1, 5.1, 34.3, 79.3, 139.1]) / 1440
+        yerr = np.array([4.2, 3.6, 6.7, 4.1, 3.9, 4.1, 4.1, 4.0, 4.0]) / 1440
+        assert np.all(RegularizeOMC._sigma_clip(yobs, yerr))
 
     def test_equal_errors_depend_only_on_scatter(self):
         yobs, _ = _mixed_error_omc()
@@ -342,8 +403,51 @@ class TestSample:
         np.testing.assert_allclose(np.median(a, 0), 0.3, atol=0.03)
 
 
+def _system_with_omc(omc, err):
+    """_system with the given OMC values and errors (days) as the measured times"""
+    star, planets, lc, _ = _system(ntransit=len(omc))
+    index = np.arange(len(omc))
+    planets[0].set_transit_times(
+        TransitTimes(
+            "Kepler", "SYN", index, EPOCH + PERIOD * index + omc, error_obs=err
+        )
+    )
+    return star, planets, lc
+
+
+class TestSelectFewTransits:
+    def test_few_transits_skip_outlier_rejection(self):
+        # 5 transits of a TTV a line can't fit (K01783.02): no outlier mixture
+        omc = np.array([44.2, -54.8, -23.2, 40.0, 8.2]) / 1440
+        err = np.array([3.8, 3.9, 3.9, 4.4, 7.1]) / 1440
+        star, planets, lc = _system_with_omc(omc, err)
+        planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
+
+        tt = planets_out[0].transit_times
+        assert not np.any(tt.out_flag)
+        assert np.all(np.isnan(tt.out_prob))
+        np.testing.assert_allclose(planets_out[0].period, PERIOD, rtol=1e-3)
+
+    def test_fewer_than_3_measured_times_raise(self):
+        star, planets, lc, _ = _system(ntransit=5, missing=[0, 1, 2])
+        with pytest.raises(ValueError, match="needs at least 3"):
+            RegularizeOMC(star, planets, lc).perform(method="select")
+
+
 @pytest.mark.slow
 class TestSelect:
+    def test_ttv_ramp_fit_not_flagged(self, caplog):
+        # 9 transits ending in a 140 min ramp (K00564.02): a curved model fits
+        # every point; a line would need to flag the ramp's end
+        omc = np.array([-1.6, -6.0, -29.3, -6.5, -3.1, 5.1, 34.3, 79.3, 139.1]) / 1440
+        err = np.array([4.2, 3.6, 6.7, 4.1, 3.9, 4.1, 4.1, 4.0, 4.0]) / 1440
+        star, planets, lc = _system_with_omc(omc, err)
+        with caplog.at_level(logging.INFO, logger="alderaan.algorithms.regularize_omc"):
+            planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
+
+        assert not np.any(planets_out[0].transit_times.out_flag)
+        assert "poly_1 OMC model;" not in caplog.text
+
     def test_recovers_ttv_and_flags_outliers(self):
         outliers = [12, 30]
         star, planets, lc, truth = _system(ntransit=48, outliers=outliers, missing=[20])

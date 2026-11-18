@@ -41,18 +41,23 @@ class RegularizeOMC(BaseAlg):
 
     @staticmethod
     def _sigma_clip(yobs, yerr, sigma_cut=5.0):
-        """Robust sigma clip about a smoothed trend; True for transits kept"""
-        if len(yobs) > 16:
-            ysmooth = uniform_filter(median_filter(yobs, size=5, mode="mirror"), size=5)
-        else:
-            ysmooth = np.median(yobs)
+        """
+        Robust sigma clip about a smoothed trend; True for transits kept. With
+        < 16 transits no trend can be estimated and nothing is clipped (a clip
+        about the median removes real TTVs)
+        """
+        keep = np.ones(len(yobs), dtype=bool)
+        if len(yobs) < 16:
+            return keep
+
+        ysmooth = uniform_filter(median_filter(yobs, size=5, mode="mirror"), size=5)
 
         # zero scatter (e.g. times from a linear ephemeris): nothing to flag
         z = RegularizeOMC._normalized_residuals(yobs - ysmooth, yerr)
         scatter = mad_std(z)
-        if len(yobs) > 4 and scatter > 0:
+        if scatter > 0:
             return np.abs(z) / scatter < sigma_cut
-        return np.ones(len(yobs), dtype=bool)
+        return keep
 
     @staticmethod
     def _smooth(index, yobs, mask):
@@ -90,7 +95,8 @@ class RegularizeOMC(BaseAlg):
         Returns
         -------
         fit : dict
-            'pred' at all xtime; 'dof' = polyorder + 1
+            'pred' at all xtime; 'dof' = polyorder + 1; 'leverage', the diagonal
+            of the smoother matrix on mask (NaN elsewhere)
         """
 
         # create Vandermonde matrix on xtime mapped to [-1, 1], for conditioning
@@ -101,7 +107,10 @@ class RegularizeOMC(BaseAlg):
         A = X[mask].T @ (w[:, None] * X[mask]) + np.eye(polyorder + 1) / 10**2
         C = np.linalg.solve(A, X[mask].T @ (w * yobs[mask]))
 
-        return {"pred": X @ C, "dof": polyorder + 1}
+        leverage = np.full(len(xtime), np.nan)
+        leverage[mask] = w * np.sum(X[mask] * np.linalg.solve(A, X[mask].T).T, axis=1)
+
+        return {"pred": X @ C, "dof": polyorder + 1, "leverage": leverage}
 
     @staticmethod
     def _sin_model(xtime, yobs, yerr, mask, ttv_period):
@@ -123,7 +132,8 @@ class RegularizeOMC(BaseAlg):
         Returns
         -------
         fit : dict
-            posterior mean 'pred' at all xtime; 'dof' = 5
+            posterior mean 'pred' at all xtime; 'dof' = 5; 'leverage', the
+            posterior mean diagonal of the smoother matrix on mask (NaN elsewhere)
         """
 
         df = 1 / (xtime[mask].max() - xtime[mask].min())
@@ -139,6 +149,7 @@ class RegularizeOMC(BaseAlg):
 
         log_post = np.zeros(len(freqs))
         preds = np.zeros((len(freqs), len(xtime)))
+        levs = np.zeros((len(freqs), np.sum(mask)))
         for i, f in enumerate(freqs):
             phase = 2 * np.pi * f * xtime
             X = np.column_stack([np.ones_like(x), x, np.sin(phase), np.cos(phase)])
@@ -153,6 +164,7 @@ class RegularizeOMC(BaseAlg):
                 - 0.5 * ((f - 1 / ttv_period) / df) ** 2
             )
             preds[i] = X @ C
+            levs[i] = w * np.sum(X[mask] * np.linalg.solve(A, X[mask].T).T, axis=1)
 
         weights = np.exp(log_post - log_post.max())
         weights /= weights.sum()
@@ -161,7 +173,10 @@ class RegularizeOMC(BaseAlg):
                 "sinusoid OMC model: frequency posterior spans < 5 grid points"
             )
 
-        return {"pred": weights @ preds, "dof": 5}
+        leverage = np.full(len(xtime), np.nan)
+        leverage[mask] = weights @ levs
+
+        return {"pred": weights @ preds, "dof": 5, "leverage": leverage}
 
     @staticmethod
     def _matern32_model(xtime, yobs, yerr, mask):
@@ -171,8 +186,10 @@ class RegularizeOMC(BaseAlg):
         Returns
         -------
         fit : dict
-            posterior median 'pred' at all xtime and
-            'dof' = sum(predictive variance / yerr^2) over mask
+            posterior median 'pred' at all xtime;
+            'dof' = sum(predictive variance / yerr^2) over mask; 'leverage', the
+            posterior median of predictive variance / yerr^2 (the diagonal of the
+            smoother matrix) on mask (NaN elsewhere)
         """
 
         # delta between each transit time
@@ -205,14 +222,21 @@ class RegularizeOMC(BaseAlg):
         draws = RegularizeOMC._sample(loglike, prior_transform, 3)
 
         # medians over (at most) the first 500 equal-weight draws
-        pred, dof = [], []
+        pred, lev = [], []
         for d in draws[:500]:
             gp = make_gp(d)
             _, var = gp.predict(yobs[mask], xtime[mask], return_var=True)
             pred.append(gp.predict(yobs[mask], xtime))
-            dof.append(np.sum(var / yerr[mask] ** 2))
+            lev.append(var / yerr[mask] ** 2)
 
-        return {"pred": np.median(pred, 0), "dof": np.median(dof)}
+        leverage = np.full(len(xtime), np.nan)
+        leverage[mask] = np.median(lev, 0)
+
+        return {
+            "pred": np.median(pred, 0),
+            "dof": np.median(np.sum(lev, 1)),
+            "leverage": leverage,
+        }
 
     @staticmethod
     def _sample(loglike, prior_transform, ndim):
@@ -309,33 +333,65 @@ class RegularizeOMC(BaseAlg):
     @staticmethod
     def _fit_with_rejection(yobs, yerr, good_clip, fit_fn):
         """
-        Fit an OMC model on good_clip, reject its mixture outliers, and refit once
+        Fit an OMC model on good_clip and reject its outliers, by the number of
+        transits N in good_clip:
+          * N < 8: nothing rejected
+          * 8 <= N < 16: leave-one-out test; the worst studentized residual is
+            flagged while it fails a Bonferroni-corrected alpha = 0.01 test, with
+            a refit after each flag. A flagged transit enters lnlike as a
+            z_crit residual, so each flag costs z_crit^2 in AIC/BIC
+          * N >= 16: mixture outliers rejected, then one refit
 
         Parameters
         ----------
         good_clip : ndarray of bool
             transits passing the sigma clip
         fit_fn : callable
-            fit_fn(mask) -> fit dict with 'pred' at all transits and 'dof'
+            fit_fn(mask) -> fit dict with 'pred' at all transits, 'dof', and
+            'leverage' (smoother matrix diagonal on mask)
 
         Returns
         -------
         result : dict
             'pred' and 'dof' of the final fit; 'good_mix' = good_clip minus
-            mixture outliers, the transits of the final fit; 'out_prob';
-            'lnlike', the mixture log-likelihood over good_clip
+            outliers, the transits of the final fit; 'out_prob' (NaN for N < 16);
+            'lnlike', the log-likelihood over good_clip (Gaussian for N < 16,
+            mixture for N >= 16)
         """
+        npts = np.sum(good_clip)
         fit = fit_fn(good_clip)
-        out_prob, out_flag, lnlike = RegularizeOMC._calculate_outlier_probability(
-            yobs, yerr, fit["pred"], mask=good_clip
-        )
-        good_mix = good_clip & ~out_flag
+        good_mix = good_clip.copy()
+        out_prob = np.full(len(yobs), np.nan)
 
-        if np.any(good_mix != good_clip):
-            fit = fit_fn(good_mix)
-            out_prob, _, lnlike = RegularizeOMC._calculate_outlier_probability(
+        z_crit = stats.norm.isf(0.01 / (2 * npts))
+        if 8 <= npts < 16:
+            # keep a majority of transits, and > dof + 1 so residuals stay defined
+            while np.sum(good_mix) - 1 > max(npts / 2, fit["dof"] + 1):
+                z = np.abs(yobs - fit["pred"]) / (yerr * np.sqrt(1 - fit["leverage"]))
+                worst = np.nanargmax(np.where(good_mix, z, np.nan))
+                if z[worst] < z_crit:
+                    break
+                good_mix[worst] = False
+                fit = fit_fn(good_mix)
+
+        if npts < 16:
+            # a flagged transit counts as a z_crit residual: each flag costs the
+            # z_crit^2 that justified it, so flags cannot buy a poor model a fit
+            res = np.where(good_mix, yobs - fit["pred"], z_crit * yerr)
+            lnlike = np.sum(stats.norm.logpdf(res, scale=yerr)[good_clip])
+        else:
+            out_prob, out_flag, lnlike = RegularizeOMC._calculate_outlier_probability(
                 yobs, yerr, fit["pred"], mask=good_clip
             )
+            good_mix = good_clip & ~out_flag
+            # outliers are a minority, as the mixture assumes (f <= 0.5)
+            if np.sum(good_mix) <= npts / 2:
+                good_mix = good_clip.copy()
+            if np.any(good_mix != good_clip):
+                fit = fit_fn(good_mix)
+                out_prob, _, lnlike = RegularizeOMC._calculate_outlier_probability(
+                    yobs, yerr, fit["pred"], mask=good_clip
+                )
 
         return {
             "pred": fit["pred"],
@@ -754,6 +810,13 @@ class RegularizeOMC(BaseAlg):
         # returned unmeasured and filled by the model
         tts = [p.transit_times for p in self.planets]
         measured = [tt.quality & np.isfinite(tt.ttime_obs) for tt in tts]
+        for n, m in enumerate(measured):
+            # 1-2 transit planets need special handling (not yet implemented)
+            if np.sum(m) < 3:
+                raise ValueError(
+                    f"planet {n}: {np.sum(m)} measured transit times; "
+                    "RegularizeOMC needs at least 3"
+                )
         # OMC x-axis: the linear ephemeris (noise-free and sorted), as in legacy
         xtime = [tt.linear_ephemeris()[m] for tt, m in zip(tts, measured)]
         yobs = [
