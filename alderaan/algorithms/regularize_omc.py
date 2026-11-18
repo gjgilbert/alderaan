@@ -402,6 +402,21 @@ class RegularizeOMC(BaseAlg):
         }
 
     @staticmethod
+    def _independent_times_preferred(yobs, yerr, ypred, dof):
+        """
+        Chi-squared test of every measured time, flagged outliers included,
+        against the selected model; the measured times are preferred if p < 0.01
+
+        Returns
+        -------
+        switch : bool
+        p : float
+        """
+        chi2 = np.sum(((yobs - ypred) / yerr) ** 2)
+        p = stats.chi2.sf(chi2, max(len(yobs) - dof, 1))
+        return p < 0.01, p
+
+    @staticmethod
     def _select_best_model(results, npts):
         """
         Parameters
@@ -789,8 +804,10 @@ class RegularizeOMC(BaseAlg):
         ----------
         method : str
             'smooth' : interpolate + Savitzky-Golay smoothing, filling unmeasured epochs
-            'select' : fit candidate models, each rejecting its mixture outliers
-                       and refitting once; select by AIC/BIC
+            'select' : fit candidate models, each rejecting its outliers; select
+                       by AIC/BIC. With < 16 measured times, the measured times
+                       are adopted instead if they fail a chi-squared test
+                       against the selected model
         check_periodic : bool
             search for periodic TTV signals before model selection, and again
             after outlier rejection ('select' only)
@@ -844,6 +861,25 @@ class RegularizeOMC(BaseAlg):
                 model_name = best[n]
                 r = results[n][model_name]
                 ymod, good_mix, out_prob = r["pred"], r["good_mix"], r["out_prob"]
+
+                # < 16 transits: adopt the measured times (outlier flags cleared)
+                # if they are inconsistent with the selected model
+                if len(yobs[n]) < 16:
+                    switch, pval = self._independent_times_preferred(
+                        yobs[n], yerr[n], r["pred"], r["dof"]
+                    )
+                    logger.info(
+                        "planet %d: %s OMC model chi2 test p = %.2g; %s",
+                        n,
+                        model_name,
+                        pval,
+                        "measured times adopted" if switch else "model kept",
+                    )
+                    if switch:
+                        ymod = yobs[n]
+                        good_mix = np.ones(len(yobs[n]), dtype=bool)
+                        out_prob = np.full(len(yobs[n]), np.nan)
+                        model_name = "independent"
 
             transit_times = self._regularized_transit_times(
                 p.transit_times, measured[n], ymod, good_mix, out_prob

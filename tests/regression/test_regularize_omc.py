@@ -415,18 +415,61 @@ def _system_with_omc(omc, err):
     return star, planets, lc
 
 
+class TestIndependentTimesPreferred:
+    def test_times_inconsistent_with_model(self):
+        # 6 transits, 30 min TTV, 3 min errors, against a flat line
+        yobs = 30 * np.sin(np.arange(6)) / 1440
+        yerr = np.full(6, 3 / 1440)
+        switch, _ = RegularizeOMC._independent_times_preferred(
+            yobs, yerr, np.zeros(6), 2
+        )
+        assert switch
+
+    def test_times_consistent_with_model(self):
+        # residuals of exactly 1 sigma: chi2 = 6 on 4 dof, p = 0.2
+        yerr = np.full(6, 3 / 1440)
+        yobs = yerr * np.array([1, -1, 1, -1, 1, -1])
+        switch, _ = RegularizeOMC._independent_times_preferred(
+            yobs, yerr, np.zeros(6), 2
+        )
+        assert not switch
+
+
 class TestSelectFewTransits:
-    def test_few_transits_skip_outlier_rejection(self):
-        # 5 transits of a TTV a line can't fit (K01783.02): no outlier mixture
+    def test_ttv_adopts_measured_times(self):
+        # 5 transits of a TTV a line can't fit (K01783.02)
         omc = np.array([44.2, -54.8, -23.2, 40.0, 8.2]) / 1440
         err = np.array([3.8, 3.9, 3.9, 4.4, 7.1]) / 1440
         star, planets, lc = _system_with_omc(omc, err)
+        ttime_obs = planets[0].transit_times.ttime_obs.copy()
         planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
 
         tt = planets_out[0].transit_times
+        np.testing.assert_allclose(tt.ttime_mod, ttime_obs, rtol=0, atol=1e-9)
         assert not np.any(tt.out_flag)
         assert np.all(np.isnan(tt.out_prob))
         np.testing.assert_allclose(planets_out[0].period, PERIOD, rtol=1e-3)
+
+    @pytest.mark.parametrize("ntransit", [15, 16])
+    def test_outlier_gated_below_16_transits(self, ntransit):
+        # one 20 sigma outlier on a line: below 16 transits it fails the chi2
+        # test (measured times adopted, flag cleared); at 16 the select model
+        # is kept and the outlier flagged
+        rng = np.random.default_rng(5)
+        err = np.full(ntransit, 3 / 1440)
+        omc = rng.normal(0, err)
+        omc[7] += 20 * err[7]
+        star, planets, lc = _system_with_omc(omc, err)
+        ttime_obs = planets[0].transit_times.ttime_obs.copy()
+        planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
+
+        tt = planets_out[0].transit_times
+        if ntransit < 16:
+            np.testing.assert_allclose(tt.ttime_mod, ttime_obs, rtol=0, atol=1e-9)
+            assert not np.any(tt.out_flag)
+        else:
+            assert tt.out_flag[7]
+            assert np.sum(tt.out_flag) == 1
 
     def test_fewer_than_3_measured_times_raise(self):
         star, planets, lc, _ = _system(ntransit=5, missing=[0, 1, 2])
