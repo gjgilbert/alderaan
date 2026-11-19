@@ -536,6 +536,29 @@ class TestSelectFewTransits:
         models = RegularizeOMC._candidates(y, err, m, m, None)
         assert ("matern32" in models) == (ntransit >= 16)
 
+    def test_max_polyorder(self):
+        # 10 transits: poly_3 needs 16 unless the order is set explicitly
+        y = np.zeros(10)
+        err = np.ones(10)
+        m = np.ones(10, dtype=bool)
+        assert "poly_3" not in RegularizeOMC._candidates(y, err, m, m, None)
+        assert "poly_3" in RegularizeOMC._candidates(y, err, m, m, None, 3)
+
+    @pytest.mark.parametrize("scatter, wild", [(10, True), (50, False)])
+    def test_wild_score(self, scatter, wild):
+        # 12 times alternating +-scatter min about zero, 10 min errors, one at
+        # 150 min: wild among times that scatter like their errors, not among
+        # times that all scatter 5x their errors (shared excess scatter)
+        from scipy import stats
+
+        x = np.arange(12.0)
+        err = np.full(12, 10 / 1440)
+        y = scatter * (-1.0) ** np.arange(12) / 1440
+        y[5] = 150 / 1440
+        inlier = np.arange(12) != 5
+        score = RegularizeOMC._wild_score(x, y, err, inlier, "poly_1", 5)
+        assert (score >= stats.norm.isf(0.0027 / 24)) == wild
+
     def test_ttv_ramp(self):
         # 9 transits ending in a 140 min ramp (K00564.02): select prefers the
         # parabola over a line that flags the ramp's end; the parabola still
