@@ -122,7 +122,7 @@ class TestSmooth:
         assert np.all(np.abs(tt.ttime_mod[[40, 90]] - truth[[40, 90]]) < 3 * TIME_ERR)
 
 
-class TestSelectBestModel:
+class TestCompare:
     """AIC/BIC model selection on fixed model predictions"""
 
     @staticmethod
@@ -132,10 +132,10 @@ class TestSelectBestModel:
             _, _, lnlike = RegularizeOMC._calculate_outlier_probability(
                 yobs, yerr, pred
             )
-            good_mix = np.ones(len(yobs), dtype=bool)
+            inlier = np.ones(len(yobs), dtype=bool)
             results[k] = {
                 "pred": pred,
-                "good_mix": good_mix,
+                "inlier": inlier,
                 "lnlike": lnlike,
                 "dof": dofs[k],
             }
@@ -148,7 +148,7 @@ class TestSelectBestModel:
         results = self._results(
             yobs, yerr, {"poly_1": 2, "poly_2": 3}, poly_1=x, poly_2=yobs
         )
-        assert RegularizeOMC._select_best_model(results, 50) == "poly_2"
+        assert RegularizeOMC._compare(results, 50) == "poly_2"
 
     def test_parametric_model_preferred_when_criteria_disagree_on_gp(self):
         # matern32 fits slightly better, at a cost AIC accepts but BIC rejects
@@ -162,7 +162,7 @@ class TestSelectBestModel:
             matern32=np.zeros(npts),
             poly_1=np.full(npts, np.sqrt(0.06)),
         )
-        assert RegularizeOMC._select_best_model(results, npts) == "poly_1"
+        assert RegularizeOMC._compare(results, npts) == "poly_1"
 
     def test_rejecting_misfit_transits_is_not_rewarded(self):
         # 'wrong' misses 20 transits by 6 sigma and would reject them; scored on
@@ -176,7 +176,7 @@ class TestSelectBestModel:
         results = self._results(
             yobs, yerr, {"right": 2, "wrong": 2}, right=np.zeros(npts), wrong=wrong
         )
-        assert RegularizeOMC._select_best_model(results, npts) == "right"
+        assert RegularizeOMC._compare(results, npts) == "right"
 
 
 def _contaminated_line(seed=1):
@@ -195,26 +195,23 @@ def _contaminated_line(seed=1):
 
 
 def _poly_fits(xtime, yobs, yerr, good_clip, orders=(1, 2, 3)):
-    results = {}
-    for k in orders:
-        results[f"poly_{k}"] = RegularizeOMC._fit_with_rejection(
-            yobs,
-            yerr,
-            good_clip,
-            lambda mask, k=k: RegularizeOMC._poly_model(xtime, yobs, yerr, mask, k),
+    return {
+        f"poly_{k}": RegularizeOMC._robust_fit(
+            f"poly_{k}", xtime, yobs, yerr, good_clip
         )
-    return results
+        for k in orders
+    }
 
 
-class TestFitWithRejection:
+class TestRobustFit:
     def test_rejection_improves_fit(self):
         xtime, yobs, yerr, truth, bad = _contaminated_line()
         good_clip = RegularizeOMC._sigma_clip(yobs, yerr)
         r = _poly_fits(xtime, yobs, yerr, good_clip, orders=(1,))["poly_1"]
         plain = RegularizeOMC._poly_model(xtime, yobs, yerr, good_clip, 1)["pred"]
 
-        assert np.sum(~r["good_mix"] & bad) > 0.9 * np.sum(bad)
-        assert np.sum(~r["good_mix"] & ~bad) < 0.05 * np.sum(~bad)
+        assert np.sum(~r["inlier"] & bad) > 0.9 * np.sum(bad)
+        assert np.sum(~r["inlier"] & ~bad) < 0.05 * np.sum(~bad)
         assert _rms(r["pred"] - truth) < 0.5 * _rms(plain - truth)
 
     def test_clean_data_unchanged(self):
@@ -226,7 +223,7 @@ class TestFitWithRejection:
         r = _poly_fits(xtime, yobs, yerr, good_clip, orders=(1,))["poly_1"]
         plain = RegularizeOMC._poly_model(xtime, yobs, yerr, good_clip, 1)["pred"]
 
-        np.testing.assert_array_equal(r["good_mix"], good_clip)
+        np.testing.assert_array_equal(r["inlier"], good_clip)
         np.testing.assert_array_equal(r["pred"], plain)
 
     def test_outliers_stay_a_minority(self):
@@ -238,7 +235,7 @@ class TestFitWithRejection:
         good_clip = np.ones(16, dtype=bool)
         r = _poly_fits(xtime, yobs, yerr, good_clip, orders=(1,))["poly_1"]
 
-        np.testing.assert_array_equal(r["good_mix"], good_clip)
+        np.testing.assert_array_equal(r["inlier"], good_clip)
 
     def test_leave_one_out_flags_single_outlier(self):
         # 12 transits on a line with 2 min noise; transit 5 is off by 20 sigma
@@ -250,7 +247,7 @@ class TestFitWithRejection:
         good_clip = np.ones(12, dtype=bool)
         r = _poly_fits(xtime, yobs, yerr, good_clip, orders=(1,))["poly_1"]
 
-        np.testing.assert_array_equal(np.flatnonzero(~r["good_mix"]), [5])
+        np.testing.assert_array_equal(np.flatnonzero(~r["inlier"]), [5])
         assert np.all(np.isnan(r["out_prob"]))
 
     def test_leave_one_out_false_flag_rate(self):
@@ -263,7 +260,7 @@ class TestFitWithRejection:
         for _ in range(500):
             yobs = rng.normal(0, 1, 12) * yerr
             r = _poly_fits(xtime, yobs, yerr, good_clip, orders=(1,))["poly_1"]
-            nflag += np.any(~r["good_mix"])
+            nflag += np.any(~r["inlier"])
         assert nflag / 500 < 0.03
 
 
@@ -474,24 +471,20 @@ def _transit_system(omc, err, dip_omc=None, seed=2):
     return star, planets, lc
 
 
-class TestIndependentTimesPreferred:
+class TestChi2Pvalue:
     def test_times_inconsistent_with_model(self):
         # 6 transits, 30 min TTV, 3 min errors, against a flat line
         yobs = 30 * np.sin(np.arange(6)) / 1440
         yerr = np.full(6, 3 / 1440)
-        switch, _ = RegularizeOMC._independent_times_preferred(
-            yobs, yerr, np.zeros(6), 2
-        )
-        assert switch
+        p = RegularizeOMC._chi2_pvalue(yobs, yerr, np.zeros(6), np.ones(6, bool), 2)
+        assert p < 0.01
 
     def test_times_consistent_with_model(self):
         # residuals of exactly 1 sigma: chi2 = 6 on 4 dof, p = 0.2
         yerr = np.full(6, 3 / 1440)
         yobs = yerr * np.array([1, -1, 1, -1, 1, -1])
-        switch, _ = RegularizeOMC._independent_times_preferred(
-            yobs, yerr, np.zeros(6), 2
-        )
-        assert not switch
+        p = RegularizeOMC._chi2_pvalue(yobs, yerr, np.zeros(6), np.ones(6, bool), 2)
+        assert p >= 0.01
 
 
 class TestSelectFewTransits:
@@ -538,12 +531,10 @@ class TestSelectFewTransits:
         omc = 30 * np.sin(np.arange(ntransit)) / 1440
         star, planets, lc = _system_with_omc(omc, err)
         tt = planets[0].transit_times
-        x = tt.linear_ephemeris()
-        y = tt.ttime_obs - x
-        results = RegularizeOMC(star, planets, lc)._fit_candidates(
-            x, y, err, np.ones(ntransit, dtype=bool), None
-        )
-        assert ("matern32" in results) == (ntransit >= 16)
+        y = tt.ttime_obs - tt.linear_ephemeris()
+        m = np.ones(ntransit, dtype=bool)
+        models = RegularizeOMC._candidates(y, err, m, m, None)
+        assert ("matern32" in models) == (ntransit >= 16)
 
     def test_ttv_ramp(self):
         # 9 transits ending in a 140 min ramp (K00564.02): select prefers the
@@ -555,10 +546,13 @@ class TestSelectFewTransits:
         star, planets, lc = _transit_system(omc, err)
         tt = planets[0].transit_times
         x = tt.linear_ephemeris()
-        results = RegularizeOMC(star, planets, lc)._fit_candidates(
-            x, tt.ttime_obs - x, err, np.ones(9, dtype=bool), None
-        )
-        assert RegularizeOMC._select_best_model(results, 9) == "poly_2"
+        y = tt.ttime_obs - x
+        m = np.ones(9, dtype=bool)
+        fits = {
+            k: RegularizeOMC._robust_fit(k, x, y, err, m)
+            for k in RegularizeOMC._candidates(y, err, m, m, None)
+        }
+        assert RegularizeOMC._compare(fits, 9) == "poly_2"
 
         ttime_obs = tt.ttime_obs.copy()
         planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
