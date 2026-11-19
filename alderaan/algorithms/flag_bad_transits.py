@@ -145,6 +145,8 @@ class FlagBadTransits(BaseAlg):
             tt = p.transit_times
             fields = {k: getattr(tt, k) for k in FIELDS}
             fields["quality"] = coverage[n] & good_rms[n]
-            p.set_transit_times(TransitTimes(tt.mission, tt.target, **fields))
+            p.set_transit_times(
+                TransitTimes(tt.mission, tt.target, **fields, omc_model=tt.omc_model)
+            )
 
         return planets, self.litecurve

@@ -1013,7 +1013,8 @@ class RegularizeOMC(BaseAlg):
         litecurve : LiteCurve
 
         Each planet carries its regularized TransitTimes, with OMC diagnostics
-        ttime_obs, out_prob, out_flag; out_prob is NaN for 'smooth'
+        ttime_obs, out_prob, out_flag and omc_model (the final label: 'smooth',
+        the selected model, or 'independent'); out_prob is NaN for 'smooth'
         """
         if method not in ("smooth", "select"):
             raise ValueError(f"method must be 'smooth' or 'select', got {method!r}")
@@ -1120,6 +1121,7 @@ class RegularizeOMC(BaseAlg):
                 out_prob=out_prob,
                 out_flag=measured[n] & ~inlier,
                 quality=tt.quality,
+                omc_model=label,
             )
             regularized.append((label, inlier, transit_times))
 
@@ -1141,7 +1143,7 @@ class RegularizeOMC(BaseAlg):
                 np.sum(unclipped[n] & ~inlier),
                 old_period,
                 p.period,
-                transit_times.ttv_buffer() * 1440,
+                transit_times.ttv_buffer(p.duration) * 1440,
             )
 
         return self.planets, self.litecurve

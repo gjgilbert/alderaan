@@ -48,6 +48,17 @@ def _run(star, planets, lc):
 
 
 class TestCoverage:
+    def test_keeps_omc_model(self):
+        star, planets, lc = _system()
+        tt = planets[0].transit_times
+        planets[0].set_transit_times(
+            TransitTimes(
+                tt.mission, tt.target, tt.index, tt.ttime_obs, omc_model="poly_1"
+            )
+        )
+        planets_out, _ = FlagBadTransits(star, planets, lc).perform()
+        assert planets_out[0].transit_times.omc_model == "poly_1"
+
     def test_keeps_all_well_covered_transits(self):
         star, planets, lc = _system()
         np.testing.assert_array_equal(

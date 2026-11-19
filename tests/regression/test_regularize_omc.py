@@ -683,6 +683,7 @@ class TestSelectMatern32Gate:
         tt, ttime_obs = self._perform(omc / 1440, np.full(40, 2 / 1440), caplog)
 
         assert "matern32 OMC model;" in caplog.text
+        assert tt.omc_model == "matern32"
         assert np.max(np.abs(tt.ttime_mod - ttime_obs)) > 1 / 1440
 
 
@@ -712,6 +713,7 @@ class TestSelectPhotometricOutliers:
     def test_time_with_dip_is_kept(self):
         # the transit really is 120 min late: the measured times are adopted
         tt, ttime_obs = self._perform(dip_shift=120)
+        assert tt.omc_model == "independent"
         assert not np.any(tt.out_flag)
         np.testing.assert_allclose(tt.ttime_mod, ttime_obs, rtol=0, atol=1e-9)
 

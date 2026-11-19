@@ -360,7 +360,9 @@ class DetrendVisits(BaseAlg):
         # wide is cautious, keeping well clear of transits
         if tight_mask:
             # full width = max(T14, 2 hours) + 2 x (exptime + largest ttv_buffer)
-            ttv_buffer = max(p.transit_times.ttv_buffer() for p in self.planets)
+            ttv_buffer = max(
+                p.transit_times.ttv_buffer(p.duration) for p in self.planets
+            )
             mask = self.make_transit_mask(
                 rel_size=1.0,
                 abs_size=2 / 24,
@@ -430,7 +432,7 @@ class DetrendVisits(BaseAlg):
             'wide_mask' : mask transits over the larger of 3 x T14 or
                 2 x (exptime + 1 hour)
             'tight_mask' : mask transits over max(T14, 2 hours) +
-                2 x (exptime + largest TransitTimes.ttv_buffer())
+                2 x (exptime + largest TransitTimes.ttv_buffer)
 
         Returns
         -------

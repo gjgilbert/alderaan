@@ -48,6 +48,9 @@ class TransitTimes:
         False for transits with poor photometric coverage or high noise
         (FlagBadTransits); they stay in masks and models but are not fit or
         measured; default all True
+    omc_model : str, optional
+        OMC model that set ttime_mod (RegularizeOMC: 'smooth', 'poly_<k>',
+        'sinusoid', 'matern32' or 'independent'); None if not regularized
 
     Attributes
     ----------
@@ -66,9 +69,11 @@ class TransitTimes:
         out_prob=None,
         out_flag=None,
         quality=None,
+        omc_model=None,
     ):
         self.mission = mission
         self.target = target
+        self.omc_model = omc_model
 
         npts = len(index)
         if npts < 2:
@@ -113,15 +118,23 @@ class TransitTimes:
     def linear_ephemeris(self):
         return self.epoch + self.period * self.index
 
-    def ttv_scatter(self):
-        """Robust scatter (mad_std) of observed about modeled transit times"""
-        obs = np.isfinite(self.ttime_obs)
-        return mad_std(self.ttime_obs[obs] - self.ttime_mod[obs])
+    def ttv_buffer(self, duration):
+        """
+        Robust scatter (mad_std) of observed about modeled transit times, scaled
+        so not even one normal outlier is expected. Independent times have no
+        scatter (ttime_mod = ttime_obs): max(duration / 2, 3 x median timing
+        error)
 
-    def ttv_buffer(self):
-        """ttv_scatter scaled so not even one normal outlier is expected"""
-        npts = np.sum(np.isfinite(self.ttime_obs))
-        return sigma_cutoff(npts) * self.ttv_scatter()
+        Parameters
+        ----------
+        duration : float
+            transit duration T14 (days)
+        """
+        obs = np.isfinite(self.ttime_obs)
+        if self.omc_model == "independent":
+            return max(duration / 2, 3 * np.median(self.error_obs[obs]))
+        scatter = mad_std(self.ttime_obs[obs] - self.ttime_mod[obs])
+        return sigma_cutoff(np.sum(obs)) * scatter
 
     def clip(self, t_min, t_max):
         """
@@ -136,7 +149,9 @@ class TransitTimes:
             )
         arrays = {k: getattr(self, k)[use] for k in FIELDS}
         arrays["index"] = arrays["index"] - arrays["index"][0]
-        return TransitTimes(self.mission, self.target, **arrays)
+        return TransitTimes(
+            self.mission, self.target, **arrays, omc_model=self.omc_model
+        )
 
     def plot_omc(self, show_outliers=False, color="C0", ax=None, fig_path=None):
         """
@@ -211,6 +226,8 @@ class TransitTimes:
         hdu = fits.BinTableHDU.from_columns(columns, name=f"TTIMES_{n:02d}")
         hdu.header["MISSION"] = self.mission
         hdu.header["TARGET"] = self.target
+        if self.omc_model is not None:
+            hdu.header["OMCMODEL"] = self.omc_model
         return hdu
 
     @classmethod
@@ -223,4 +240,5 @@ class TransitTimes:
             hdu.header["MISSION"],
             hdu.header["TARGET"],
             **{k: data[k.upper()] for k in FIELDS},
+            omc_model=hdu.header.get("OMCMODEL"),
         )
