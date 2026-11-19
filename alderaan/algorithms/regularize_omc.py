@@ -17,6 +17,7 @@ from scipy.signal import savgol_filter
 from alderaan.algorithms.base import BaseAlg
 from alderaan.constants import SEED
 from alderaan.data_models import TransitTimes
+from alderaan.transit_model import TransitModel, transit_flux
 from alderaan.utils.stats import legendre_p1, norm_ppf, uniform_ppf
 
 logger = logging.getLogger(__name__)
@@ -183,6 +184,9 @@ class RegularizeOMC(BaseAlg):
         """
         Fit TTV observed-minus-calculated data with a regularized Matern-3/2 GP
 
+        Transits with NaN yobs are unmeasured: they get predictions but do not
+        enter the priors
+
         Returns
         -------
         fit : dict
@@ -191,12 +195,19 @@ class RegularizeOMC(BaseAlg):
             posterior median of predictive variance / yerr^2 (the diagonal of the
             smoother matrix) on mask (NaN elsewhere)
         """
+        measured = np.isfinite(yobs)
 
         # delta between each transit time
-        dx = np.mean(np.diff(xtime))
+        dx = np.mean(np.diff(xtime[measured]))
 
-        # maximum GP amplitude
-        log_ymax = np.log(np.sqrt(mad_std(yobs) ** 2 - np.median(yerr) ** 2))
+        # maximum GP amplitude: the scatter in excess of the errors; with < 16
+        # transits that excess is poorly determined, so the scatter itself
+        if np.sum(measured) < 16:
+            log_ymax = np.log(np.std(yobs[mask]))
+        else:
+            log_ymax = np.log(
+                np.sqrt(mad_std(yobs[measured]) ** 2 - np.median(yerr[measured]) ** 2)
+            )
 
         def make_gp(theta):
             log_sigma, rho, mean = theta
@@ -237,6 +248,23 @@ class RegularizeOMC(BaseAlg):
             "dof": np.median(np.sum(lev, 1)),
             "leverage": leverage,
         }
+
+    @staticmethod
+    def _fit_fn(model_name, xtime, yobs, yerr, ttv_period=None):
+        """
+        fit_fn(mask) -> fit dict of the named OMC model ('poly_<k>', 'sinusoid'
+        at ttv_period, or 'matern32')
+        """
+        if model_name == "matern32":
+            return lambda mask: RegularizeOMC._matern32_model(xtime, yobs, yerr, mask)
+        if model_name == "sinusoid":
+            return lambda mask: RegularizeOMC._sin_model(
+                xtime, yobs, yerr, mask, ttv_period
+            )
+        polyorder = int(model_name.removeprefix("poly_"))
+        return lambda mask: RegularizeOMC._poly_model(
+            xtime, yobs, yerr, mask, polyorder
+        )
 
     @staticmethod
     def _sample(loglike, prior_transform, ndim):
@@ -629,10 +657,7 @@ class RegularizeOMC(BaseAlg):
         # chi2 test of the measured times (perform) without power
         if (npts >= 16) & (np.median(yerr) <= 0.5 * mad_std(yobs)):
             results["matern32"] = self._fit_with_rejection(
-                yobs,
-                yerr,
-                good_clip,
-                lambda mask: self._matern32_model(xtime, yobs, yerr, mask),
+                yobs, yerr, good_clip, self._fit_fn("matern32", xtime, yobs, yerr)
             )
         else:
             logger.debug(
@@ -646,11 +671,9 @@ class RegularizeOMC(BaseAlg):
         # Polynomial model | require 2^N transits, at most do 3rd order
         max_polyorder = np.max([1, np.min([3, int(np.log2(npts)) - 1])])
         for polyorder in range(1, max_polyorder + 1):
-            results[f"poly_{polyorder}"] = self._fit_with_rejection(
-                yobs,
-                yerr,
-                good_clip,
-                lambda mask, k=polyorder: self._poly_model(xtime, yobs, yerr, mask, k),
+            name = f"poly_{polyorder}"
+            results[name] = self._fit_with_rejection(
+                yobs, yerr, good_clip, self._fit_fn(name, xtime, yobs, yerr)
             )
 
         # Sinusoidal model | freq is None for < 8 sigma-clipped transits
@@ -659,20 +682,16 @@ class RegularizeOMC(BaseAlg):
                 yobs,
                 yerr,
                 good_clip,
-                lambda mask: self._sin_model(
-                    xtime, yobs, yerr, mask, ttv_period=1 / freq
-                ),
+                self._fit_fn("sinusoid", xtime, yobs, yerr, ttv_period=1 / freq),
             )
 
         return results
 
     @staticmethod
-    def _regularized_transit_times(tt, measured, ymod, good_mix, out_prob):
+    def _regularized_transit_times(tt, measured, ttime_mod, good_mix, out_prob):
         """
-        Regularized transit times at every transit of tt: OMC model added to the
-        current linear ephemeris, linearly interpolated over transits that are
-        unmeasured or not kept by the model fit; measured transits not kept are
-        flagged as outliers
+        Regularized transit times at every transit of tt; measured transits not
+        kept by the model fit are flagged as outliers
 
         Parameters
         ----------
@@ -680,8 +699,8 @@ class RegularizeOMC(BaseAlg):
             current transit times; ttime_obs is NaN where unmeasured
         measured : ndarray, bool
             True where tt.ttime_obs is finite and tt.quality is True
-        ymod : ndarray
-            OMC model relative to tt.linear_ephemeris(), at measured transits
+        ttime_mod : ndarray
+            regularized transit times at every transit of tt
         good_mix : ndarray
             True for measured transits used in the final model fit; the rest
             are flagged as outliers
@@ -694,12 +713,6 @@ class RegularizeOMC(BaseAlg):
             same index as tt; ttime_obs and error_obs as tt where measured, NaN
             elsewhere
         """
-        ttime_mod = tt.linear_ephemeris()[measured] + ymod
-
-        interpolator = make_interp_spline(
-            tt.index[measured][good_mix], ttime_mod[good_mix], k=1
-        )
-
         out_prob_full = np.full(len(tt.index), np.nan)
         out_prob_full[measured] = out_prob
         out_flag_full = np.zeros(len(tt.index), dtype=bool)
@@ -711,11 +724,142 @@ class RegularizeOMC(BaseAlg):
             tt.index,
             ttime_obs=np.where(measured, tt.ttime_obs, np.nan),
             error_obs=np.where(measured, tt.error_obs, np.nan),
-            ttime_mod=interpolator(tt.index),
+            ttime_mod=ttime_mod,
             out_prob=out_prob_full,
             out_flag=out_flag_full,
             quality=tt.quality,
         )
+
+    def _transit_dchi2(self, n, t_obs, t_pred, exptime_offsets):
+        """
+        Light-curve preference for a transit of planet n at t_obs over t_pred
+
+        In a window spanning both times, with the other planets' transits
+        subtracted, the planet's transit template is fit at each time with a
+        free depth scale and with the expected depth
+
+        Returns
+        -------
+        dchi2_free, dchi2_fixed : float
+            chi2(t_pred) - chi2(t_obs) with free and with expected depth,
+            divided by the reduced chi2 at t_obs if > 1, floored at 0
+        """
+        lc = self.litecurve
+        center = 0.5 * (t_obs + t_pred)
+        half_width = 1.5 * self.planets[n].duration + 0.5 * np.abs(t_obs - t_pred)
+        use = np.abs(lc.time - center) < half_width
+        time, error = lc.time[use], lc.error[use]
+        obsmode = np.asarray(lc.obsmode)[use]
+
+        def dip(p, tc):
+            out = np.ones(len(time))
+            for om in np.unique(obsmode):
+                k = obsmode == om
+                out[k] = transit_flux(
+                    time[k],
+                    tc,
+                    p.period,
+                    p.ror,
+                    p.impact,
+                    p.duration,
+                    self.star.u1,
+                    self.star.u2,
+                    exptime_offsets[om],
+                )
+            return out - 1
+
+        flux = lc.flux[use] - 1
+        for q, p in enumerate(self.planets):
+            if q == n:
+                continue
+            tc = p.transit_times.ttime_mod
+            for t in tc[np.abs(tc - center) < half_width + p.duration]:
+                flux = flux - dip(p, t)
+
+        w = 1 / error**2
+        chi2_free, chi2_fixed = [], []
+        for t in (t_obs, t_pred):
+            template = dip(self.planets[n], t)
+            scale = np.sum(w * template * flux) / np.sum(w * template**2)
+            chi2_free.append(np.sum(w * (flux - scale * template) ** 2))
+            chi2_fixed.append(np.sum(w * (flux - template) ** 2))
+
+        # noise in excess of the photometric errors inflates dchi2; with the
+        # depth fixed, a dip still present at t_pred (shift < duration) or
+        # missing there is judged against the expected depth
+        rchi2 = max(chi2_free[0] / max(len(flux) - 1, 1), 1)
+        return (
+            max((chi2_free[1] - chi2_free[0]) / rchi2, 0),
+            max((chi2_fixed[1] - chi2_fixed[0]) / rchi2, 0),
+        )
+
+    def _photometric_outliers(self, n, tlin, yobs, yerr, fit_fn, dof, exptime_offsets):
+        """
+        Test the measured times of planet n, worst leave-one-out residual first,
+        against its selected model. A time is supported if the light curve
+        prefers it over the model prediction by dchi2 >= 9 with free and with
+        expected depth; a supported time ends the test. An unsupported time is
+        flagged and the model refit; the model is restored if the chi-squared
+        test of the remaining times then passes
+
+        Parameters
+        ----------
+        tlin : ndarray
+            linear ephemeris at the measured transits
+        fit_fn : callable
+            fit_fn(mask) -> fit dict of the selected model
+        dof : float
+            degrees of freedom of the selected model
+
+        Returns
+        -------
+        keep : ndarray of bool or None
+            transits kept by the restored model; None if the measured times stand
+        """
+        keep = np.ones(len(yobs), dtype=bool)
+        # majority guard, as in _fit_with_rejection
+        while np.sum(keep) - 1 > max(len(yobs) / 2, dof + 1):
+            z = np.full(len(yobs), -np.inf)
+            ypred = np.full(len(yobs), np.nan)
+            for i in np.flatnonzero(keep):
+                k = keep.copy()
+                k[i] = False
+                ypred[i] = fit_fn(k)["pred"][i]
+                z[i] = np.abs(yobs[i] - ypred[i]) / yerr[i]
+
+            i = int(np.argmax(z))
+            if z[i] < 4:
+                break
+
+            dchi2_free, dchi2_fixed = self._transit_dchi2(
+                n, tlin[i] + yobs[i], tlin[i] + ypred[i], exptime_offsets
+            )
+            # 3 sigma photometric evidence for the measured time
+            supported = dchi2_free >= 9 and dchi2_fixed >= 9
+            logger.info(
+                "planet %d: transit at %.3f, |z| = %.1f, dt = %+.0f min; "
+                "photometric dchi2 = %.1f (free depth), %.1f (expected depth); %s",
+                n,
+                tlin[i],
+                z[i],
+                (yobs[i] - ypred[i]) * 1440,
+                dchi2_free,
+                dchi2_fixed,
+                "supported" if supported else "flagged",
+            )
+            if supported:
+                break
+
+            keep[i] = False
+            ymod = fit_fn(keep)["pred"]
+            switch, pval = self._independent_times_preferred(
+                yobs[keep], yerr[keep], ymod[keep], dof
+            )
+            if not switch:
+                logger.info("planet %d: chi2 test p = %.2g; model restored", n, pval)
+                return keep
+
+        return None
 
     def _select(self, xtime, yobs, yerr, good_clip, check_periodic):
         """
@@ -731,6 +875,8 @@ class RegularizeOMC(BaseAlg):
             per planet, _fit_with_rejection results keyed by model name
         best : list of str
             per planet, the selected model name
+        ttv_period : list of float or None
+            per planet, the period of the sinusoid candidate (None if none)
         """
         npl = len(self.planets)
 
@@ -738,6 +884,7 @@ class RegularizeOMC(BaseAlg):
             freq = self._identify_periodic_signals(xtime, yobs, good_clip)
         else:
             freq = [None] * npl
+        ttv_period = [None if f is None else 1 / f for f in freq]
 
         results = [
             self._fit_candidates(xtime[n], yobs[n], yerr[n], good_clip[n], freq[n])
@@ -749,7 +896,7 @@ class RegularizeOMC(BaseAlg):
         ]
 
         if not check_periodic:
-            return results, best
+            return results, best, ttv_period
 
         # Lomb-Scargle once more, without the selected model's outliers; a
         # sinusoid is offered only at a period significant after rejection
@@ -764,6 +911,7 @@ class RegularizeOMC(BaseAlg):
                 if not had_sinusoid:
                     continue
                 del results[n]["sinusoid"]
+                ttv_period[n] = None
                 logger.info(
                     "planet %d: periodic TTV signal at P = %.1f d not significant "
                     "after outlier rejection; sinusoid rejected",
@@ -787,18 +935,17 @@ class RegularizeOMC(BaseAlg):
                     "moved" if had_sinusoid else "added",
                     1 / freq2[n],
                 )
+                ttv_period[n] = 1 / freq2[n]
                 results[n]["sinusoid"] = self._fit_with_rejection(
                     yobs[n],
                     yerr[n],
                     good_clip[n],
-                    lambda mask, n=n: self._sin_model(
-                        xtime[n], yobs[n], yerr[n], mask, ttv_period=1 / freq2[n]
-                    ),
+                    self._fit_fn("sinusoid", xtime[n], yobs[n], yerr[n], ttv_period[n]),
                 )
 
             best[n] = self._select_best_model(results[n], np.sum(good_clip[n]))
 
-        return results, best
+        return results, best, ttv_period
 
     def perform(self, method, check_periodic=True):
         """
@@ -809,9 +956,13 @@ class RegularizeOMC(BaseAlg):
             'select' : fit candidate models, each rejecting its outliers; select
                        by AIC/BIC. With < 16 measured times, the measured times
                        are adopted instead if they fail a chi-squared test
-                       against the selected model; with >= 16, they are
-                       adopted (outlier flags kept) if matern32 is selected
-                       with dof/N > 0.5
+                       against the selected model, unless (>= 8 times) the
+                       light curve rejects the times driving the failure. With
+                       >= 16, matern32 is dropped if the kept times scatter
+                       less than their errors, and the measured times are
+                       adopted (outlier flags kept) if matern32 has dof/N > 0.5.
+                       The final model, refit to the kept times, gives every
+                       transit time; measured times are filled by a matern32 GP
         check_periodic : bool
             search for periodic TTV signals before model selection, and again
             after outlier rejection ('select' only)
@@ -850,25 +1001,52 @@ class RegularizeOMC(BaseAlg):
         good_clip = [self._sigma_clip(y, e) for y, e in zip(yobs, yerr)]
 
         if method == "select":
-            results, best = self._select(xtime, yobs, yerr, good_clip, check_periodic)
+            results, best, ttv_period = self._select(
+                xtime, yobs, yerr, good_clip, check_periodic
+            )
+            exptime_offsets = None
 
-        for n, p in enumerate(self.planets):
-            old_period = p.period
-
+        # every planet is regularized before any is updated: the photometric
+        # outlier test subtracts the other planets' transits at their input times
+        regularized = []
+        for n, tt in enumerate(tts):
             if method == "smooth":
-                ymod = self._smooth(tts[n].index[measured[n]], yobs[n], good_clip[n])
+                index = tt.index[measured[n]]
+                ymod = self._smooth(index, yobs[n], good_clip[n])
                 good_mix = good_clip[n]
+                ttime_mod = make_interp_spline(
+                    index[good_mix], (xtime[n] + ymod)[good_mix], k=1
+                )(tt.index)
                 out_prob = np.full(len(yobs[n]), np.nan)
                 model_name = "smooth"
 
             elif method == "select":
+                npts = len(yobs[n])
                 model_name = best[n]
+                good_mix = results[n][model_name]["good_mix"]
+
+                # >= 16 transits: with measurement errors exceeding the scatter of
+                # the kept times, a GP has nothing to model beyond a parametric trend
+                if model_name == "matern32" and mad_std(yobs[n][good_mix]) < np.median(
+                    yerr[n][good_mix]
+                ):
+                    model_name = self._select_best_model(
+                        {k: v for k, v in results[n].items() if k != "matern32"},
+                        np.sum(good_clip[n]),
+                    )
+                    logger.info(
+                        "planet %d: matern32 OMC model scatter below measurement "
+                        "errors; %s selected",
+                        n,
+                        model_name,
+                    )
                 r = results[n][model_name]
-                ymod, good_mix, out_prob = r["pred"], r["good_mix"], r["out_prob"]
+                good_mix, out_prob = r["good_mix"], r["out_prob"]
 
                 # < 16 transits: adopt the measured times (outlier flags cleared)
-                # if they are inconsistent with the selected model
-                if len(yobs[n]) < 16:
+                # if they are inconsistent with the selected model, unless (>= 8
+                # transits) the light curve rejects the times that drive this
+                if npts < 16:
                     switch, pval = self._independent_times_preferred(
                         yobs[n], yerr[n], r["pred"], r["dof"]
                     )
@@ -877,12 +1055,29 @@ class RegularizeOMC(BaseAlg):
                         n,
                         model_name,
                         pval,
-                        "measured times adopted" if switch else "model kept",
+                        "measured times preferred" if switch else "model kept",
                     )
+                    if switch and npts >= 8:
+                        if exptime_offsets is None:
+                            exptime_offsets = TransitModel(
+                                self.star, self.planets, self.litecurve
+                            ).exptime_offsets
+                        keep = self._photometric_outliers(
+                            n,
+                            xtime[n],
+                            yobs[n],
+                            yerr[n],
+                            self._fit_fn(
+                                model_name, xtime[n], yobs[n], yerr[n], ttv_period[n]
+                            ),
+                            r["dof"],
+                            exptime_offsets,
+                        )
+                        if keep is not None:
+                            switch = False
+                            good_mix = keep
                     if switch:
-                        ymod = yobs[n]
-                        good_mix = np.ones(len(yobs[n]), dtype=bool)
-                        out_prob = np.full(len(yobs[n]), np.nan)
+                        good_mix = np.ones(npts, dtype=bool)
                         model_name = "independent"
 
                 # >= 16 transits: a GP with dof/N > 0.5 mostly reproduces the
@@ -894,12 +1089,38 @@ class RegularizeOMC(BaseAlg):
                         n,
                         r["dof"] / np.sum(good_mix),
                     )
-                    ymod = yobs[n]
                     model_name = "independent"
 
+                # the final model, refit to the kept times at every transit;
+                # independent times are filled by a GP
+                tlin = tt.linear_ephemeris()
+                kept = np.zeros(len(tt.index), dtype=bool)
+                kept[measured[n]] = good_mix
+                y_all = np.full(len(tt.index), np.nan)
+                y_all[measured[n]] = yobs[n]
+                e_all = np.full(len(tt.index), np.nan)
+                e_all[measured[n]] = yerr[n]
+                fit_fn = self._fit_fn(
+                    "matern32" if model_name == "independent" else model_name,
+                    tlin,
+                    y_all,
+                    e_all,
+                    ttv_period[n],
+                )
+                ymod = fit_fn(kept)["pred"]
+                if model_name == "independent":
+                    ymod[kept] = y_all[kept]
+                ttime_mod = tlin + ymod
+
             transit_times = self._regularized_transit_times(
-                p.transit_times, measured[n], ymod, good_mix, out_prob
+                tt, measured[n], ttime_mod, good_mix, out_prob
             )
+            regularized.append((model_name, good_mix, transit_times))
+
+        for n, (p, (model_name, good_mix, transit_times)) in enumerate(
+            zip(self.planets, regularized)
+        ):
+            old_period = p.period
             try:
                 p.set_transit_times(transit_times)
             except ValueError as e:

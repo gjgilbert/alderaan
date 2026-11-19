@@ -6,7 +6,9 @@ import numpy as np
 import pytest
 
 from alderaan.algorithms import RegularizeOMC
+from alderaan.constants import EXPTIME
 from alderaan.data_models import LiteCurve, Planet, Star, TransitTimes
+from alderaan.transit_model import exposure_offsets, transit_flux
 
 PERIOD, EPOCH = 10.0, 5.0
 TTV_AMP, TTV_PERIOD = 15 / 1440, 400.0  # 15 min sinusoid over a 400 d period
@@ -404,13 +406,70 @@ class TestSample:
 
 
 def _system_with_omc(omc, err):
-    """_system with the given OMC values and errors (days) as the measured times"""
+    """
+    _system with the given OMC values and errors (days) as the measured times;
+    transits with NaN omc are unmeasured
+    """
     star, planets, lc, _ = _system(ntransit=len(omc))
     index = np.arange(len(omc))
+    linear = EPOCH + PERIOD * index
     planets[0].set_transit_times(
         TransitTimes(
-            "Kepler", "SYN", index, EPOCH + PERIOD * index + omc, error_obs=err
+            "Kepler",
+            "SYN",
+            index,
+            linear + omc,
+            error_obs=err,
+            ttime_mod=np.where(np.isfinite(omc), linear + omc, linear),
         )
+    )
+    return star, planets, lc
+
+
+def _transit_system(omc, err, dip_omc=None, seed=2):
+    """
+    _system_with_omc with a long cadence litecurve of 1000 ppm, 3.6 h transits
+    at EPOCH + PERIOD * index + dip_omc (default omc) in 100 ppm white noise;
+    transits with NaN omc are unmeasured and have no photometry
+    """
+    star, planets, _ = _system_with_omc(omc, err)
+    p = planets[0]
+    p.set_transit_shape(1e-3, 0.15, 0.3, 0.03)
+    p.set_static_period_and_epoch()
+
+    dip_omc = omc if dip_omc is None else dip_omc
+    exptime = EXPTIME["long cadence"]
+    time, flux = [], []
+    for tlin, dt in zip(EPOCH + PERIOD * np.arange(len(omc)), dip_omc):
+        if np.isnan(dt):
+            continue
+        t = np.arange(tlin - 1.0, tlin + 1.0, exptime)
+        time.append(t)
+        flux.append(
+            transit_flux(
+                t,
+                tlin + dt,
+                PERIOD,
+                0.03,
+                0.3,
+                0.15,
+                star.u1,
+                star.u2,
+                exposure_offsets(exptime, 7),
+            )
+        )
+    time, flux = np.concatenate(time), np.concatenate(flux)
+    flux += np.random.default_rng(seed).normal(0, 1e-4, len(time))
+    ncad = len(time)
+    lc = LiteCurve(
+        "Kepler",
+        "SYN",
+        time,
+        flux,
+        np.full(ncad, 1e-4),
+        np.arange(ncad),
+        np.ones(ncad, dtype=int),
+        np.full(ncad, "long cadence"),
     )
     return star, planets, lc
 
@@ -452,14 +511,15 @@ class TestSelectFewTransits:
 
     @pytest.mark.parametrize("ntransit", [15, 16])
     def test_outlier_gated_below_16_transits(self, ntransit):
-        # one 20 sigma outlier on a line: below 16 transits it fails the chi2
-        # test (measured times adopted, flag cleared); at 16 the select model
-        # is kept and the outlier flagged
+        # one 20 sigma outlier on a line, its transit really shifted: below 16
+        # transits it fails the chi2 test and the light curve supports it
+        # (measured times adopted, flag cleared); at 16 the select model is
+        # kept and the outlier flagged
         rng = np.random.default_rng(5)
         err = np.full(ntransit, 3 / 1440)
         omc = rng.normal(0, err)
         omc[7] += 20 * err[7]
-        star, planets, lc = _system_with_omc(omc, err)
+        star, planets, lc = _transit_system(omc, err)
         ttime_obs = planets[0].transit_times.ttime_obs.copy()
         planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
 
@@ -488,10 +548,11 @@ class TestSelectFewTransits:
     def test_ttv_ramp(self):
         # 9 transits ending in a 140 min ramp (K00564.02): select prefers the
         # parabola over a line that flags the ramp's end; the parabola still
-        # fails the chi2 test, so the measured times are adopted
+        # fails the chi2 test and the light curve supports the ramp, so the
+        # measured times are adopted
         omc = np.array([-1.6, -6.0, -29.3, -6.5, -3.1, 5.1, 34.3, 79.3, 139.1]) / 1440
         err = np.array([4.2, 3.6, 6.7, 4.1, 3.9, 4.1, 4.1, 4.0, 4.0]) / 1440
-        star, planets, lc = _system_with_omc(omc, err)
+        star, planets, lc = _transit_system(omc, err)
         tt = planets[0].transit_times
         x = tt.linear_ephemeris()
         results = RegularizeOMC(star, planets, lc)._fit_candidates(
@@ -523,12 +584,20 @@ class TestSelectMatern32Gate:
     def test_interpolating_gp_adopts_measured_times(self, caplog):
         # 20 transits of a random-walk TTV (10 min steps, 1 min errors) and one
         # 60 min bad time: matern32 is selected with dof/N > 0.5, so the
-        # measured times are adopted; the bad time stays flagged, interpolated
+        # measured times are adopted; the bad time stays flagged, filled by a
+        # GP on the kept times
         x = np.arange(20)
         omc = np.cumsum(np.random.default_rng(3).normal(0, 10, 20))
         omc -= np.polyval(np.polyfit(x, omc, 1), x)
         omc[9] += 60
-        tt, ttime_obs = self._perform(omc / 1440, np.full(20, 1 / 1440), caplog)
+        err = np.full(20, 1 / 1440)
+        star, planets, lc = _system_with_omc(omc / 1440, err)
+        tt_in = planets[0].transit_times
+        tlin = tt_in.linear_ephemeris()
+        ttime_obs = tt_in.ttime_obs.copy()
+        with caplog.at_level(logging.INFO, logger="alderaan.algorithms.regularize_omc"):
+            planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
+        tt = planets_out[0].transit_times
 
         assert "matern32 OMC model dof/N" in caplog.text
         assert np.flatnonzero(tt.out_flag).tolist() == [9]
@@ -536,9 +605,57 @@ class TestSelectMatern32Gate:
         np.testing.assert_allclose(
             tt.ttime_mod[good], ttime_obs[good], rtol=0, atol=1e-9
         )
+        gp = RegularizeOMC._matern32_model(tlin, ttime_obs - tlin, err, good)
         np.testing.assert_allclose(
-            tt.ttime_mod[9], 0.5 * (ttime_obs[8] + ttime_obs[10]), rtol=0, atol=1e-9
+            tt.ttime_mod[9], tlin[9] + gp["pred"][9], rtol=0, atol=1e-9
         )
+
+    def test_gp_dropped_when_errors_exceed_kept_scatter(self, caplog):
+        # K04548.01: small-error outliers inflate mad_std enough to offer
+        # matern32, which is selected; the kept times scatter less than their
+        # errors, so a parametric model replaces it
+        # fmt: off
+        measured = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 13, 14, 15, 16, 17, 18, 20, 22, 23,
+        ]
+        t_meas = [
+            132.488562, 193.448646, 254.694434, 315.928451, 376.916916, 438.061402,
+            499.063886, 560.073927, 621.103357, 743.383847, 865.495896, 926.555084,
+            987.729482, 1048.717790, 1109.828307, 1170.799680, 1232.722790,
+            1354.044219, 1476.312132, 1537.402198,
+        ]
+        e_meas = [
+            0.032643, 0.036229, 0.036538, 0.056392, 0.049341, 0.025271, 0.032927,
+            0.034442, 0.107103, 0.024333, 0.024221, 0.054674, 0.029041, 0.216283,
+            0.050571, 0.024207, 0.024459, 0.283817, 0.094009, 0.122873,
+        ]
+        # fmt: on
+        star, planets, lc, _ = _system(ntransit=24)
+        index = np.arange(24)
+        ttime_obs = np.full(24, np.nan)
+        error_obs = np.full(24, np.nan)
+        ttime_obs[measured] = t_meas
+        error_obs[measured] = e_meas
+        # modeled times of the unmeasured transits set the linear ephemeris
+        ttime_mod = ttime_obs.copy()
+        ttime_mod[[9, 11, 19, 21]] = [682.185284, 804.452014, 1292.91796, 1415.18586]
+        planets[0] = Planet("Kepler", "SYN", 61.08, 132.49, 1e-3, 0.15, 0.3)
+        planets[0].set_transit_times(
+            TransitTimes(
+                "Kepler",
+                "SYN",
+                index,
+                ttime_obs,
+                error_obs=error_obs,
+                ttime_mod=ttime_mod,
+            )
+        )
+        with caplog.at_level(logging.INFO, logger="alderaan.algorithms.regularize_omc"):
+            RegularizeOMC(star, planets, lc).perform(method="select")
+
+        assert "matern32 OMC model scatter below measurement errors" in caplog.text
+        assert "matern32 OMC model;" not in caplog.text
+        assert "independent OMC model;" not in caplog.text
 
     def test_regularizing_gp_kept(self, caplog):
         # 40 transits of a smooth 20 min bump, 2 min errors: matern32 is
@@ -550,6 +667,77 @@ class TestSelectMatern32Gate:
 
         assert "matern32 OMC model;" in caplog.text
         assert np.max(np.abs(tt.ttime_mod - ttime_obs)) > 1 / 1440
+
+
+class TestSelectPhotometricOutliers:
+    # 12 transits on a line, 3 min errors, transit 5 measured 120 min late
+    ERR = np.full(12, 3 / 1440)
+    OMC = np.random.default_rng(4).normal(0, 3, 12) / 1440
+
+    def _perform(self, dip_shift):
+        omc = self.OMC.copy()
+        omc[5] += 120 / 1440
+        dip_omc = self.OMC.copy()
+        dip_omc[5] += dip_shift / 1440
+        star, planets, lc = _transit_system(omc, self.ERR, dip_omc=dip_omc)
+        ttime_obs = planets[0].transit_times.ttime_obs.copy()
+        planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
+        return planets_out[0].transit_times, ttime_obs
+
+    def test_time_without_dip_is_flagged(self):
+        # the light curve has the transit on the line: the time is flagged and
+        # the line restored
+        tt, _ = self._perform(dip_shift=0)
+        assert np.flatnonzero(tt.out_flag).tolist() == [5]
+        truth = EPOCH + PERIOD * 5 + self.OMC[5]
+        assert np.abs(tt.ttime_mod[5] - truth) < 3 * self.ERR[5]
+
+    def test_time_with_dip_is_kept(self):
+        # the transit really is 120 min late: the measured times are adopted
+        tt, ttime_obs = self._perform(dip_shift=120)
+        assert not np.any(tt.out_flag)
+        np.testing.assert_allclose(tt.ttime_mod, ttime_obs, rtol=0, atol=1e-9)
+
+
+class TestSelectUnmeasuredTransits:
+    def test_parametric_model_predicts(self):
+        # 13 transits of a 360 min parabola, 1 min errors, transit 11
+        # unmeasured: it gets the parabola, 10 min off the interpolation
+        # between its neighbors
+        x = np.arange(13)
+        truth = 360 * ((x - 6) / 6) ** 2 / 1440
+        omc = truth + np.random.default_rng(6).normal(0, 1, 13) / 1440
+        omc[11] = np.nan
+        star, planets, lc = _system_with_omc(omc, np.full(13, 1 / 1440))
+        planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
+        tt = planets_out[0].transit_times
+
+        omc_mod = tt.ttime_mod - (EPOCH + PERIOD * x)
+        omc_mod -= np.polyval(np.polyfit(x, omc_mod, 1), x)
+        parabola = truth - np.polyval(np.polyfit(x, truth, 1), x)
+        assert np.abs(omc_mod[11] - parabola[11]) < 1 / 1440
+        assert np.abs(omc_mod[11] - 0.5 * (omc_mod[10] + omc_mod[12])) > 5 / 1440
+
+    def test_independent_times_filled_by_gp(self):
+        # 5 transits of a TTV a line can't fit (K01783.02), transit 3
+        # unmeasured: measured times adopted, transit 3 from a GP on them
+        omc = np.array([44.2, -54.8, -23.2, np.nan, 40.0, 8.2]) / 1440
+        err = np.array([3.8, 3.9, 3.9, np.nan, 4.4, 7.1]) / 1440
+        star, planets, lc = _system_with_omc(omc, err)
+        tt_in = planets[0].transit_times
+        tlin = tt_in.linear_ephemeris()
+        ttime_obs = tt_in.ttime_obs.copy()
+        planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
+        tt = planets_out[0].transit_times
+
+        measured = np.isfinite(ttime_obs)
+        np.testing.assert_allclose(
+            tt.ttime_mod[measured], ttime_obs[measured], rtol=0, atol=1e-9
+        )
+        gp = RegularizeOMC._matern32_model(tlin, ttime_obs - tlin, err, measured)
+        np.testing.assert_allclose(
+            tt.ttime_mod[3], tlin[3] + gp["pred"][3], rtol=0, atol=1e-9
+        )
 
 
 @pytest.mark.slow
