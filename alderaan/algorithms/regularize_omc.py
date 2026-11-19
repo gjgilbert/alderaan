@@ -785,8 +785,9 @@ class RegularizeOMC(BaseAlg):
 
         Returns
         -------
-        inlier : ndarray of bool or None
-            transits kept by the restored model; None if the measured times stand
+        fit : dict or None
+            _fit result of the restored model, plus 'inlier' (the transits it
+            keeps); None if the measured times stand
         """
         npts = np.sum(measured)
         inlier = measured.copy()
@@ -828,7 +829,7 @@ class RegularizeOMC(BaseAlg):
             pval = self._chi2_pvalue(omc, err, fit["pred"], inlier, dof)
             if pval >= 0.01:
                 logger.info("planet %d: chi2 test p = %.2g; model restored", n, pval)
-                return inlier
+                return {**fit, "inlier": inlier}
 
         return None
 
@@ -874,12 +875,12 @@ class RegularizeOMC(BaseAlg):
 
         Returns
         -------
-        model : str
-            selected model
-        independent : bool
-            True if the measured times are adopted
-        inlier : ndarray of bool
-            transits kept; measured transits off inlier are outliers
+        label : str
+            selected model, or 'independent' if the measured times are adopted
+        fit : dict
+            final fit: 'pred' at every transit (a matern32 GP if independent),
+            'inlier' (transits kept; measured transits off inlier are
+            outliers) and 'out_prob'
         """
         npts = np.sum(measured)
 
@@ -899,95 +900,94 @@ class RegularizeOMC(BaseAlg):
 
         fit = fits[model]
 
-        if npts < 16:
-            pval = self._chi2_pvalue(omc, err, fit["pred"], measured, fit["dof"])
-            logger.info(
-                "planet %d: %s OMC model chi2 test p = %.2g; %s",
-                n,
-                model,
-                pval,
-                "measured times preferred" if pval < 0.01 else "model kept",
-            )
-            if pval >= 0.01:
-                return model, False, fit["inlier"]
-            if npts >= 8:
-                exptime_offsets = TransitModel(
-                    self.star, self.planets, self.litecurve
-                ).exptime_offsets
-                inlier = self._photometric_vet(
+        if npts >= 16:
+            if model == "matern32" and fit["dof"] / np.sum(fit["inlier"]) > 0.5:
+                logger.info(
+                    "planet %d: matern32 OMC model dof/N = %.2f > 0.5; "
+                    "measured times adopted",
                     n,
-                    tlin,
-                    omc,
-                    err,
-                    measured,
-                    model,
-                    period,
-                    fit["dof"],
-                    exptime_offsets,
+                    fit["dof"] / np.sum(fit["inlier"]),
                 )
-                if inlier is not None:
-                    return model, False, inlier
+                return "independent", fit
+            return model, fit
 
-                # polynomial refit: poly_3 at any N, as the wild and chi2 gates,
-                # not the N-based order limit, guard against overfitting
-                refits = {
-                    k: self._robust_fit(k, tlin, omc, err, measured)
-                    for k in self._candidates(
-                        omc, err, measured, measured, None, max_polyorder=3
-                    )
-                }
-                refit_model = self._compare(refits, npts)
-                refit = refits[refit_model]
-                # Bonferroni-corrected (Dunn 1961) family-wise false-alarm
-                # probability of a two-sided 3 sigma event: rejecting measured
-                # times takes stronger evidence than _robust_fit's alpha = 0.01
-                z_crit = stats.norm.isf(0.0027 / (2 * npts))
-                wild = False
-                for k in np.flatnonzero(measured & ~refit["inlier"]):
-                    score = self._wild_score(
-                        tlin, omc, err, refit["inlier"], refit_model, k
-                    )
-                    dchi2 = self._transit_dchi2(
-                        n, tlin[k] + omc[k], tlin[k] + refit["pred"][k], exptime_offsets
-                    )
-                    logger.info(
-                        "planet %d: %s rejects transit at %.3f, wild score %.1f "
-                        "(need >= %.1f), photometric dchi2 = %.0f / %.0f",
-                        n,
-                        refit_model,
-                        tlin[k],
-                        score,
-                        z_crit,
-                        *dchi2,
-                    )
-                    # dchi2 >= 50 (~7 sigma) is beyond the noise dips a timing
-                    # search over many trial positions finds (look-elsewhere
-                    # effect; Gross & Vitells 2010): such a time is real
-                    wild = score >= z_crit and min(dchi2) < 50
-                    if not wild:
-                        break
-                if wild:
-                    pval = self._chi2_pvalue(
-                        omc, err, refit["pred"], refit["inlier"], refit["dof"]
-                    )
-                    logger.info(
-                        "planet %d: %s chi2 test p = %.2g", n, refit_model, pval
-                    )
-                    if pval >= 0.01:
-                        fits[refit_model] = refit  # perform reads out_prob here
-                        return refit_model, False, refit["inlier"]
-            return model, True, measured
+        pval = self._chi2_pvalue(omc, err, fit["pred"], measured, fit["dof"])
+        logger.info(
+            "planet %d: %s OMC model chi2 test p = %.2g; %s",
+            n,
+            model,
+            pval,
+            "measured times preferred" if pval < 0.01 else "model kept",
+        )
+        if pval >= 0.01:
+            return model, fit
 
-        if model == "matern32" and fit["dof"] / np.sum(fit["inlier"]) > 0.5:
-            logger.info(
-                "planet %d: matern32 OMC model dof/N = %.2f > 0.5; "
-                "measured times adopted",
+        if npts >= 8:
+            exptime_offsets = TransitModel(
+                self.star, self.planets, self.litecurve
+            ).exptime_offsets
+            restored = self._photometric_vet(
                 n,
-                fit["dof"] / np.sum(fit["inlier"]),
+                tlin,
+                omc,
+                err,
+                measured,
+                model,
+                period,
+                fit["dof"],
+                exptime_offsets,
             )
-            return model, True, fit["inlier"]
+            if restored is not None:
+                return model, {**restored, "out_prob": fit["out_prob"]}
 
-        return model, False, fit["inlier"]
+            # polynomial refit: poly_3 at any N, as the wild and chi2 gates,
+            # not the N-based order limit, guard against overfitting
+            refits = {
+                k: self._robust_fit(k, tlin, omc, err, measured)
+                for k in self._candidates(
+                    omc, err, measured, measured, None, max_polyorder=3
+                )
+            }
+            refit_model = self._compare(refits, npts)
+            refit = refits[refit_model]
+            # Bonferroni-corrected (Dunn 1961) family-wise false-alarm
+            # probability of a two-sided 3 sigma event: rejecting measured
+            # times takes stronger evidence than _robust_fit's alpha = 0.01
+            z_crit = stats.norm.isf(0.0027 / (2 * npts))
+            wild = False
+            for k in np.flatnonzero(measured & ~refit["inlier"]):
+                score = self._wild_score(
+                    tlin, omc, err, refit["inlier"], refit_model, k
+                )
+                dchi2 = self._transit_dchi2(
+                    n, tlin[k] + omc[k], tlin[k] + refit["pred"][k], exptime_offsets
+                )
+                logger.info(
+                    "planet %d: %s rejects transit at %.3f, wild score %.1f "
+                    "(need >= %.1f), photometric dchi2 = %.0f / %.0f",
+                    n,
+                    refit_model,
+                    tlin[k],
+                    score,
+                    z_crit,
+                    *dchi2,
+                )
+                # dchi2 >= 50 (~7 sigma) is beyond the noise dips a timing
+                # search over many trial positions finds (look-elsewhere
+                # effect; Gross & Vitells 2010): such a time is real
+                wild = score >= z_crit and min(dchi2) < 50
+                if not wild:
+                    break
+            if wild:
+                pval = self._chi2_pvalue(
+                    omc, err, refit["pred"], refit["inlier"], refit["dof"]
+                )
+                logger.info("planet %d: %s chi2 test p = %.2g", n, refit_model, pval)
+                if pval >= 0.01:
+                    return refit_model, refit
+
+        gp = self._fit("matern32", tlin, omc, err, measured)
+        return "independent", {**gp, "inlier": measured, "out_prob": fit["out_prob"]}
 
     # --- entry point --------------------------------------------------------
 
@@ -1000,9 +1000,9 @@ class RegularizeOMC(BaseAlg):
             'select' : offer candidate models (_candidates), fit each with outlier
                        rejection (_robust_fit), select by AIC/BIC (_compare,
                        _recheck_sinusoid), then keep the model or adopt the
-                       measured times (_vet). The final model, refit to the
-                       inliers, gives every transit time; adopted measured
-                       times are filled by a matern32 GP
+                       measured times (_vet). _vet's final fit gives every
+                       transit time; adopted measured times are filled by a
+                       matern32 GP
         check_periodic : bool
             search for periodic TTV signals before model selection, and again
             after outlier rejection ('select' only)
@@ -1092,7 +1092,7 @@ class RegularizeOMC(BaseAlg):
                 out_prob = np.full(len(tt.index), np.nan)
 
             elif method == "select":
-                selected, independent, inlier = self._vet(
+                label, fit = self._vet(
                     n,
                     tlin[n],
                     omc[n],
@@ -1103,20 +1103,10 @@ class RegularizeOMC(BaseAlg):
                     model[n],
                     period[n],
                 )
-                label = "independent" if independent else selected
-                out_prob = fits[n][selected]["out_prob"]
-
-                # the final model, refit to the inliers at every transit; adopted
-                # measured times are filled by a GP
-                pred = self._fit(
-                    "matern32" if independent else selected,
-                    tlin[n],
-                    omc[n],
-                    err[n],
-                    inlier,
-                    period[n],
-                )["pred"]
-                if independent:
+                inlier, out_prob = fit["inlier"], fit["out_prob"]
+                # adopted measured times; the GP fills the rest
+                pred = fit["pred"].copy()
+                if label == "independent":
                     pred[inlier] = omc[n][inlier]
                 ttime_mod = tlin[n] + pred
 
