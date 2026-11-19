@@ -29,8 +29,8 @@ class RegularizeOMC(BaseAlg):
 
     Every per-planet array spans all epochs of the planet's TransitTimes:
     tlin is the linear ephemeris; omc and err are NaN where unmeasured. Boolean
-    masks select transits: measured (quality time), unclipped (measured and
-    passing the sigma clip), inlier (kept by the model fit)
+    masks select transits: measured (good photometry, finite time), unclipped
+    (measured and passing the sigma clip), inlier (kept by the model fit)
 
     Parameters
     ----------
@@ -318,14 +318,13 @@ class RegularizeOMC(BaseAlg):
         -------
         fit : dict
             _fit result of the final fit, plus 'inlier' (unclipped minus
-            outliers, the transits of the final fit), 'out_prob' (NaN for
-            N < 16) and 'lnlike', the log-likelihood over unclipped (Gaussian for
-            N < 16, mixture for N >= 16)
+            outliers, the transits of the final fit) and 'lnlike', the
+            log-likelihood over unclipped (Gaussian for N < 16, mixture for
+            N >= 16)
         """
         npts = np.sum(unclipped)
         fit = RegularizeOMC._fit(model, tlin, omc, err, unclipped, period)
         inlier = unclipped.copy()
-        out_prob = np.full(len(omc), np.nan)
 
         z_crit = stats.norm.isf(0.01 / (2 * npts))
         if 8 <= npts < 16:
@@ -344,7 +343,7 @@ class RegularizeOMC(BaseAlg):
             res = np.where(inlier, omc - fit["pred"], z_crit * err)
             lnlike = np.sum(stats.norm.logpdf(res, scale=err)[unclipped])
         else:
-            out_prob, out_flag, lnlike = RegularizeOMC._calculate_outlier_probability(
+            _, out_flag, lnlike = RegularizeOMC._calculate_outlier_probability(
                 omc, err, fit["pred"], mask=unclipped
             )
             inlier = unclipped & ~out_flag
@@ -353,11 +352,11 @@ class RegularizeOMC(BaseAlg):
                 inlier = unclipped.copy()
             if np.any(inlier != unclipped):
                 fit = RegularizeOMC._fit(model, tlin, omc, err, inlier, period)
-                out_prob, _, lnlike = RegularizeOMC._calculate_outlier_probability(
+                _, _, lnlike = RegularizeOMC._calculate_outlier_probability(
                     omc, err, fit["pred"], mask=unclipped
                 )
 
-        return {**fit, "inlier": inlier, "out_prob": out_prob, "lnlike": lnlike}
+        return {**fit, "inlier": inlier, "lnlike": lnlike}
 
     @staticmethod
     def _calculate_outlier_probability(
@@ -880,7 +879,7 @@ class RegularizeOMC(BaseAlg):
         fit : dict
             final fit: 'pred' at every transit (a matern32 GP if independent),
             'inlier' (transits kept; measured transits off inlier are
-            outliers) and 'out_prob'
+            outliers)
         """
         npts = np.sum(measured)
 
@@ -938,7 +937,7 @@ class RegularizeOMC(BaseAlg):
                 exptime_offsets,
             )
             if restored is not None:
-                return model, {**restored, "out_prob": fit["out_prob"]}
+                return model, restored
 
             # polynomial refit: poly_3 at any N, as the wild and chi2 gates,
             # not the N-based order limit, guard against overfitting
@@ -987,7 +986,7 @@ class RegularizeOMC(BaseAlg):
                     return refit_model, refit
 
         gp = self._fit("matern32", tlin, omc, err, measured)
-        return "independent", {**gp, "inlier": measured, "out_prob": fit["out_prob"]}
+        return "independent", {**gp, "inlier": measured}
 
     # --- entry point --------------------------------------------------------
 
@@ -1013,17 +1012,19 @@ class RegularizeOMC(BaseAlg):
         litecurve : LiteCurve
 
         Each planet carries its regularized TransitTimes, with OMC diagnostics
-        ttime_obs, out_prob, out_flag and omc_model (the final label: 'smooth',
-        the selected model, or 'independent'); out_prob is NaN for 'smooth'
+        ttime_obs, kept_ttv, model_name (the final label: 'smooth', the
+        selected model, or 'independent') and model_dof
         """
         if method not in ("smooth", "select"):
             raise ValueError(f"method must be 'smooth' or 'select', got {method!r}")
         npl = len(self.planets)
 
-        # fit measured, quality (FlagBadTransits) transit times only; the rest are
-        # returned unmeasured and filled by the model
+        # fit measured times with good photometry (FlagBadTransits) only; the rest
+        # are returned unmeasured and filled by the model
         tts = [p.transit_times for p in self.planets]
-        measured = [tt.quality & np.isfinite(tt.ttime_obs) for tt in tts]
+        measured = [
+            tt.phot_coverage & tt.phot_noise & np.isfinite(tt.ttime_obs) for tt in tts
+        ]
         for n, m in enumerate(measured):
             # 1-2 transit planets need special handling (not yet implemented)
             if np.sum(m) < 3:
@@ -1037,7 +1038,7 @@ class RegularizeOMC(BaseAlg):
             np.where(m, tt.ttime_obs - t, np.nan)
             for tt, t, m in zip(tts, tlin, measured)
         ]
-        err = [np.where(m, tt.error_obs, np.nan) for tt, m in zip(tts, measured)]
+        err = [np.where(m, tt.ttime_err, np.nan) for tt, m in zip(tts, measured)]
         # 'smooth' runs on catalog times whose errors may be missing: equal weights
         if method == "smooth":
             err = [np.where(m, 1.0, np.nan) for m in measured]
@@ -1088,9 +1089,8 @@ class RegularizeOMC(BaseAlg):
         regularized = []
         for n, tt in enumerate(tts):
             if method == "smooth":
-                label, inlier = "smooth", unclipped[n]
+                label, inlier, dof = "smooth", unclipped[n], None
                 ttime_mod = tlin[n] + self._smooth(tt.index, omc[n], inlier)
-                out_prob = np.full(len(tt.index), np.nan)
 
             elif method == "select":
                 label, fit = self._vet(
@@ -1104,11 +1104,12 @@ class RegularizeOMC(BaseAlg):
                     model[n],
                     period[n],
                 )
-                inlier, out_prob = fit["inlier"], fit["out_prob"]
+                inlier, dof = fit["inlier"], float(fit["dof"])
                 # adopted measured times; the GP fills the rest
                 pred = fit["pred"].copy()
                 if label == "independent":
                     pred[inlier] = omc[n][inlier]
+                    dof = float(np.sum(inlier))
                 ttime_mod = tlin[n] + pred
 
             transit_times = TransitTimes(
@@ -1116,12 +1117,13 @@ class RegularizeOMC(BaseAlg):
                 tt.target,
                 tt.index,
                 ttime_obs=np.where(measured[n], tt.ttime_obs, np.nan),
-                error_obs=np.where(measured[n], tt.error_obs, np.nan),
+                ttime_err=np.where(measured[n], tt.ttime_err, np.nan),
                 ttime_mod=ttime_mod,
-                out_prob=out_prob,
-                out_flag=measured[n] & ~inlier,
-                quality=tt.quality,
-                omc_model=label,
+                phot_coverage=tt.phot_coverage,
+                phot_noise=tt.phot_noise,
+                kept_ttv=~(measured[n] & ~inlier),
+                model_name=label,
+                model_dof=dof,
             )
             regularized.append((label, inlier, transit_times))
 

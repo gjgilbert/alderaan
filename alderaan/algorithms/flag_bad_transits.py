@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 class FlagBadTransits(BaseAlg):
     """
-    Set transit quality flags (TransitTimes.quality) for transits with poor
-    photometric coverage or high noise; every transit is kept
+    Set photometry flags (TransitTimes.phot_coverage, phot_noise) for transits
+    with poor photometric coverage or high noise; every transit is kept
 
     Parameters
     ----------
@@ -144,9 +144,16 @@ class FlagBadTransits(BaseAlg):
             # overlap checks, and the transit model, but are not fit or measured
             tt = p.transit_times
             fields = {k: getattr(tt, k) for k in FIELDS}
-            fields["quality"] = coverage[n] & good_rms[n]
+            fields["phot_coverage"] = coverage[n]
+            fields["phot_noise"] = good_rms[n]
             p.set_transit_times(
-                TransitTimes(tt.mission, tt.target, **fields, omc_model=tt.omc_model)
+                TransitTimes(
+                    tt.mission,
+                    tt.target,
+                    **fields,
+                    model_name=tt.model_name,
+                    model_dof=tt.model_dof,
+                )
             )
 
         return planets, self.litecurve

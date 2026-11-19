@@ -119,6 +119,7 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     for n, p in enumerate(planets):
         p.transit_times.plot_omc(
             show_outliers=True,
+            title=f"{target}-{n}",
             fig_path=os.path.join(plots_dir, f"{target}_omc_initial_{n:02d}.png"),
         )
 
@@ -144,6 +145,7 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
     for n, p in enumerate(planets):
         p.transit_times.plot_omc(
             show_outliers=True,
+            title=f"{target}-{n}",
             fig_path=os.path.join(plots_dir, f"{target}_omc_{n:02d}.png"),
         )
 

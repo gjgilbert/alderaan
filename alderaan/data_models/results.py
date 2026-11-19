@@ -164,8 +164,12 @@ class Results:
         """
         Plot O-C for planet n; returns the Figure (see TransitTimes.plot_omc)
         """
-        return self.transit_times[n].plot_omc(
-            show_outliers=show_outliers, color=f"C{n}", fig_path=fig_path
+        tt = self.transit_times[n]
+        return tt.plot_omc(
+            show_outliers=show_outliers,
+            color=f"C{n}",
+            title=f"{tt.target}-{n}",
+            fig_path=fig_path,
         )
 
     def median_transit_params(self, n):

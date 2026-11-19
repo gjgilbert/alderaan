@@ -180,16 +180,16 @@ def match_holczer16_transit_times(planets, transit_times, t_min, t_max):
                 k_h = np.round((ttime - tt.ttime_mod[0]) / h_period).astype(int)
                 use = (k_h >= 0) & (k_h < len(tt.index))
                 ttime_obs = np.full(len(tt.index), np.nan)
-                error_obs = np.full(len(tt.index), np.nan)
+                ttime_err = np.full(len(tt.index), np.nan)
                 ttime_obs[k_h[use]] = ttime[use]
-                error_obs[k_h[use]] = error[use]
+                ttime_err[k_h[use]] = error[use]
                 p.set_transit_times(
                     TransitTimes(
                         p.mission,
                         p.target,
                         tt.index,
                         ttime_obs=ttime_obs,
-                        error_obs=error_obs,
+                        ttime_err=ttime_err,
                         ttime_mod=np.where(
                             np.isfinite(ttime_obs), ttime_obs, tt.ttime_mod
                         ),
@@ -313,7 +313,7 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
             p.duration * 24,
             p.impact,
             n_after,
-            np.sum(np.isfinite(p.transit_times.error_obs)),
+            np.sum(np.isfinite(p.transit_times.ttime_err)),
         )
 
     logger.info("star: u1 = %.3f, u2 = %.3f (catalog)", star.u1, star.u2)

@@ -479,9 +479,11 @@ class QuickFitTransitTimes(BaseAlg):
 
             assert len(ttime_cc[n]) == len(p.transit_times.ttime_mod)
 
-            # low quality transits (FlagBadTransits) are not measured
-            ttime_cc[n][~p.transit_times.quality] = np.nan
-            error_cc[n][~p.transit_times.quality] = np.nan
+            # transits with poor photometry (FlagBadTransits) are not measured
+            tt = p.transit_times
+            phot = tt.phot_coverage & tt.phot_noise
+            ttime_cc[n][~phot] = np.nan
+            error_cc[n][~phot] = np.nan
 
             # discard fits with outsized errors
             if np.all(np.isnan(error_cc[n])):
@@ -507,9 +509,10 @@ class QuickFitTransitTimes(BaseAlg):
                     tt.target,
                     tt.index,
                     ttime_obs=np.where(q, ttime_cc[n], np.nan),
-                    error_obs=np.where(q, error_cc[n], np.nan),
+                    ttime_err=np.where(q, error_cc[n], np.nan),
                     ttime_mod=np.where(q, ttime_cc[n], tt.ttime_mod),
-                    quality=tt.quality,
+                    phot_coverage=tt.phot_coverage,
+                    phot_noise=tt.phot_noise,
                 )
             )
 
@@ -521,13 +524,15 @@ class QuickFitTransitTimes(BaseAlg):
         error_opt = [None] * npl
 
         for n, p in enumerate(planets):
-            fit = p.transit_times.quality & sibling_in_window[n]
+            tt = p.transit_times
+            fit = tt.phot_coverage & tt.phot_noise & sibling_in_window[n]
             ttime_opt[n], error_opt[n] = self._optimize_times(tm, n, overlap, fit)
 
         # measured times: cross-correlation, else optimizer; ttime_mod = ttime_obs
         # where measured, else the previous model
         for n, p in enumerate(planets):
-            good = p.transit_times.quality
+            tt = p.transit_times
+            good = tt.phot_coverage & tt.phot_noise
             tc_error_pred = self._predicted_tc_error(tm, n)
 
             q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
@@ -540,16 +545,16 @@ class QuickFitTransitTimes(BaseAlg):
             ttime_new[~measured] = np.nan
             error_new[~measured] = np.nan
 
-            tt = p.transit_times
             p.set_transit_times(
                 TransitTimes(
                     tt.mission,
                     tt.target,
                     tt.index,
                     ttime_obs=ttime_new,
-                    error_obs=error_new,
+                    ttime_err=error_new,
                     ttime_mod=np.where(measured, ttime_new, tt.ttime_mod),
-                    quality=tt.quality,
+                    phot_coverage=tt.phot_coverage,
+                    phot_noise=tt.phot_noise,
                 )
             )
 

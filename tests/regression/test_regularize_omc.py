@@ -28,19 +28,19 @@ def _system(ntransit=140, outliers=(), missing=(), seed=11):
 
     rng = np.random.default_rng(seed)
     ttime_obs = truth + rng.normal(0, TIME_ERR, ntransit)
-    error_obs = np.full(ntransit, TIME_ERR)
+    ttime_err = np.full(ntransit, TIME_ERR)
     for i in outliers:
         ttime_obs[i] += 60 / 1440
     for i in missing:
         ttime_obs[i] = np.nan
-        error_obs[i] = np.nan
+        ttime_err[i] = np.nan
 
     p = Planet("Kepler", "SYN", PERIOD, EPOCH, 1e-3, 0.15, 0.3)
     # unmeasured transits start on the linear ephemeris
     ttime_mod = np.where(np.isfinite(ttime_obs), ttime_obs, linear)
     p.set_transit_times(
         TransitTimes(
-            "Kepler", "SYN", index, ttime_obs, error_obs=error_obs, ttime_mod=ttime_mod
+            "Kepler", "SYN", index, ttime_obs, ttime_err=ttime_err, ttime_mod=ttime_mod
         )
     )
 
@@ -79,9 +79,8 @@ class TestSmooth:
         planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="smooth")
 
         tt = planets_out[0].transit_times
-        np.testing.assert_array_equal(np.flatnonzero(tt.out_flag), [40, 90])
+        np.testing.assert_array_equal(np.flatnonzero(~tt.kept_ttv), [40, 90])
         assert np.all(np.abs(tt.ttime_mod[[40, 90]] - truth[[40, 90]]) < 3 * TIME_ERR)
-        assert np.all(np.isnan(tt.out_prob))
 
     def test_fills_missing_epochs(self):
         star, planets, lc, truth = _system(missing=[0, 60, 61])
@@ -90,35 +89,35 @@ class TestSmooth:
         tt = planets_out[0].transit_times
         np.testing.assert_array_equal(tt.index, np.arange(140))
         assert np.all(np.isnan(tt.ttime_obs[[0, 60, 61]]))
-        assert not np.any(tt.out_flag)
+        assert np.all(tt.kept_ttv)
         assert np.all(
             np.abs(tt.ttime_mod[[0, 60, 61]] - truth[[0, 60, 61]]) < 3 * TIME_ERR
         )
 
-    def test_low_quality_times_are_unmeasured(self):
-        # low quality (FlagBadTransits) measured times are not fit: they come
-        # back unmeasured, filled by the model
+    def test_poor_photometry_times_are_unmeasured(self):
+        # measured times with poor photometry (FlagBadTransits) are not fit: they
+        # come back unmeasured, filled by the model
         star, planets, lc, truth = _system(outliers=[40, 90])
         tt = planets[0].transit_times
-        quality = np.ones(len(tt.index), dtype=bool)
-        quality[[40, 90]] = False
+        noise = np.ones(len(tt.index), dtype=bool)
+        noise[[40, 90]] = False
         planets[0].set_transit_times(
             TransitTimes(
                 "Kepler",
                 "SYN",
                 tt.index,
                 tt.ttime_obs,
-                error_obs=tt.error_obs,
+                ttime_err=tt.ttime_err,
                 ttime_mod=tt.ttime_mod,
-                quality=quality,
+                phot_noise=noise,
             )
         )
         planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="smooth")
 
         tt = planets_out[0].transit_times
         assert np.all(np.isnan(tt.ttime_obs[[40, 90]]))
-        assert np.all(np.isnan(tt.error_obs[[40, 90]]))
-        assert not np.any(tt.out_flag)
+        assert np.all(np.isnan(tt.ttime_err[[40, 90]]))
+        assert np.all(tt.kept_ttv)
         assert np.all(np.abs(tt.ttime_mod[[40, 90]] - truth[[40, 90]]) < 3 * TIME_ERR)
 
 
@@ -248,7 +247,6 @@ class TestRobustFit:
         r = _poly_fits(xtime, yobs, yerr, good_clip, orders=(1,))["poly_1"]
 
         np.testing.assert_array_equal(np.flatnonzero(~r["inlier"]), [5])
-        assert np.all(np.isnan(r["out_prob"]))
 
     def test_leave_one_out_false_flag_rate(self):
         # clean 12-transit planets are flagged at about alpha = 0.01
@@ -416,7 +414,7 @@ def _system_with_omc(omc, err):
             "SYN",
             index,
             linear + omc,
-            error_obs=err,
+            ttime_err=err,
             ttime_mod=np.where(np.isfinite(omc), linear + omc, linear),
         )
     )
@@ -498,8 +496,7 @@ class TestSelectFewTransits:
 
         tt = planets_out[0].transit_times
         np.testing.assert_allclose(tt.ttime_mod, ttime_obs, rtol=0, atol=1e-9)
-        assert not np.any(tt.out_flag)
-        assert np.all(np.isnan(tt.out_prob))
+        assert np.all(tt.kept_ttv)
         np.testing.assert_allclose(planets_out[0].period, PERIOD, rtol=1e-3)
 
     @pytest.mark.parametrize("ntransit", [15, 16])
@@ -519,10 +516,10 @@ class TestSelectFewTransits:
         tt = planets_out[0].transit_times
         if ntransit < 16:
             np.testing.assert_allclose(tt.ttime_mod, ttime_obs, rtol=0, atol=1e-9)
-            assert not np.any(tt.out_flag)
+            assert np.all(tt.kept_ttv)
         else:
-            assert tt.out_flag[7]
-            assert np.sum(tt.out_flag) == 1
+            assert not tt.kept_ttv[7]
+            assert np.sum(~tt.kept_ttv) == 1
 
     @pytest.mark.parametrize("ntransit", [15, 16])
     def test_matern32_needs_16_transits(self, ntransit):
@@ -581,7 +578,7 @@ class TestSelectFewTransits:
         planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
         tt_out = planets_out[0].transit_times
         np.testing.assert_allclose(tt_out.ttime_mod, ttime_obs, rtol=0, atol=1e-9)
-        assert not np.any(tt_out.out_flag)
+        assert np.all(tt_out.kept_ttv)
 
     def test_fewer_than_3_measured_times_raise(self):
         star, planets, lc, _ = _system(ntransit=5, missing=[0, 1, 2])
@@ -617,8 +614,8 @@ class TestSelectMatern32Gate:
         tt = planets_out[0].transit_times
 
         assert "matern32 OMC model dof/N" in caplog.text
-        assert np.flatnonzero(tt.out_flag).tolist() == [9]
-        good = ~tt.out_flag
+        assert np.flatnonzero(~tt.kept_ttv).tolist() == [9]
+        good = tt.kept_ttv
         np.testing.assert_allclose(
             tt.ttime_mod[good], ttime_obs[good], rtol=0, atol=1e-9
         )
@@ -650,9 +647,9 @@ class TestSelectMatern32Gate:
         star, planets, lc, _ = _system(ntransit=24)
         index = np.arange(24)
         ttime_obs = np.full(24, np.nan)
-        error_obs = np.full(24, np.nan)
+        ttime_err = np.full(24, np.nan)
         ttime_obs[measured] = t_meas
-        error_obs[measured] = e_meas
+        ttime_err[measured] = e_meas
         # modeled times of the unmeasured transits set the linear ephemeris
         ttime_mod = ttime_obs.copy()
         ttime_mod[[9, 11, 19, 21]] = [682.185284, 804.452014, 1292.91796, 1415.18586]
@@ -663,7 +660,7 @@ class TestSelectMatern32Gate:
                 "SYN",
                 index,
                 ttime_obs,
-                error_obs=error_obs,
+                ttime_err=ttime_err,
                 ttime_mod=ttime_mod,
             )
         )
@@ -683,7 +680,8 @@ class TestSelectMatern32Gate:
         tt, ttime_obs = self._perform(omc / 1440, np.full(40, 2 / 1440), caplog)
 
         assert "matern32 OMC model;" in caplog.text
-        assert tt.omc_model == "matern32"
+        assert tt.model_name == "matern32"
+        assert 0 < tt.model_dof <= 0.5 * len(tt.index)
         assert np.max(np.abs(tt.ttime_mod - ttime_obs)) > 1 / 1440
 
 
@@ -706,15 +704,16 @@ class TestSelectPhotometricOutliers:
         # the light curve has the transit on the line: the time is flagged and
         # the line restored
         tt, _ = self._perform(dip_shift=0)
-        assert np.flatnonzero(tt.out_flag).tolist() == [5]
+        assert np.flatnonzero(~tt.kept_ttv).tolist() == [5]
         truth = EPOCH + PERIOD * 5 + self.OMC[5]
         assert np.abs(tt.ttime_mod[5] - truth) < 3 * self.ERR[5]
 
     def test_time_with_dip_is_kept(self):
         # the transit really is 120 min late: the measured times are adopted
         tt, ttime_obs = self._perform(dip_shift=120)
-        assert tt.omc_model == "independent"
-        assert not np.any(tt.out_flag)
+        # each adopted time is a free parameter
+        assert (tt.model_name, tt.model_dof) == ("independent", 12)
+        assert np.all(tt.kept_ttv)
         np.testing.assert_allclose(tt.ttime_mod, ttime_obs, rtol=0, atol=1e-9)
 
 
@@ -769,12 +768,9 @@ class TestSelect:
         tt = planets_out[0].transit_times
         good = np.setdiff1d(np.arange(48), outliers)
         assert _rms(tt.ttime_mod[good] - truth[good]) < TIME_ERR
-        assert np.all(tt.out_flag[outliers])
-        assert np.mean(tt.out_flag) < 0.3
-        assert np.isfinite(tt.ttime_mod[20]) and not tt.out_flag[20]
-        measured = np.isfinite(tt.ttime_obs)
-        assert np.all((tt.out_prob[measured] >= 0) & (tt.out_prob[measured] <= 1))
-        assert np.isnan(tt.out_prob[20])
+        assert not np.any(tt.kept_ttv[outliers])
+        assert np.mean(~tt.kept_ttv) < 0.3
+        assert np.isfinite(tt.ttime_mod[20]) and tt.kept_ttv[20]
 
     @staticmethod
     def _contaminated_sinusoid(seed, amp):
@@ -794,7 +790,7 @@ class TestSelect:
 
         star, planets, lc, _ = _system(ntransit=n)
         planets[0].set_transit_times(
-            TransitTimes("Kepler", "SYN", index, linear + omc, error_obs=err)
+            TransitTimes("Kepler", "SYN", index, linear + omc, ttime_err=err)
         )
         tt = planets[0].transit_times
         xtime = tt.linear_ephemeris()
@@ -844,5 +840,5 @@ class TestRegularizeOMCK00137:
             assert np.all(np.isfinite(tt.ttime_mod))
             np.testing.assert_allclose(p_out.period, p.period, rtol=1e-4)
             # regularized times stay within an hour of the measured ones
-            measured = np.isfinite(tt.ttime_obs) & ~tt.out_flag
+            measured = np.isfinite(tt.ttime_obs) & tt.kept_ttv
             assert np.all(np.abs(tt.ttime_mod - tt.ttime_obs)[measured] < 1 / 24)

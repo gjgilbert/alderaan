@@ -15,10 +15,10 @@ FIELDS = {
     "index": (int, "K"),
     "ttime_obs": (float, "D"),
     "ttime_mod": (float, "D"),
-    "error_obs": (float, "D"),
-    "out_prob": (float, "D"),
-    "out_flag": (bool, "L"),
-    "quality": (bool, "L"),
+    "ttime_err": (float, "D"),
+    "phot_coverage": (bool, "L"),
+    "phot_noise": (bool, "L"),
+    "kept_ttv": (bool, "L"),
 }
 
 
@@ -34,23 +34,24 @@ class TransitTimes:
         transit index
     ttime_obs : ndarray
         observed (measured) transit times; NaN where no measurement exists
-    error_obs : ndarray, optional
+    ttime_err : ndarray, optional
         measured transit time uncertainties; NaN where no measurement exists
         (default all NaN)
     ttime_mod : ndarray, optional
         modeled transit times; set equal to ttime_obs if not given
-    out_prob : ndarray, optional
-        outlier probability (RegularizeOMC); NaN if not computed (default all NaN)
-    out_flag : ndarray, optional
-        True for observed transit times flagged as outliers (RegularizeOMC);
-        default all False
-    quality : ndarray, optional
+    phot_coverage, phot_noise : ndarray, optional
         False for transits with poor photometric coverage or high noise
         (FlagBadTransits); they stay in masks and models but are not fit or
         measured; default all True
-    omc_model : str, optional
+    kept_ttv : ndarray, optional
+        False for observed transit times rejected as outliers (RegularizeOMC);
+        default all True
+    model_name : str, optional
         OMC model that set ttime_mod (RegularizeOMC: 'smooth', 'poly_<k>',
         'sinusoid', 'matern32' or 'independent'); None if not regularized
+    model_dof : float, optional
+        degrees of freedom of that model (effective for matern32; the number of
+        kept times for 'independent'); None if not regularized or 'smooth'
 
     Attributes
     ----------
@@ -64,16 +65,18 @@ class TransitTimes:
         target,
         index,
         ttime_obs,
-        error_obs=None,
+        ttime_err=None,
         ttime_mod=None,
-        out_prob=None,
-        out_flag=None,
-        quality=None,
-        omc_model=None,
+        phot_coverage=None,
+        phot_noise=None,
+        kept_ttv=None,
+        model_name=None,
+        model_dof=None,
     ):
         self.mission = mission
         self.target = target
-        self.omc_model = omc_model
+        self.model_name = model_name
+        self.model_dof = model_dof
 
         npts = len(index)
         if npts < 2:
@@ -84,10 +87,14 @@ class TransitTimes:
             "ttime_obs": ttime_obs,
             # copy so ttime_mod never shares memory with ttime_obs
             "ttime_mod": np.copy(ttime_obs) if ttime_mod is None else ttime_mod,
-            "error_obs": np.full(npts, np.nan) if error_obs is None else error_obs,
-            "out_prob": np.full(npts, np.nan) if out_prob is None else out_prob,
-            "out_flag": np.zeros(npts, dtype=bool) if out_flag is None else out_flag,
-            "quality": np.ones(npts, dtype=bool) if quality is None else quality,
+            "ttime_err": np.full(npts, np.nan) if ttime_err is None else ttime_err,
+            "phot_coverage": (
+                np.ones(npts, dtype=bool) if phot_coverage is None else phot_coverage
+            ),
+            "phot_noise": np.ones(npts, dtype=bool)
+            if phot_noise is None
+            else phot_noise,
+            "kept_ttv": np.ones(npts, dtype=bool) if kept_ttv is None else kept_ttv,
         }
         for k, (dtype, _) in FIELDS.items():
             setattr(self, k, np.asarray(arrays[k], dtype=dtype))
@@ -131,8 +138,8 @@ class TransitTimes:
             transit duration T14 (days)
         """
         obs = np.isfinite(self.ttime_obs)
-        if self.omc_model == "independent":
-            return max(duration / 2, 3 * np.median(self.error_obs[obs]))
+        if self.model_name == "independent":
+            return max(duration / 2, 3 * np.median(self.ttime_err[obs]))
         scatter = mad_std(self.ttime_obs[obs] - self.ttime_mod[obs])
         return sigma_cutoff(np.sum(obs)) * scatter
 
@@ -150,10 +157,16 @@ class TransitTimes:
         arrays = {k: getattr(self, k)[use] for k in FIELDS}
         arrays["index"] = arrays["index"] - arrays["index"][0]
         return TransitTimes(
-            self.mission, self.target, **arrays, omc_model=self.omc_model
+            self.mission,
+            self.target,
+            **arrays,
+            model_name=self.model_name,
+            model_dof=self.model_dof,
         )
 
-    def plot_omc(self, show_outliers=False, color="C0", ax=None, fig_path=None):
+    def plot_omc(
+        self, show_outliers=False, color="C0", title=None, ax=None, fig_path=None
+    ):
         """
         Plot observed and modeled O-C (minutes) relative to linear_ephemeris();
         returns the Figure
@@ -161,10 +174,13 @@ class TransitTimes:
         Parameters
         ----------
         show_outliers : bool
-            color observed times by outlier probability and mark flagged times
-            with a red x; default plots only unflagged observed times
+            plot every observed time and mark flagged times with a red x
+            (off-scale ones as red triangles at the edge); default plots only
+            unflagged observed times
         color : str
-            model line color (black when outlier probabilities are shown)
+            model line color
+        title : str, optional
+            axes title
         ax : matplotlib Axes, optional
             draw here; default makes a new figure
         fig_path : str, optional
@@ -178,36 +194,58 @@ class TransitTimes:
         omc_obs = (self.ttime_obs - self.linear_ephemeris()) * 24 * 60
         omc_mod = (self.ttime_mod - self.linear_ephemeris()) * 24 * 60
         obs = np.isfinite(self.ttime_obs)
-        flag = self.out_flag
+        flag = ~self.kept_ttv
         good = obs & ~flag
 
-        line_color = color
-        if show_outliers:
-            prob = self.out_prob[obs]
-            if np.all(np.isnan(prob)):
-                ax.scatter(self.ttime_obs[obs], omc_obs[obs], c="lightgrey")
-            else:
-                ax.scatter(
-                    self.ttime_obs[obs],
-                    omc_obs[obs],
-                    c=prob,
-                    cmap="viridis",
-                    vmin=0,
-                    vmax=1,
-                )
-                line_color = "k"
-            ax.plot(self.ttime_obs[obs & flag], omc_obs[obs & flag], "rx")
-        else:
-            ax.plot(self.ttime_obs[good], omc_obs[good], "o", c="lightgrey")
-        ax.plot(self.ttime_mod, omc_mod, c=line_color, lw=2)
+        # y scale set by the kept times and the model, not by outliers
+        yrange = max(
+            5,
+            1.1 * np.max(np.abs(omc_obs[good]), initial=0),
+            1.1 * np.max(np.abs(omc_mod)),
+        )
+        ax.set_ylim(-yrange, yrange)
 
-        rms = mad_std(omc_obs[good] - omc_mod[good])
+        ax.plot(self.ttime_obs[good], omc_obs[good], "o", c="lightgrey")
+        if show_outliers:
+            on = obs & flag & (np.abs(omc_obs) <= yrange)
+            ax.plot(self.ttime_obs[on], omc_obs[on], "rx")
+            for sign, marker in [(1, "^"), (-1, "v")]:
+                off = obs & flag & (sign * omc_obs > yrange)
+                # on the axis edge, above the corner annotations
+                ax.plot(
+                    self.ttime_obs[off],
+                    np.full(np.sum(off), sign * yrange),
+                    marker,
+                    ls="none",
+                    ms=5,
+                    mfc="none",
+                    mec="r",
+                    mew=0.8,
+                    clip_on=False,
+                    zorder=4,
+                )
+        ax.plot(self.ttime_mod, omc_mod, c=color, lw=2)
+
+        # typical (median) uncertainty, drawn once right of the data
+        t0, t1 = self.ttime_mod[0], self.ttime_mod[-1]
+        span = t1 - t0
+        ax.set_xlim(t0 - 0.02 * span, t1 + 0.08 * span)
+        err = np.median(self.ttime_err[good]) * 24 * 60 if np.any(good) else np.nan
+        if np.isfinite(err):
+            ax.errorbar(t1 + 0.05 * span, 0, yerr=err, fmt="o", c="grey", capsize=3)
+
+        resid = omc_obs[good] - omc_mod[good]
+        rms = mad_std(resid)
         annotate_plot(ax, f"P = {self.period:.2f} d", "upper right")
         annotate_plot(ax, f"residual RMS = {rms:.1f} min", "lower right")
-
-        shown = obs if show_outliers else good
-        yrange = max(5, 1.1 * np.max(np.abs(omc_obs[shown]), initial=0))
-        ax.set_ylim(-yrange, yrange)
+        if self.model_name is not None:
+            annotate_plot(ax, f"model = {self.model_name}", "upper left")
+        if self.model_dof is not None and np.sum(good) > self.model_dof:
+            chi2 = np.sum((resid / (self.ttime_err[good] * 24 * 60)) ** 2)
+            chi2_red = chi2 / (np.sum(good) - self.model_dof)
+            annotate_plot(ax, f"reduced χ² = {chi2_red:.2f}", "lower left")
+        if title is not None:
+            ax.set_title(title)
         label_axes(ax, "Time [BKJD]", "O-C [min]")
         if new_figure:
             ax.figure.tight_layout()
@@ -226,8 +264,10 @@ class TransitTimes:
         hdu = fits.BinTableHDU.from_columns(columns, name=f"TTIMES_{n:02d}")
         hdu.header["MISSION"] = self.mission
         hdu.header["TARGET"] = self.target
-        if self.omc_model is not None:
-            hdu.header["OMCMODEL"] = self.omc_model
+        if self.model_name is not None:
+            hdu.header["OMCMODEL"] = self.model_name
+        if self.model_dof is not None:
+            hdu.header["OMCDOF"] = self.model_dof
         return hdu
 
     @classmethod
@@ -240,5 +280,6 @@ class TransitTimes:
             hdu.header["MISSION"],
             hdu.header["TARGET"],
             **{k: data[k.upper()] for k in FIELDS},
-            omc_model=hdu.header.get("OMCMODEL"),
+            model_name=hdu.header.get("OMCMODEL"),
+            model_dof=hdu.header.get("OMCDOF"),
         )
