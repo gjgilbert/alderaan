@@ -863,7 +863,7 @@ class RegularizeOMC(BaseAlg):
           * matern32 is dropped for the next best model if its inliers scatter
             less than their errors: a GP has nothing to model beyond a trend
           * N < 16: measured times adopted (outlier flags cleared) if they fail a
-            chi-squared test (p < 0.01) against the model, unless (N >= 8) the
+            chi-squared test (p < 0.001) against the model, unless (N >= 8) the
             light curve rejects the times driving the failure; the model is then
             kept with those times flagged. Failing that, polynomials up to
             poly_3 are refit; the best is kept if every time it rejects is wild
@@ -916,9 +916,11 @@ class RegularizeOMC(BaseAlg):
             n,
             model,
             pval,
-            "measured times preferred" if pval < 0.01 else "model kept",
+            "measured times preferred" if pval < 0.001 else "model kept",
         )
-        if pval >= 0.01:
+        # alpha = 0.001: with few transits, errors underestimated by ~1.5x alone
+        # fail alpha = 0.01, and adopting the measured times then fits noise
+        if pval >= 0.001:
             return model, fit
 
         if npts >= 8:
