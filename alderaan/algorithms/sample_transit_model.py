@@ -174,6 +174,9 @@ class SampleTransitModel(BaseAlg):
 
     def perform(self):
         """
+        Sample the photometry of every transit with good photometry (phot_coverage
+        and phot_noise) at ttime_mod, whether or not its time was measured or kept
+
         Returns
         -------
         posteriors : Posteriors

@@ -1,4 +1,4 @@
-"""Profile ``QuickFitTransitShape`` (pass 1) on K00137.
+"""Profile ``QuickFitTransitShape`` (both iterations) on K00137.
 
 Run with ``make profile-quick_fit_transit_shape`` or
 ``python tests/profiling/profile_quick_fit_transit_shape.py``.
@@ -14,7 +14,9 @@ from alderaan.algorithms import QuickFitTransitShape
 
 def run():
     return P.profile_algorithm(
-        QuickFitTransitShape, "QuickFitTransitShape (pass 1)", "quick_fit_transit_shape"
+        QuickFitTransitShape,
+        "QuickFitTransitShape (both iterations)",
+        "quick_fit_transit_shape",
     )
 
 

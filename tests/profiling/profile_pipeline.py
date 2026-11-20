@@ -1,6 +1,6 @@
 """End-to-end profile of ``alderaan.pipeline._run`` on K00137.
 
-Ranks wall-clock by pipeline stage (both passes combined), plus data I/O and
+Ranks wall-clock by pipeline stage (every invocation combined), plus data I/O and
 plots, so the report shows which algorithm dominates a run — the first thing to
 know before optimizing anything. Function-level detail lives in the individual
 ``profile_<algorithm>.py`` harnesses, so there is no line-profiler pass here.

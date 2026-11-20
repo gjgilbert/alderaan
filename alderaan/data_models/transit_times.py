@@ -42,10 +42,11 @@ class TransitTimes:
     phot_coverage, phot_noise : ndarray, optional
         False for transits with poor photometric coverage or high noise
         (FlagBadTransits); they stay in masks and models but are not fit or
-        measured; default all True
+        measured; the only gate on which transits' photometry is fit; default
+        all True
     kept_ttv : ndarray, optional
         False for observed transit times rejected as outliers (RegularizeOMC);
-        default all True
+        affects only the OMC fit; default all True
     model_name : str, optional
         OMC model that set ttime_mod (RegularizeOMC: 'smooth', 'poly_<k>',
         'sinusoid', 'matern32' or 'independent'); None if not regularized

@@ -113,35 +113,29 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
         fig_path=os.path.join(plots_dir, f"{target}_litecurve_raw.png"),
     )
 
+    # starting transit times
     planets, litecurve = RegularizeOMC(star, planets, litecurve).perform(
         method="smooth"
     )
-    for n, p in enumerate(planets):
-        p.transit_times.plot_omc(
-            show_outliers=True,
-            title=f"{target}-{n}",
-            fig_path=os.path.join(plots_dir, f"{target}_omc_initial_{n:02d}.png"),
-        )
 
-    # 1st pass
-    planets, litecurve = ClipOutliers(star, planets, litecurve).perform(
-        method="local_trend"
-    )
-    litecurve.reset(raw_litecurve)  # detrend raw photometry for surviving cadences
-    planets, litecurve = DetrendVisits(star, planets, litecurve).perform(
-        method="wide_mask"
-    )
-    litecurve.plot(
-        mark_times=[p.transit_times.ttime_mod for p in planets],
-        fig_path=os.path.join(plots_dir, f"{target}_litecurve_detrended_pass1.png"),
-    )
-    planets, litecurve = FlagBadTransits(star, planets, litecurve).perform()
-    planets, litecurve = QuickFitTransitShape(star, planets, litecurve).perform()
-    planets, litecurve = QuickFitTransitTimes(star, planets, litecurve).perform()
-    planets, litecurve = FlagBadTransits(star, planets, litecurve).perform()
-    planets, litecurve = RegularizeOMC(star, planets, litecurve).perform(
-        method="select"
-    )
+    # iteration 1 has no fitted transit model yet: clip on a local trend and
+    # detrend with a wide mask; iteration 2 uses iteration 1's model and times
+    for it, (clip, mask) in enumerate(
+        [("local_trend", "wide_mask"), ("transit_model", "tight_mask")]
+    ):
+        logger.info("iteration %d of 2", it + 1)
+        planets, litecurve = ClipOutliers(star, planets, litecurve).perform(method=clip)
+        litecurve.reset(raw_litecurve)  # detrend raw photometry for surviving cadences
+        planets, litecurve = DetrendVisits(star, planets, litecurve).perform(
+            method=mask
+        )
+        # the only photometry flagging; it holds until the next detrend
+        planets, litecurve = FlagBadTransits(star, planets, litecurve).perform()
+        planets, litecurve = QuickFitTransitShape(star, planets, litecurve).perform()
+        planets, litecurve = QuickFitTransitTimes(star, planets, litecurve).perform()
+        planets, litecurve = RegularizeOMC(star, planets, litecurve).perform(
+            method="select"
+        )
     for n, p in enumerate(planets):
         p.transit_times.plot_omc(
             show_outliers=True,
@@ -149,20 +143,16 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
             fig_path=os.path.join(plots_dir, f"{target}_omc_{n:02d}.png"),
         )
 
-    # 2nd pass
-    planets, litecurve = ClipOutliers(star, planets, litecurve).perform(
-        method="transit_model"
-    )
-    litecurve.reset(raw_litecurve)  # detrend raw photometry for surviving cadences
+    # final fit: detrend mask built from the final transit times
+    litecurve.reset(raw_litecurve)
     planets, litecurve = DetrendVisits(star, planets, litecurve).perform(
         method="tight_mask"
     )
     litecurve.to_fits(os.path.join(results_dir, f"{target}_detrended.fits"))
     litecurve.plot(
         mark_times=[p.transit_times.ttime_mod for p in planets],
-        fig_path=os.path.join(plots_dir, f"{target}_litecurve_detrended_pass2.png"),
+        fig_path=os.path.join(plots_dir, f"{target}_litecurve_detrended.png"),
     )
-    planets, litecurve = FlagBadTransits(star, planets, litecurve).perform()
     posteriors = SampleTransitModel(star, planets, litecurve).perform()
 
     # package and save results

@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 class FlagBadTransits(BaseAlg):
     """
     Set photometry flags (TransitTimes.phot_coverage, phot_noise) for transits
-    with poor photometric coverage or high noise; every transit is kept
+    with poor photometric coverage or high noise; every transit is kept. Judged
+    at ttime_mod on the current litecurve: run once after each detrend
 
     Parameters
     ----------
