@@ -23,7 +23,8 @@ class _GPTrendModel:
     GP trend model for one visit, fit to out-of-transit cadences: a per-segment
     mean (baseline x exponential ramp) plus a celerite2 GP shared by all segments
 
-    Parameters form a flat vector of unconstrained values with Normal priors;
+    Parameters form a flat vector of unconstrained values with Normal priors
+    (GP hyperparameters truncated at 4 sd);
     for RotationTerm, mix ~ Uniform(0, 1) is carried as logit(mix)
 
     Parameters
@@ -152,6 +153,12 @@ class _GPTrendModel:
     def logp(self, x):
         """Log posterior (up to a constant) of parameter vector x"""
         p = self.unpack(x)
+        # GP hyperparameter priors are truncated at 4 sd, where celerite2 is finite
+        for name in ("log_sigma", "log_P", "log_Q0", "log_dQ"):
+            if name in self.priors:
+                mu, sd = self.priors[name]
+                if abs(p[name][0] - mu) > 4 * sd:
+                    return -np.inf
         resid = self.flux[self.oot] - self._mean(p, self.oot)
         lp = self._gp(p).log_likelihood(resid)
         for name, (mu, sd) in self.priors.items():

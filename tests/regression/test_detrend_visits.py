@@ -156,6 +156,32 @@ class TestGPTrendModel:
         pred = model.predict(model.x0)
         assert pred.shape == time.shape and np.all(np.isfinite(pred))
 
+    @pytest.mark.parametrize(
+        "name, value",
+        [
+            ("log_Q0", -48.8),  # Q2 rounds to 1/2: celerite2 gives NaN
+            ("log_dQ", 600.0),  # Q1**2 overflows: celerite2 raises OverflowError
+            ("log_sigma", 400.0),  # sigma**2 overflows
+        ],
+    )
+    def test_logp_is_minus_inf_beyond_truncated_prior(self, name, value):
+        time = np.arange(0.0, 20.0, EXPTIME[LC])
+        flux = 1 + NOISE * np.random.default_rng(3).normal(size=time.size)
+        model = _GPTrendModel(
+            time,
+            flux,
+            np.ones(time.size, dtype=bool),
+            np.zeros(time.size, dtype=int),
+            np.array([0.0]),
+            "RotationTerm",
+            True,
+            2.0,
+            1.0,
+        )
+        x = model.x0.copy()
+        x[model.ix[name]] = value
+        assert model.logp(x) == -np.inf
+
 
 class TestOscillationPeriod:
     @staticmethod
