@@ -112,6 +112,18 @@ class TestMakeTransitMask:
         )
         np.testing.assert_array_equal(mask, [True, False])
 
+    def test_buffer_per_planet(self):
+        # planet 0 transits at 7.0, planet 1 at 4.5; buffers 0.2 and 0.6 d give
+        # half widths 0.15 and 0.35 d
+        planets = [_planet(5.0, 2.0, 0.1), _planet(7.0, 4.5, 0.1, ntransit=7)]
+        alg = BaseAlg(_star(), planets, _litecurve())
+        offsets = [0.15 - self.eps, 0.15 + self.eps, 0.35 - self.eps, 0.35 + self.eps]
+        time = np.concatenate([7.0 + np.array(offsets), 4.5 + np.array(offsets)])
+        mask = alg.make_transit_mask(time=time, rel_size=1.0, buffer=[0.2, 0.6])
+        np.testing.assert_array_equal(
+            mask, [True, False, False, False, True, True, True, False]
+        )
+
     def test_centered_on_modeled_transit_times(self):
         # ttime_mod is offset 0.3 d from the linear ephemeris
         alg = self._alg(ttv=0.3)

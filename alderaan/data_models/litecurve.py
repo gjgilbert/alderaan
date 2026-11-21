@@ -207,14 +207,22 @@ class LiteCurve:
         for k in FIELDS:
             setattr(self, k, getattr(self, k)[mask])
 
-    def obsmode_at(self, times):
-        """Observing mode at the cadence nearest each time (ties go earlier)"""
+    def _nearest_cadence(self, times):
+        """Index of the cadence nearest each time (ties go earlier)"""
         if np.any(np.diff(self.time) < 0):
             raise ValueError("litecurve.time must be sorted")
 
         i = np.clip(np.searchsorted(self.time, times), 1, len(self.time) - 1)
         earlier = (times - self.time[i - 1]) <= (self.time[i] - times)
-        return self.obsmode[i - earlier]
+        return i - earlier
+
+    def obsmode_at(self, times):
+        """Observing mode at the cadence nearest each time (ties go earlier)"""
+        return self.obsmode[self._nearest_cadence(times)]
+
+    def visit_at(self, times):
+        """Visit at the cadence nearest each time (ties go earlier)"""
+        return self.visit[self._nearest_cadence(times)]
 
     def reset(self, raw):
         """

@@ -14,8 +14,11 @@ logger = logging.getLogger(__name__)
 
 class FlagBadTransits(BaseAlg):
     """
-    Set transit quality flags (TransitTimes.quality) for transits with poor
-    photometric coverage or high noise; every transit is kept
+    Set photometry flags (TransitTimes.phot_coverage, phot_noise) for transits
+    with poor photometric coverage or high noise; every transit is kept. Judged
+    at ttime_mod on the current litecurve: run once after each detrend. A planet
+    left with < 3 good transits is dropped and its transit windows removed from
+    the litecurve (error if no planet would remain)
 
     Parameters
     ----------
@@ -81,10 +84,9 @@ class FlagBadTransits(BaseAlg):
                 measured = use & np.isfinite(rms)
 
                 # too few transits to estimate the noise spread
-                if np.sum(measured) < 2 or not mad_std(rms[measured]) > 0:
-                    logger.warning(
-                        "planet %d (%s): rms spread undefined from %d transits; "
-                        "noise check skipped",
+                if np.sum(measured) < 8:
+                    logger.info(
+                        "planet %d (%s): %d transits (< 8); noise check skipped",
                         n,
                         om,
                         np.sum(measured),
@@ -107,6 +109,41 @@ class FlagBadTransits(BaseAlg):
                 quality[n][use] &= np.abs(rms[use] - rms_mu) / rms_sd < sigma_cut
 
         return quality
+
+    def _drop_planets_with_few_transits(self):
+        """
+        Drop planets with < 3 good transits (too few for an ephemeris) and remove
+        their transit windows from the litecurve, so they cannot bias the
+        detrending or the other planets; error if no planet would remain
+        """
+        lc = self.litecurve
+        keep_planet = np.ones(self.npl, dtype=bool)
+        keep_cadence = np.ones(len(lc.time), dtype=bool)
+        for n, p in enumerate(self.planets):
+            tt = p.transit_times
+            ngood = np.sum(tt.phot_coverage & tt.phot_noise)
+            if ngood >= 3:
+                continue
+            if self.npl == 1:
+                raise ValueError(f"planet {n}: {ngood} good transits (< 3)")
+            logger.warning(
+                "planet %d: %d good transits (< 3); dropped and its transits "
+                "removed from the litecurve",
+                n,
+                ngood,
+            )
+            keep_planet[n] = False
+            # DetrendVisits wide_mask window
+            exptime = np.array([EXPTIME[om] for om in lc.obsmode_at(tt.ttime_mod)])
+            half_width = 0.5 * np.maximum(3 * p.duration, 2 * (exptime + 1 / 24))
+            for tc, hw in zip(tt.ttime_mod, half_width):
+                keep_cadence &= np.abs(lc.time - tc) >= hw
+
+        if not np.any(keep_planet):
+            raise ValueError("every planet has < 3 good transits")
+        lc.select(keep_cadence)
+
+        return [p for p, k in zip(self.planets, keep_planet) if k], lc
 
     def perform(self):
         """
@@ -145,7 +182,20 @@ class FlagBadTransits(BaseAlg):
             # overlap checks, and the transit model, but are not fit or measured
             tt = p.transit_times
             fields = {k: getattr(tt, k) for k in FIELDS}
-            fields["quality"] = coverage[n] & good_rms[n]
-            p.set_transit_times(TransitTimes(tt.mission, tt.target, **fields))
+            fields["phot_coverage"] = coverage[n]
+            fields["phot_noise"] = good_rms[n]
+            p.set_transit_times(
+                TransitTimes(
+                    tt.mission,
+                    tt.target,
+                    **fields,
+                    model_name=tt.model_name,
+                    model_dof=tt.model_dof,
+                    ttv_scatter=tt.ttv_scatter,
+                )
+            )
 
-        return planets, self.litecurve
+        # drop planets left with too few good transits for an ephemeris
+        planets, litecurve = self._drop_planets_with_few_transits()
+
+        return planets, litecurve

@@ -73,10 +73,10 @@ class TestMatchHolczer16:
 
         short, long = planets[0].transit_times, planets[1].transit_times
         npt.assert_allclose(short.ttime_obs, 101.0 + 4.0 * np.arange(25))
-        npt.assert_allclose(short.error_obs, 2e-3)
+        npt.assert_allclose(short.ttime_err, 2e-3)
 
         assert long.ttime_obs.size == 11
-        assert np.isnan(long.ttime_obs[2]) and np.isnan(long.error_obs[2])
+        assert np.isnan(long.ttime_obs[2]) and np.isnan(long.ttime_err[2])
         npt.assert_allclose(long.ttime_obs[idx_a], 103.0 + 9.0 * idx_a + 0.01)
         # unmeasured epochs keep the linear ephemeris prediction
         npt.assert_allclose(long.ttime_mod[2], 103.01 + 9.0 * 2)

@@ -66,7 +66,7 @@ class BaseAlg:
         self.star = deepcopy(star)
 
     def make_transit_mask(
-        self, rel_size=0.0, abs_size=0.0, buffer=0.0, time=None, quality_only=False
+        self, rel_size=0.0, abs_size=0.0, buffer=0.0, time=None, phot_only=False
     ):
         """
         Mask cadences near a transit of any planet
@@ -79,12 +79,14 @@ class BaseAlg:
             full width of masked region in units of transit duration (T14)
         abs_size : float
             floor on rel_size * T14 in days, so short transits are not under-masked
-        buffer : float
-            extra full width in days added after the floor (e.g. cadence + TTVs)
+        buffer : float or array-like
+            extra full width in days added after the floor (e.g. cadence + TTVs);
+            one value for all planets or one per planet
         time : ndarray
             cadence times to mask (default = self.litecurve.time)
-        quality_only : bool
-            mask only transits with TransitTimes.quality True, e.g. to select
+        phot_only : bool
+            mask only transits with good photometry (TransitTimes.phot_coverage
+            and phot_noise), e.g. to select
             the photometry a fit uses (default False: every transit)
 
         Returns
@@ -99,11 +101,13 @@ class BaseAlg:
             time = self.litecurve.time
 
         mask = np.zeros((self.npl, len(time)), dtype=int)
+        buffer = np.broadcast_to(buffer, self.npl)
 
         for n, p in enumerate(self.planets):
-            half_width = 0.5 * (np.max([rel_size * p.duration, abs_size]) + buffer)
+            half_width = 0.5 * (np.max([rel_size * p.duration, abs_size]) + buffer[n])
             tt = p.transit_times
-            ttime = tt.ttime_mod[tt.quality] if quality_only else tt.ttime_mod
+            phot = tt.phot_coverage & tt.phot_noise
+            ttime = tt.ttime_mod[phot] if phot_only else tt.ttime_mod
             for tc in ttime:
                 mask[n] += np.abs(time - tc) < half_width
 

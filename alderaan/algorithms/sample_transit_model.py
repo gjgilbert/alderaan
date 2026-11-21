@@ -174,15 +174,16 @@ class SampleTransitModel(BaseAlg):
 
     def perform(self):
         """
+        Sample the photometry of every transit with good photometry (phot_coverage
+        and phot_noise) at ttime_mod, whether or not its time was measured or kept
+
         Returns
         -------
         posteriors : Posteriors
         """
         tm = TransitModel(self.star, self.planets, self.litecurve)
         # full width = max(3 x T14, 2 hours)
-        tm.trim(
-            self.make_transit_mask(rel_size=3.0, abs_size=2 / 24, quality_only=True)
-        )
+        tm.trim(self.make_transit_mask(rel_size=3.0, abs_size=2 / 24, phot_only=True))
 
         for obsmode in tm.unique_obsmodes:
             logger.info("supersample factor (%s): %d", obsmode, tm.supersample[obsmode])

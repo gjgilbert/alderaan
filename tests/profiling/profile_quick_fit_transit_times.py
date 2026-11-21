@@ -1,4 +1,4 @@
-"""Profile ``QuickFitTransitTimes`` (pass 1) on K00137.
+"""Profile ``QuickFitTransitTimes`` on K00137.
 
 Run with ``make profile-quick_fit_transit_times`` or
 ``python tests/profiling/profile_quick_fit_transit_times.py``.
@@ -14,7 +14,9 @@ from alderaan.algorithms import QuickFitTransitTimes
 
 def run():
     return P.profile_algorithm(
-        QuickFitTransitTimes, "QuickFitTransitTimes (pass 1)", "quick_fit_transit_times"
+        QuickFitTransitTimes,
+        "QuickFitTransitTimes",
+        "quick_fit_transit_times",
     )
 
 

@@ -3,7 +3,6 @@
 import numpy as np
 import pytest
 from astropy.io import fits
-from astropy.stats import mad_std
 from numpy.testing import assert_allclose, assert_array_equal
 
 from alderaan.data_models import TransitTimes
@@ -13,7 +12,7 @@ PERIOD = 3.5
 EPOCH = 100.2
 
 
-def _tt(n=20, noise=0.002, seed=0):
+def _tt(n=20, noise=0.002, seed=0, model_name=None, model_dof=None, ttv_scatter=None):
     """Transit times on a linear ephemeris, observed with Gaussian noise"""
     rng = np.random.default_rng(seed)
     index = np.arange(n)
@@ -24,8 +23,11 @@ def _tt(n=20, noise=0.002, seed=0):
         "K00137",
         index,
         ttime_obs,
-        error_obs=np.full(n, noise),
+        ttime_err=np.full(n, noise),
         ttime_mod=ttime_mod,
+        model_name=model_name,
+        model_dof=model_dof,
+        ttv_scatter=ttv_scatter,
     )
 
 
@@ -36,10 +38,9 @@ class TestConstructor:
         tt = TransitTimes("Kepler", "K00137", index, obs)
         assert_array_equal(tt.ttime_mod, tt.ttime_obs)
         assert not np.shares_memory(tt.ttime_mod, tt.ttime_obs)
-        assert np.all(np.isnan(tt.error_obs))
-        assert np.all(np.isnan(tt.out_prob))
-        assert tt.out_flag.dtype == bool and not tt.out_flag.any()
-        assert tt.quality.dtype == bool and tt.quality.all()
+        assert np.all(np.isnan(tt.ttime_err))
+        for k in ["phot_coverage", "phot_noise", "kept_ttv"]:
+            assert getattr(tt, k).dtype == bool and getattr(tt, k).all()
 
     def test_ephemeris_is_least_squares_fit_to_ttime_mod(self):
         rng = np.random.default_rng(1)
@@ -72,7 +73,7 @@ class TestConstructor:
     def test_rejects_unequal_lengths(self):
         with pytest.raises(ValueError, match="equal lengths"):
             TransitTimes(
-                "Kepler", "K00137", np.arange(3), np.zeros(3), error_obs=np.zeros(2)
+                "Kepler", "K00137", np.arange(3), np.zeros(3), ttime_err=np.zeros(2)
             )
 
 
@@ -92,28 +93,32 @@ class TestFromLinearEphemeris:
         assert_allclose(cycles, np.round(cycles), rtol=0, atol=1e-9)
 
 
-class TestTTVScatter:
-    def test_scatter_ignores_missing_transits(self):
-        tt = _tt()
-        obs = tt.ttime_obs.copy()
-        obs[[3, 7]] = np.nan
-        tt_missing = TransitTimes(
-            "Kepler", "K00137", tt.index, obs, ttime_mod=tt.ttime_mod
-        )
-        expected = mad_std(np.delete(tt.ttime_obs - tt.ttime_mod, [3, 7]))
-        assert np.isclose(tt_missing.ttv_scatter(), expected)
-        assert np.isclose(tt_missing.ttv_buffer(), sigma_cutoff(18) * expected)
+class TestTTVBuffer:
+    def test_buffer_scales_scatter_by_kept_measured_count(self):
+        tt = _tt(ttv_scatter=0.003)
+        tt.ttime_obs[[3, 7]] = np.nan
+        tt.kept_ttv[11] = False
+        assert np.isclose(tt.ttv_buffer(), sigma_cutoff(17) * 0.003)
+
+    def test_buffer_requires_scatter(self):
+        with pytest.raises(ValueError, match="ttv_scatter"):
+            _tt().ttv_buffer()
 
 
 class TestClip:
     def test_clip_rezeroes_index_and_ephemeris(self):
-        tt = _tt()
+        tt = _tt(model_name="poly_1", model_dof=2.0, ttv_scatter=0.003)
         t_min, t_max = tt.ttime_mod[5], tt.ttime_mod[12]
         clipped = tt.clip(t_min, t_max)
         assert_array_equal(clipped.index, np.arange(8))
         assert_array_equal(clipped.ttime_mod, tt.ttime_mod[5:13])
         assert np.isclose(clipped.epoch, tt.ttime_mod[5])
         assert np.isclose(clipped.period, PERIOD)
+        assert (clipped.model_name, clipped.model_dof, clipped.ttv_scatter) == (
+            "poly_1",
+            2.0,
+            0.003,
+        )
 
     def test_clip_requires_two_transits(self):
         tt = _tt()
@@ -122,25 +127,36 @@ class TestClip:
 
 
 class TestFitsTable:
-    def test_hdu_round_trip(self, tmp_path):
-        tt = _tt()
+    @pytest.mark.parametrize(
+        "model_name, model_dof, ttv_scatter",
+        [(None, None, None), ("matern32", 7.5, 0.003)],
+    )
+    def test_hdu_round_trip(self, tmp_path, model_name, model_dof, ttv_scatter):
+        tt = _tt(model_name=model_name, model_dof=model_dof, ttv_scatter=ttv_scatter)
         tt.ttime_obs[4] = np.nan
-        tt.out_prob[:] = np.linspace(0, 1, len(tt.index))
-        tt.out_flag[[2, 9]] = True
+        tt.kept_ttv[[2, 9]] = False
+        tt.phot_noise[5] = False
         path = tmp_path / "tt.fits"
         fits.HDUList([fits.PrimaryHDU(), tt._to_hdu(3)]).writeto(path)
 
         with fits.open(path) as hdul:
             out = TransitTimes._from_hdu(hdul["TTIMES_03"])
 
-        assert (out.mission, out.target) == (tt.mission, tt.target)
+        assert (
+            out.mission,
+            out.target,
+            out.model_name,
+            out.model_dof,
+            out.ttv_scatter,
+        ) == (tt.mission, tt.target, model_name, model_dof, ttv_scatter)
         for k in [
             "index",
             "ttime_obs",
             "ttime_mod",
-            "error_obs",
-            "out_prob",
-            "out_flag",
+            "ttime_err",
+            "phot_coverage",
+            "phot_noise",
+            "kept_ttv",
         ]:
             assert_array_equal(getattr(out, k), getattr(tt, k))
             assert getattr(out, k).dtype == getattr(tt, k).dtype
