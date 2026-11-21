@@ -1092,7 +1092,7 @@ class RegularizeOMC(BaseAlg):
         for n, tt in enumerate(tts):
             if method == "smooth":
                 label, inlier, dof = "smooth", unclipped[n], None
-                ttime_mod = tlin[n] + self._smooth(tt.index, omc[n], inlier)
+                pred = self._smooth(tt.index, omc[n], inlier)
 
             elif method == "select":
                 label, fit = self._vet(
@@ -1107,12 +1107,14 @@ class RegularizeOMC(BaseAlg):
                     period[n],
                 )
                 inlier, dof = fit["inlier"], float(fit["dof"])
-                # adopted measured times; the GP fills the rest
                 pred = fit["pred"].copy()
-                if label == "independent":
-                    pred[inlier] = omc[n][inlier]
-                    dof = float(np.sum(inlier))
-                ttime_mod = tlin[n] + pred
+
+            # independent: scatter about the GP, before the measured times replace it
+            ttv_scatter = mad_std(omc[n][inlier] - pred[inlier])
+            if label == "independent":
+                # adopted measured times; the GP fills the rest
+                pred[inlier] = omc[n][inlier]
+                dof = float(np.sum(inlier))
 
             transit_times = TransitTimes(
                 tt.mission,
@@ -1120,12 +1122,13 @@ class RegularizeOMC(BaseAlg):
                 tt.index,
                 ttime_obs=np.where(measured[n], tt.ttime_obs, np.nan),
                 ttime_err=np.where(measured[n], tt.ttime_err, np.nan),
-                ttime_mod=ttime_mod,
+                ttime_mod=tlin[n] + pred,
                 phot_coverage=tt.phot_coverage,
                 phot_noise=tt.phot_noise,
                 kept_ttv=~(measured[n] & ~inlier),
                 model_name=label,
                 model_dof=dof,
+                ttv_scatter=ttv_scatter,
             )
             regularized.append((label, inlier, transit_times))
 
@@ -1147,7 +1150,7 @@ class RegularizeOMC(BaseAlg):
                 np.sum(unclipped[n] & ~inlier),
                 old_period,
                 p.period,
-                transit_times.ttv_buffer(p.duration) * 1440,
+                transit_times.ttv_buffer() * 1440,
             )
 
         return self.planets, self.litecurve

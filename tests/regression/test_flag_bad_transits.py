@@ -59,11 +59,12 @@ class TestCoverage:
                 tt.ttime_obs,
                 model_name="poly_1",
                 model_dof=2.0,
+                ttv_scatter=0.003,
             )
         )
         planets_out, _ = FlagBadTransits(star, planets, lc).perform()
         tt = planets_out[0].transit_times
-        assert (tt.model_name, tt.model_dof) == ("poly_1", 2.0)
+        assert (tt.model_name, tt.model_dof, tt.ttv_scatter) == ("poly_1", 2.0, 0.003)
 
     def test_keeps_all_well_covered_transits(self):
         star, planets, lc = _system()

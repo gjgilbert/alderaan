@@ -3,7 +3,6 @@
 import numpy as np
 import pytest
 from astropy.io import fits
-from astropy.stats import mad_std
 from numpy.testing import assert_allclose, assert_array_equal
 
 from alderaan.data_models import TransitTimes
@@ -13,7 +12,7 @@ PERIOD = 3.5
 EPOCH = 100.2
 
 
-def _tt(n=20, noise=0.002, seed=0, model_name=None, model_dof=None):
+def _tt(n=20, noise=0.002, seed=0, model_name=None, model_dof=None, ttv_scatter=None):
     """Transit times on a linear ephemeris, observed with Gaussian noise"""
     rng = np.random.default_rng(seed)
     index = np.arange(n)
@@ -28,6 +27,7 @@ def _tt(n=20, noise=0.002, seed=0, model_name=None, model_dof=None):
         ttime_mod=ttime_mod,
         model_name=model_name,
         model_dof=model_dof,
+        ttv_scatter=ttv_scatter,
     )
 
 
@@ -94,41 +94,31 @@ class TestFromLinearEphemeris:
 
 
 class TestTTVBuffer:
-    def test_buffer_ignores_missing_transits(self):
-        tt = _tt()
-        obs = tt.ttime_obs.copy()
-        obs[[3, 7]] = np.nan
-        tt_missing = TransitTimes(
-            "Kepler", "K00137", tt.index, obs, ttime_mod=tt.ttime_mod
-        )
-        expected = mad_std(np.delete(tt.ttime_obs - tt.ttime_mod, [3, 7]))
-        assert np.isclose(tt_missing.ttv_buffer(0.1), sigma_cutoff(18) * expected)
+    def test_buffer_scales_scatter_by_kept_measured_count(self):
+        tt = _tt(ttv_scatter=0.003)
+        tt.ttime_obs[[3, 7]] = np.nan
+        tt.kept_ttv[11] = False
+        assert np.isclose(tt.ttv_buffer(), sigma_cutoff(17) * 0.003)
 
-    @pytest.mark.parametrize("duration, expected", [(0.1, 0.05), (0.002, 0.006)])
-    def test_independent_buffer(self, duration, expected):
-        # ttime_mod = ttime_obs: max(T14 / 2, 3 x median timing error = 0.006 d)
-        tt = _tt()
-        tt = TransitTimes(
-            "Kepler",
-            "K00137",
-            tt.index,
-            tt.ttime_obs,
-            ttime_err=tt.ttime_err,
-            model_name="independent",
-        )
-        assert np.isclose(tt.ttv_buffer(duration), expected)
+    def test_buffer_requires_scatter(self):
+        with pytest.raises(ValueError, match="ttv_scatter"):
+            _tt().ttv_buffer()
 
 
 class TestClip:
     def test_clip_rezeroes_index_and_ephemeris(self):
-        tt = _tt(model_name="poly_1", model_dof=2.0)
+        tt = _tt(model_name="poly_1", model_dof=2.0, ttv_scatter=0.003)
         t_min, t_max = tt.ttime_mod[5], tt.ttime_mod[12]
         clipped = tt.clip(t_min, t_max)
         assert_array_equal(clipped.index, np.arange(8))
         assert_array_equal(clipped.ttime_mod, tt.ttime_mod[5:13])
         assert np.isclose(clipped.epoch, tt.ttime_mod[5])
         assert np.isclose(clipped.period, PERIOD)
-        assert (clipped.model_name, clipped.model_dof) == ("poly_1", 2.0)
+        assert (clipped.model_name, clipped.model_dof, clipped.ttv_scatter) == (
+            "poly_1",
+            2.0,
+            0.003,
+        )
 
     def test_clip_requires_two_transits(self):
         tt = _tt()
@@ -137,9 +127,12 @@ class TestClip:
 
 
 class TestFitsTable:
-    @pytest.mark.parametrize("model_name, model_dof", [(None, None), ("matern32", 7.5)])
-    def test_hdu_round_trip(self, tmp_path, model_name, model_dof):
-        tt = _tt(model_name=model_name, model_dof=model_dof)
+    @pytest.mark.parametrize(
+        "model_name, model_dof, ttv_scatter",
+        [(None, None, None), ("matern32", 7.5, 0.003)],
+    )
+    def test_hdu_round_trip(self, tmp_path, model_name, model_dof, ttv_scatter):
+        tt = _tt(model_name=model_name, model_dof=model_dof, ttv_scatter=ttv_scatter)
         tt.ttime_obs[4] = np.nan
         tt.kept_ttv[[2, 9]] = False
         tt.phot_noise[5] = False
@@ -149,12 +142,13 @@ class TestFitsTable:
         with fits.open(path) as hdul:
             out = TransitTimes._from_hdu(hdul["TTIMES_03"])
 
-        assert (out.mission, out.target, out.model_name, out.model_dof) == (
-            tt.mission,
-            tt.target,
-            model_name,
-            model_dof,
-        )
+        assert (
+            out.mission,
+            out.target,
+            out.model_name,
+            out.model_dof,
+            out.ttv_scatter,
+        ) == (tt.mission, tt.target, model_name, model_dof, ttv_scatter)
         for k in [
             "index",
             "ttime_obs",

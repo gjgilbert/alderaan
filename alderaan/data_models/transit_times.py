@@ -53,6 +53,10 @@ class TransitTimes:
     model_dof : float, optional
         degrees of freedom of that model (effective for matern32; the number of
         kept times for 'independent'); None if not regularized or 'smooth'
+    ttv_scatter : float, optional
+        robust scatter (mad_std, days) of kept observed times about the OMC
+        model (for 'independent', the matern32 GP that fills unmeasured epochs);
+        set by RegularizeOMC; None if not regularized
 
     Attributes
     ----------
@@ -73,11 +77,13 @@ class TransitTimes:
         kept_ttv=None,
         model_name=None,
         model_dof=None,
+        ttv_scatter=None,
     ):
         self.mission = mission
         self.target = target
         self.model_name = model_name
         self.model_dof = model_dof
+        self.ttv_scatter = ttv_scatter
 
         npts = len(index)
         if npts < 2:
@@ -126,23 +132,15 @@ class TransitTimes:
     def linear_ephemeris(self):
         return self.epoch + self.period * self.index
 
-    def ttv_buffer(self, duration):
+    def ttv_buffer(self):
         """
-        Robust scatter (mad_std) of observed about modeled transit times, scaled
-        so not even one normal outlier is expected. Independent times have no
-        scatter (ttime_mod = ttime_obs): max(duration / 2, 3 x median timing
-        error)
-
-        Parameters
-        ----------
-        duration : float
-            transit duration T14 (days)
+        ttv_scatter scaled so not even one normal outlier is expected among the
+        kept observed times; the scatter already includes the timing errors
         """
-        obs = np.isfinite(self.ttime_obs)
-        if self.model_name == "independent":
-            return max(duration / 2, 3 * np.median(self.ttime_err[obs]))
-        scatter = mad_std(self.ttime_obs[obs] - self.ttime_mod[obs])
-        return sigma_cutoff(np.sum(obs)) * scatter
+        if self.ttv_scatter is None:
+            raise ValueError("ttv_scatter not set; regularize the transit times first")
+        kept = self.kept_ttv & np.isfinite(self.ttime_obs)
+        return sigma_cutoff(np.sum(kept)) * self.ttv_scatter
 
     def clip(self, t_min, t_max):
         """
@@ -163,6 +161,7 @@ class TransitTimes:
             **arrays,
             model_name=self.model_name,
             model_dof=self.model_dof,
+            ttv_scatter=self.ttv_scatter,
         )
 
     def plot_omc(
@@ -269,6 +268,8 @@ class TransitTimes:
             hdu.header["OMCMODEL"] = self.model_name
         if self.model_dof is not None:
             hdu.header["OMCDOF"] = self.model_dof
+        if self.ttv_scatter is not None:
+            hdu.header["TTVSCAT"] = self.ttv_scatter
         return hdu
 
     @classmethod
@@ -283,4 +284,5 @@ class TransitTimes:
             **{k: data[k.upper()] for k in FIELDS},
             model_name=hdu.header.get("OMCMODEL"),
             model_dof=hdu.header.get("OMCDOF"),
+            ttv_scatter=hdu.header.get("TTVSCAT"),
         )

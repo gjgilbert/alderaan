@@ -4,6 +4,7 @@ import logging
 
 import numpy as np
 import pytest
+from astropy.stats import mad_std
 
 from alderaan.algorithms import RegularizeOMC
 from alderaan.constants import EXPTIME
@@ -735,6 +736,8 @@ class TestSelectUnmeasuredTransits:
         parabola = truth - np.polyval(np.polyfit(x, truth, 1), x)
         assert np.abs(omc_mod[11] - parabola[11]) < 1 / 1440
         assert np.abs(omc_mod[11] - 0.5 * (omc_mod[10] + omc_mod[12])) > 5 / 1440
+        kept = tt.kept_ttv & np.isfinite(tt.ttime_obs)
+        assert np.isclose(tt.ttv_scatter, mad_std((tt.ttime_obs - tt.ttime_mod)[kept]))
 
     def test_independent_times_filled_by_gp(self):
         # 5 transits of a TTV a line can't fit (K01783.02), transit 3
@@ -756,6 +759,10 @@ class TestSelectUnmeasuredTransits:
         np.testing.assert_allclose(
             tt.ttime_mod[3], tlin[3] + gp["pred"][3], rtol=0, atol=1e-9
         )
+        # scatter about the GP, not about ttime_mod (= the measured times)
+        resid = (ttime_obs - tlin - gp["pred"])[measured]
+        assert tt.ttv_scatter > 0
+        assert np.isclose(tt.ttv_scatter, mad_std(resid), rtol=0, atol=1e-9)
 
 
 @pytest.mark.slow

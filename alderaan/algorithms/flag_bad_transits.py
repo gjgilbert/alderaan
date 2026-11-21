@@ -154,6 +154,7 @@ class FlagBadTransits(BaseAlg):
                     **fields,
                     model_name=tt.model_name,
                     model_dof=tt.model_dof,
+                    ttv_scatter=tt.ttv_scatter,
                 )
             )
 
