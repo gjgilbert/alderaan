@@ -486,6 +486,59 @@ class TestChi2Pvalue:
         assert p >= 0.01
 
 
+class TestLassoPolyModel:
+    def test_recovers_quartic_ttv(self):
+        # 60 transits, 2 min errors, a quartic OMC poly_3 cannot follow
+        x = np.linspace(-1, 1, 60)
+        truth = 30 * (x**4 - x**2) / 1440
+        yerr = np.full(60, 2 / 1440)
+        yobs = truth + np.random.default_rng(4).normal(0, 2 / 1440, 60)
+        fit = RegularizeOMC._lasso_poly_model(x, yobs, yerr, np.ones(60, bool), 5)
+        assert _rms(fit["pred"] - truth) < 1 / 1440
+        assert fit["dof"] <= 6
+
+    def test_white_noise_shrinks_to_zero(self):
+        yerr = np.full(60, 2 / 1440)
+        yobs = np.random.default_rng(4).normal(0, 2 / 1440, 60)
+        x = np.arange(60.0)
+        fit = RegularizeOMC._lasso_poly_model(x, yobs, yerr, np.ones(60, bool), 5)
+        assert fit["dof"] <= 1
+
+
+class TestLassoUpgrade:
+    @staticmethod
+    def _upgrade(omc, err, order):
+        """_lasso_upgrade of a poly_<order> fit to every transit"""
+        star, planets, lc = _system_with_omc(omc, err)
+        tlin = planets[0].transit_times.linear_ephemeris()
+        mask = np.ones(len(omc), bool)
+        fit = {**RegularizeOMC._poly_model(tlin, omc, err, mask, order), "inlier": mask}
+        alg = RegularizeOMC(star, planets, lc)
+        return alg._lasso_upgrade(0, tlin, omc, err, f"poly_{order}", fit)
+
+    def test_misfit_smooth_ttv_upgraded(self):
+        # 60 transits, 2 min errors, a 60 min quartic OMC: poly_2 fails chi2
+        x = np.linspace(-1, 1, 60)
+        omc = (60 * (x**4 - x**2) + np.random.default_rng(5).normal(0, 2, 60)) / 1440
+        err = np.full(60, 2 / 1440)
+        label, fit = self._upgrade(omc, err, 2)
+        assert label in ("lasso_4", "lasso_5")
+        assert (
+            RegularizeOMC._chi2_pvalue(omc, err, fit["pred"], fit["inlier"], 6) > 0.001
+        )
+
+    def test_model_passing_chi2_kept(self):
+        omc = np.random.default_rng(5).normal(0, 2, 60) / 1440
+        label, _ = self._upgrade(omc, np.full(60, 2 / 1440), 1)
+        assert label == "poly_1"
+
+    def test_excess_white_scatter_kept(self):
+        # scatter 3x the errors fails chi2, but no shape explains it
+        omc = np.random.default_rng(5).normal(0, 6, 60) / 1440
+        label, _ = self._upgrade(omc, np.full(60, 2 / 1440), 1)
+        assert label == "poly_1"
+
+
 class TestSelectFewTransits:
     def test_ttv_adopts_measured_times(self):
         # 5 transits of a TTV a line can't fit (K01783.02)

@@ -124,6 +124,47 @@ class RegularizeOMC(BaseAlg):
         return {"pred": X @ C, "dof": polyorder + 1, "leverage": leverage}
 
     @staticmethod
+    def _lasso_poly_model(xtime, yobs, yerr, mask, polyorder):
+        """
+        Fit TTV observed-minus-calculated data with a lasso polynomial: an L1
+        penalty on every coefficient on top of _poly_model's Normal(0, 10) prior.
+        The penalty minimizes BIC, with dof = number of nonzero coefficients
+        (Zou et al. 2007)
+
+        Returns
+        -------
+        fit : dict
+            'pred' at all xtime; 'dof'
+        """
+        # Legendre basis: orthogonal columns keep coordinate descent fast
+        x = legendre_p1(xtime, (xtime.min(), xtime.max()))
+        X = np.polynomial.legendre.legvander(x, polyorder)
+        sw = 1 / yerr[mask]
+        A, y = X[mask] * sw[:, None], yobs[mask] * sw
+        G = A.T @ A + np.eye(polyorder + 1) / 10**2
+        c = A.T @ y
+
+        best = None
+        coef = np.zeros(polyorder + 1)
+        # warm-started path down from the penalty that zeroes every coefficient
+        for lam in np.max(np.abs(c)) * np.logspace(0, -6, 60):
+            for _ in range(20000):
+                step = 0.0
+                for j in range(polyorder + 1):
+                    rho = c[j] - G[j] @ coef + G[j, j] * coef[j]
+                    new = np.sign(rho) * max(abs(rho) - lam, 0) / G[j, j]
+                    step = max(step, abs(new - coef[j]))
+                    coef[j] = new
+                if step < 1e-10 * (1 + np.max(np.abs(coef))):
+                    break
+            dof = int(np.sum(coef != 0))
+            bic = np.sum((y - A @ coef) ** 2) + dof * np.log(np.sum(mask))
+            if best is None or bic < best[0]:
+                best = (bic, X @ coef, dof)
+
+        return {"pred": best[1], "dof": best[2]}
+
+    @staticmethod
     def _sin_model(xtime, yobs, yerr, mask, ttv_period):
         """
         Fit TTV observed-minus-calculated data with a line plus a single-frequency
@@ -990,6 +1031,60 @@ class RegularizeOMC(BaseAlg):
         gp = self._fit("matern32", tlin, omc, err, measured)
         return "independent", {**gp, "inlier": measured}
 
+    def _lasso_upgrade(self, n, tlin, omc, err, label, fit):
+        """
+        Replace planet n's model (not 'independent') with a lasso polynomial of
+        order 4 or 5 (_lasso_poly_model) if its kept times fail a chi-squared
+        test (p < 0.001) and the lasso fit beats it in an F-test (p < 0.001; the
+        order with the smaller p). The F-test judges the chi2 gain against the
+        residual scatter, not the timing errors, which the failed test shows are
+        unreliable. Fit on the kept times; outlier flags are unchanged
+
+        Returns
+        -------
+        label : str
+        fit : dict
+            'pred', 'dof', 'inlier'
+        """
+        if label == "independent":
+            return label, fit
+
+        inlier = fit["inlier"]
+        npts = np.sum(inlier)
+        pval = self._chi2_pvalue(omc, err, fit["pred"], inlier, fit["dof"])
+        if pval >= 0.001:
+            return label, fit
+
+        def chi2(pred):
+            return np.sum(((omc - pred)[inlier] / err[inlier]) ** 2)
+
+        best_p, best_label, best_fit = 1.0, None, None
+        for k in (4, 5):
+            lasso = self._lasso_poly_model(tlin, omc, err, inlier, k)
+            # lasso dof can fall below the model's; it is still the larger model
+            ddof = max(lasso["dof"] - fit["dof"], 1)
+            resid_dof = max(npts - lasso["dof"], 1)
+            F = ((chi2(fit["pred"]) - chi2(lasso["pred"])) / ddof) / (
+                chi2(lasso["pred"]) / resid_dof
+            )
+            p = stats.f.sf(F, ddof, resid_dof)
+            if p < best_p:
+                best_p, best_label, best_fit = p, f"lasso_{k}", lasso
+
+        logger.info(
+            "planet %d: %s OMC model chi2 test p = %.2g; "
+            "best lasso F-test p = %.2g; %s",
+            n,
+            label,
+            pval,
+            best_p,
+            f"{best_label} selected" if best_p < 0.001 else "model kept",
+        )
+        if best_p >= 0.001:
+            return label, fit
+
+        return best_label, {**best_fit, "inlier": inlier}
+
     # --- entry point --------------------------------------------------------
 
     def perform(self, method, check_periodic=True):
@@ -1001,9 +1096,10 @@ class RegularizeOMC(BaseAlg):
             'select' : offer candidate models (_candidates), fit each with outlier
                        rejection (_robust_fit), select by AIC/BIC (_compare,
                        _recheck_sinusoid), then keep the model or adopt the
-                       measured times (_vet). _vet's final fit gives every
-                       transit time; adopted measured times are filled by a
-                       matern32 GP
+                       measured times (_vet); a model whose kept times fail a
+                       chi2 test may be replaced by a lasso polynomial
+                       (_lasso_upgrade). The final fit gives every transit
+                       time; adopted measured times are filled by a matern32 GP
         check_periodic : bool
             search for periodic TTV signals before model selection, and again
             after outlier rejection ('select' only)
@@ -1106,6 +1202,7 @@ class RegularizeOMC(BaseAlg):
                     model[n],
                     period[n],
                 )
+                label, fit = self._lasso_upgrade(n, tlin[n], omc[n], err[n], label, fit)
                 inlier, dof = fit["inlier"], float(fit["dof"])
                 pred = fit["pred"].copy()
 

@@ -49,10 +49,12 @@ class TransitTimes:
         affects only the OMC fit; default all True
     model_name : str, optional
         OMC model that set ttime_mod (RegularizeOMC: 'smooth', 'poly_<k>',
-        'sinusoid', 'matern32' or 'independent'); None if not regularized
+        'lasso_<k>', 'sinusoid', 'matern32' or 'independent'); None if not
+        regularized
     model_dof : float, optional
-        degrees of freedom of that model (effective for matern32; the number of
-        kept times for 'independent'); None if not regularized or 'smooth'
+        degrees of freedom of that model (effective for matern32; nonzero
+        coefficients for lasso_<k>; the number of kept times for 'independent');
+        None if not regularized or 'smooth'
     ttv_scatter : float, optional
         robust scatter (mad_std, days) of kept observed times about the OMC
         model (for 'independent', the matern32 GP that fills unmeasured epochs);
