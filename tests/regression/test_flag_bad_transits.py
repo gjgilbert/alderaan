@@ -142,6 +142,41 @@ class TestNoise:
         assert not tt.phot_coverage[5]
 
 
+class TestTooFewTransits:
+    def test_keeps_planet_with_three_good_transits(self):
+        star, planets, lc = _system(t_max=8.0)
+        assert len(planets[0].transit_times.index) == 3
+        planets_out, lc_out = FlagBadTransits(star, planets, lc).perform()
+        assert len(planets_out) == 1
+        np.testing.assert_array_equal(lc_out.time, lc.time)
+
+    def test_single_planet_with_two_good_transits_raises(self):
+        star, planets, lc = _system(t_max=8.0)
+        lc.select(np.abs(lc.time - _tc(planets, 2)) > 2 * DURATION)
+        with pytest.raises(ValueError, match="2 good transits"):
+            FlagBadTransits(star, planets, lc).perform()
+
+    def test_drops_planet_and_its_transits_in_multiplanet_system(self, caplog):
+        star, planets, lc = _system()
+        p2 = Planet("Kepler", "SYN", 37.0, 21.5, 1e-3, DURATION, 0.3)
+        p2.set_transit_times(
+            TransitTimes.from_linear_ephemeris("Kepler", "SYN", 37.0, 21.5, 0, 80.0)
+        )
+        tc2 = p2.transit_times.ttime_mod
+        assert len(tc2) == 2
+
+        planets_out, lc_out = FlagBadTransits(star, planets + [p2], lc).perform()
+
+        assert len(planets_out) == 1
+        assert planets_out[0].period == pytest.approx(PERIOD)
+        assert "planet 1: 2 good transits" in caplog.text
+        # wide_mask window: max(3 T14, 2 (exptime + 1 h))
+        half_width = 0.5 * max(3 * DURATION, 2 * (EXPTIME["long cadence"] + 1 / 24))
+        near = np.any(np.abs(lc.time[:, None] - tc2) < half_width, axis=1)
+        np.testing.assert_array_equal(lc_out.time, lc.time[~near])
+        np.testing.assert_array_equal(lc_out.flux, lc.flux[~near])
+
+
 @pytest.mark.slow
 class TestFlagBadTransitsK00137:
     def test_keeps_covered_transits(self, k00137):

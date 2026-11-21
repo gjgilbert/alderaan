@@ -16,7 +16,9 @@ class FlagBadTransits(BaseAlg):
     """
     Set photometry flags (TransitTimes.phot_coverage, phot_noise) for transits
     with poor photometric coverage or high noise; every transit is kept. Judged
-    at ttime_mod on the current litecurve: run once after each detrend
+    at ttime_mod on the current litecurve: run once after each detrend. A planet
+    left with < 3 good transits is dropped and its transit windows removed from
+    the litecurve (error if no planet would remain)
 
     Parameters
     ----------
@@ -108,6 +110,41 @@ class FlagBadTransits(BaseAlg):
 
         return quality
 
+    def _drop_planets_with_few_transits(self):
+        """
+        Drop planets with < 3 good transits (too few for an ephemeris) and remove
+        their transit windows from the litecurve, so they cannot bias the
+        detrending or the other planets; error if no planet would remain
+        """
+        lc = self.litecurve
+        keep_planet = np.ones(self.npl, dtype=bool)
+        keep_cadence = np.ones(len(lc.time), dtype=bool)
+        for n, p in enumerate(self.planets):
+            tt = p.transit_times
+            ngood = np.sum(tt.phot_coverage & tt.phot_noise)
+            if ngood >= 3:
+                continue
+            if self.npl == 1:
+                raise ValueError(f"planet {n}: {ngood} good transits (< 3)")
+            logger.warning(
+                "planet %d: %d good transits (< 3); dropped and its transits "
+                "removed from the litecurve",
+                n,
+                ngood,
+            )
+            keep_planet[n] = False
+            # DetrendVisits wide_mask window
+            exptime = np.array([EXPTIME[om] for om in lc.obsmode_at(tt.ttime_mod)])
+            half_width = 0.5 * np.maximum(3 * p.duration, 2 * (exptime + 1 / 24))
+            for tc, hw in zip(tt.ttime_mod, half_width):
+                keep_cadence &= np.abs(lc.time - tc) >= hw
+
+        if not np.any(keep_planet):
+            raise ValueError("every planet has < 3 good transits")
+        lc.select(keep_cadence)
+
+        return [p for p, k in zip(self.planets, keep_planet) if k], lc
+
     def perform(self):
         """
         Returns
@@ -158,4 +195,7 @@ class FlagBadTransits(BaseAlg):
                 )
             )
 
-        return planets, self.litecurve
+        # drop planets left with too few good transits for an ephemeris
+        planets, litecurve = self._drop_planets_with_few_transits()
+
+        return planets, litecurve
