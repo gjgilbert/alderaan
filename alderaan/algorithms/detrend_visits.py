@@ -4,12 +4,12 @@ import logging
 
 import celerite2
 import numpy as np
-from astropy.stats import mad_std
-from astropy.timeseries import LombScargle
+from astropy.stats import mad_std, sigma_clip
 from celerite2 import terms as GPterms
 from celerite2.driver import LinAlgError
 from scipy.ndimage import median_filter
 from scipy.special import expit, logit
+from scipy.stats import norm
 
 from alderaan.algorithms.base import BaseAlg
 from alderaan.constants import EXPTIME
@@ -26,6 +26,11 @@ class _GPTrendModel:
     Parameters form a flat vector of unconstrained values with Normal priors
     (GP hyperparameters truncated at 4 sd);
     for RotationTerm, mix ~ Uniform(0, 1) is carried as logit(mix)
+
+    Quality: q = 1/2 + exp(log_Q0) is the SHOTerm Q (> 1/2) or the
+    RotationTerm Q0 (> 1/2, so both of its terms have Q = 1/2 + Q0 (+ dQ) > 1).
+    As Q -> 1/2, a RotationTerm term's w0 and damping rate diverge at fixed
+    period (the timescale collapses); an SHOTerm at fixed w0 only gets slower.
 
     Parameters
     ----------
@@ -117,9 +122,9 @@ class _GPTrendModel:
         return p
 
     def hyperparameters(self, p):
-        """GP oscillation period (days), Q0, and sigma"""
+        """GP oscillation period (days), q (SHOTerm Q, RotationTerm Q0), sigma"""
         period = self.min_period + np.exp(p["log_P"][0])
-        return period, np.exp(p["log_Q0"][0]), np.exp(p["log_sigma"][0])
+        return period, 0.5 + np.exp(p["log_Q0"][0]), np.exp(p["log_sigma"][0])
 
     def _mean(self, p, mask=slice(None)):
         """
@@ -134,17 +139,17 @@ class _GPTrendModel:
         return p["flux0"][seg_id] * (1 + p["ramp_amp"][seg_id] * ramp)
 
     def _gp(self, p):
-        period, Q0, sigma = self.hyperparameters(p)
+        period, q, sigma = self.hyperparameters(p)
         if self.rotation:
             kernel = GPterms.RotationTerm(
                 sigma=sigma,
                 period=period,
-                Q0=Q0,
+                Q0=q,
                 dQ=np.exp(p["log_dQ"][0]),
                 f=expit(p["logit_mix"][0]),
             )
         else:
-            kernel = GPterms.SHOTerm(sigma=sigma, w0=2 * np.pi / period, Q=0.5 + Q0)
+            kernel = GPterms.SHOTerm(sigma=sigma, w0=2 * np.pi / period, Q=q)
         gp = celerite2.GaussianProcess(kernel)
         diag = np.full(np.sum(self.oot), np.exp(p["log_var"][0]))
         gp.compute(self.time[self.oot], diag=diag)
@@ -195,40 +200,40 @@ class DetrendVisits(BaseAlg):
 
         self.durations = np.array([p.duration for p in self.planets])
 
-    def _min_oscillation_period(self, obsmode):
+    def _min_period(self, obsmode):
         """
-        Floor on the stellar oscillation period (days): 5 x the longest planet
-        transit duration, or a fixed number of cadences, whichever is longer
+        Floor on the GP oscillation period (days): the larger of 3 x the longest
+        transit duration and CADENCE_FLOOR cadences
         """
         return np.max(
-            [5 * np.max(self.durations), self.CADENCE_FLOOR[obsmode] * EXPTIME[obsmode]]
+            [3 * np.max(self.durations), self.CADENCE_FLOOR[obsmode] * EXPTIME[obsmode]]
         )
 
     @staticmethod
-    def _identify_breaks(cadno, flux, gap_tolerance_cadences, jump_tolerance, mask):
+    def _identify_breaks(cadno, flux, mask, gap_tolerance, jump_tolerance):
         """
-        Split a visit into contiguous segments at gaps (breaks in times) and jumps
-        (sudden flux changes); returns an integer segment ID (0..n_seg-1) per cadence
-            * GAPS are consecutive missing cadences in the TIME domain
-            * JUMPS are large cadence-to-cadence FLUX variations outside the mask
-        Breaks closer than gap_tolerance_cadences to the previous candidate or the
-        end are dropped. A segment with no unmasked cadences is merged into the
-        preceding segment (leading ones into the first segment with unmasked
-        cadences), with a warning.
+        Segment ID (0..n_seg-1) per cadence, splitting a visit at time gaps of
+        more than gap_tolerance cadences and at flux jumps (> jump_tolerance
+        sigma, outside the mask)
+
+        Breaks within gap_tolerance cadences of the previous break or the end
+        are dropped. A segment with no unmasked cadences is merged into a
+        neighbor.
 
         Parameters
         ----------
-        gap_tolerance_cadences : int
-            number of cadences to be considered a (time) gap
-        jump_tolerance : float
-            sigma threshold for identifying (flux) jumps
+        cadno, flux : ndarray
         mask : ndarray, bool
             True near transit
+        gap_tolerance : int
+            cadences
+        jump_tolerance : float
+            sigma
         """
-        # first cadence after each GAP in time
-        gap_locs = np.where(np.diff(cadno) > gap_tolerance_cadences)[0] + 1
+        # first cadence after each gap in time
+        gap_locs = np.where(np.diff(cadno) > gap_tolerance)[0] + 1
 
-        # first cadence after each JUMP in flux
+        # first cadence after each jump in flux
         jumps = np.pad(np.diff(flux), (1, 0), "constant", constant_values=(0, 0))
         jump_size = np.abs(jumps - np.median(jumps)) / mad_std(jumps)
         jump_locs = np.where(~mask & (jump_size > jump_tolerance))[0]
@@ -236,8 +241,8 @@ class DetrendVisits(BaseAlg):
         # candidate segment starts; drop those too close to the previous or the end
         starts = np.unique(np.hstack([gap_locs, jump_locs]))
         starts = starts[(starts > 0) & (starts < len(cadno))]
-        too_close = np.diff(np.hstack([0, starts])) < gap_tolerance_cadences
-        if len(starts) and len(cadno) - starts[-1] < gap_tolerance_cadences:
+        too_close = np.diff(np.hstack([0, starts])) < gap_tolerance
+        if len(starts) and len(cadno) - starts[-1] < gap_tolerance:
             too_close[-1] = True
         seg_start = np.zeros(len(cadno), dtype=bool)
         seg_start[starts[~too_close]] = True
@@ -255,51 +260,178 @@ class DetrendVisits(BaseAlg):
         return seg_id
 
     @staticmethod
-    def _estimate_oscillation_period(time, flux, min_oscillation_period):
-        lombscargle = LombScargle(time, flux)
-
-        min_freq = 1 / (time.max() - time.min())
-        max_freq = 1 / min_oscillation_period
-
-        xf, yf = lombscargle.autopower(
-            minimum_frequency=min_freq, maximum_frequency=max_freq
-        )
-
-        peak_freq = xf[np.argmax(yf)]
-        peak_per = np.max([1.0 / peak_freq, 1.001 * min_oscillation_period])
-
-        return peak_per
-
-    def _nominal_oscillation_period(self, lc):
+    def _acf_period(cadno, flux, mask, exptime, min_period):
         """
-        Stellar oscillation period (days) shared by all visits: the median of
-        one Lomb-Scargle estimate per visit
+        ACF comb test for quasi-periodic variability in one visit
+        (notes/detrend_acf_plan.md)
+
+        Null: Gaussian noise with the visit's smoothed spectrum. The comb C(P)
+        is a Hann-tapered cosine over ACF lags [P/2, 3.5P), less the comb of the
+        null ACF; S = C / sd(C) (Bartlett). Periodic if max S passes a
+        Bonferroni threshold (alpha = 0.01) over the trial periods.
+
+        Parameters
+        ----------
+        cadno, flux : ndarray
+        mask : ndarray, bool
+            True near transit (excluded)
+        exptime : float
+            cadence (days)
+        min_period : float
+            shortest trial period (days)
+
+        Returns
+        -------
+        periodic : bool
+        period_acf : float
+            trial period at max S (days); NaN if no trial period fits the visit
+        period_half : float
+            2 pi tau_half / 1.4333 (days), clamped to [min_period, span]:
+            tau_half is the lag where the ACF (normalized at lag 1, removing
+            white noise) falls to 1/2; equals 2 pi / w0 for an SHOTerm with
+            Q = 1/sqrt(2)
+        S : float
+            max S; NaN if no trial period fits the visit
+        """
+        # native cadence grid; gaps and masked cadences have weight 0
+        oot = ~mask
+        k = cadno[oot] - cadno[oot].min()
+        n = k.max() + 1
+        span = n * exptime
+        x, w = np.zeros(n), np.zeros(n)
+        x[k] = flux[oot] - np.mean(flux[oot])
+        w[k] = 1.0
+
+        # periodogram and gap-aware ACF from one FFT (zero-padded: no wrap-around)
+        m = 1 << int(np.ceil(np.log2(2 * n)))
+        freq = np.fft.rfftfreq(m, exptime)
+        power = np.abs(np.fft.rfft(x, m)) ** 2
+        nlag = n // 2 + 1
+        lagsum = np.fft.irfft(power, m)[:nlag]  # sum of x_i x_(i+k) over pairs
+        pairs = np.round(np.fft.irfft(np.abs(np.fft.rfft(w, m)) ** 2, m)[:nlag])
+        acov = lagsum / np.maximum(pairs, 1)
+        rho = acov / acov[0]
+        pgram = power / lagsum[0]  # normalized: 1 for white noise
+
+        # noise spectrum: median of pgram over [f/2, 3f/2] (centred, so the median
+        # of a monotonic spectrum is its value at f) / ln 2 (median -> mean of
+        # chi2_2); on a log grid of 300 frequencies, interpolated (f = 0 takes f_1)
+        f_grid = np.geomspace(freq[1], freq[-1], 300)
+        lo = np.searchsorted(freq, f_grid / 2)
+        hi = np.searchsorted(freq, 1.5 * f_grid, side="right")
+        smooth = np.array([np.median(pgram[a:b]) for a, b in zip(lo, hi)]) / np.log(2)
+        noise_spec = np.exp(
+            np.interp(np.log(np.maximum(freq, freq[1])), np.log(f_grid), np.log(smooth))
+        )
+        rho_null = np.fft.irfft(noise_spec, m)[:nlag]
+        rho_null /= rho_null[0]
+
+        # half-decay lag (linear interpolation) -> SHOTerm (Q = 1/sqrt 2) period
+        rho_red = rho / rho[1]
+        below = np.nonzero(rho_red[1:] < 0.5)[0]
+        if len(below):
+            j = below[0] + 1
+            frac = (rho_red[j - 1] - 0.5) / (rho_red[j - 1] - rho_red[j])
+            tau_half = (j - 1 + frac) * exptime
+            period_half = np.clip(2 * np.pi * tau_half / 1.4333, min_period, span)
+        else:
+            period_half = span
+
+        max_period = (nlag - 1) * exptime / 3.5
+        if max_period <= min_period:
+            return False, np.nan, period_half, np.nan
+        periods = np.exp(np.arange(np.log(min_period), np.log(max_period), 0.02))
+
+        # rfft bins -> sum over the full frequency band
+        band = np.full(len(freq), 2.0)
+        band[0] = band[-1] = 1.0
+        S = np.zeros(len(periods))
+        for i, period in enumerate(periods):
+            lag = np.arange(round(period / 2 / exptime), round(3.5 * period / exptime))
+            cos = np.cos(2 * np.pi * lag * exptime / period)
+            hann = np.sin(np.pi * (lag - lag[0] + 0.5) / len(lag)) ** 2
+            weight = hann * cos / np.sum(hann * cos**2)
+            comb = np.zeros(m)
+            comb[lag] = weight
+            # Bartlett: var(C) = mean_f |W(f)|^2 noise_spec(f)^2 / (number of pairs)
+            W2 = np.abs(np.fft.rfft(comb)) ** 2
+            var = np.sum(band * W2 * noise_spec**2) / m / np.mean(pairs[lag])
+            S[i] = np.sum(weight * (rho[lag] - rho_null[lag])) / np.sqrt(var)
+
+        best = np.argmax(S)
+        z_crit = norm.isf(0.01 / len(periods))
+        logger.debug(
+            "ACF: S = %.2f (threshold %.2f) at P = %.2f d; half-decay P = %.2f d",
+            S[best],
+            z_crit,
+            periods[best],
+            period_half,
+        )
+        return bool(S[best] >= z_crit), periods[best], period_half, S[best]
+
+    def _nominal_period(self, lc, masks):
+        """
+        Star-level kernel choice and nominal GP period (days)
+
+        The star is periodic (RotationTerm) if >= half of its visits pass the ACF
+        test, else aperiodic (SHOTerm). The nominal period is the 3-sigma (MAD)
+        clipped geometric mean of period_acf over periodic visits, or of
+        period_half over all visits for an aperiodic star.
+
+        Parameters
+        ----------
+        lc : LiteCurve
+        masks : dict
+            visit -> transit mask (True near transit)
+
+        Returns
+        -------
+        periodic : bool
+        nominal_period : float
         """
         visits = np.unique(lc.visit)
-        oscillation_periods = np.zeros(len(visits))
+        visit_periodic = np.zeros(len(visits), dtype=bool)
+        period_acf, period_half = np.zeros(len(visits)), np.zeros(len(visits))
         for j, v in enumerate(visits):
-            use = lc.visit == v
-            min_oscillation_period = self._min_oscillation_period(lc.obsmode[use][0])
-            oscillation_periods[j] = self._estimate_oscillation_period(
-                lc.time[use], lc.flux[use], min_oscillation_period
+            in_visit = lc.visit == v
+            obsmode = lc.obsmode[in_visit][0]
+            visit_periodic[j], period_acf[j], period_half[j], S = self._acf_period(
+                lc.cadno[in_visit],
+                lc.flux[in_visit],
+                masks[v],
+                EXPTIME[obsmode],
+                self._min_period(obsmode),
             )
-            logger.debug(
-                "visit %d: Lomb-Scargle oscillation period %.2f d (floor %.2f d)",
+            logger.info(
+                "visit %d: ACF S = %.2f, periodic = %s, P_acf = %.2f d, "
+                "P_half = %.2f d",
                 v,
-                oscillation_periods[j],
-                1.001 * min_oscillation_period,
+                S,
+                visit_periodic[j],
+                period_acf[j],
+                period_half[j],
             )
 
-        osc_per_mu = np.median(oscillation_periods)
-        osc_per_sd = np.max([mad_std(oscillation_periods), 0.1 * osc_per_mu])
+        periodic = np.mean(visit_periodic) >= 0.5
+        log_P = np.log(period_acf[visit_periodic] if periodic else period_half)
+        kept = sigma_clip(log_P, sigma=3, stdfunc="mad_std", masked=False)
+        # strictly above every visit's floor, so the GP log_P prior is finite
+        floor = max(self._min_period(m) for m in np.unique(lc.obsmode))
+        nominal_period = max(np.exp(np.mean(kept)), 1.001 * floor)
 
         logger.info(
-            "nominal stellar oscillation period = %.1f +/- %.1f d",
-            osc_per_mu,
-            osc_per_sd,
+            "%s GP: %d of %d visits periodic; nominal period %.2f d "
+            "(from %s, %d of %d clipped)",
+            "RotationTerm" if periodic else "SHOTerm",
+            np.sum(visit_periodic),
+            len(visits),
+            nominal_period,
+            "P_acf" if periodic else "P_half",
+            len(log_P) - len(kept),
+            len(log_P),
         )
 
-        return osc_per_mu
+        return periodic, nominal_period
 
     @staticmethod
     def _fit(model, visit):
@@ -323,45 +455,26 @@ class DetrendVisits(BaseAlg):
         stage_ix = [np.concatenate([model.ix[n] for n in s]) for s in stages]
         x, _ = optimize(model.logp, model.x0, stage_ix)
 
-        period, Q0, sigma = model.hyperparameters(model.unpack(x))
+        period, q, sigma = model.hyperparameters(model.unpack(x))
         logger.info(
             "visit %d: %s GP (%d segments, ramp = %s): P = %.2f d (nominal %.2f d), "
-            "Q0 = %.2f, sigma = %.2e",
+            "%s = %.2f, sigma = %.2e",
             visit,
             model.gp_term,
             model.n_seg,
             model.correct_ramp,
             period,
             model.nominal_period,
-            Q0,
+            "Q0" if model.rotation else "Q",
+            q,
             sigma,
         )
 
         return model.predict(x)
 
-    def _detrend(
-        self,
-        time,
-        flux,
-        cadno,
-        visit,
-        obsmode,
-        nominal_oscillation_period,
-        tight_mask,
-    ):
-        """
-        Detrend one visit, falling back to successively simpler GP models;
-        returns the predicted trend (same length as time)
-
-        The visit is split into contiguous segments at gaps and flux jumps;
-        each segment has its own mean, and all share one GP.
-        nominal_oscillation_period is the stellar oscillation period (days)
-        shared by all visits
-        """
+    def _transit_mask(self, time, visit, obsmode, tight_mask):
+        """Transit mask (True near transit) for one visit"""
         exptime = EXPTIME[obsmode]
-        gap_tolerance_cadences = np.max(
-            [int(np.min(self.durations) / exptime * 5 / 2), self.CADENCE_FLOOR[obsmode]]
-        )
 
         # tight is as narrow as possible for the best detrending;
         # wide is cautious, keeping well clear of transits
@@ -381,12 +494,11 @@ class DetrendVisits(BaseAlg):
                 rel_size=3.0, abs_size=2 * (exptime + 1 / 24), time=time
             )
         logger.debug(
-            "visit %d: %s transit mask covers %d of %d cadences; gap tolerance = %d",
+            "visit %d: %s transit mask covers %d of %d cadences",
             visit,
             "tight" if tight_mask else "wide",
             np.sum(mask),
             len(mask),
-            gap_tolerance_cadences,
         )
         if np.mean(mask) > 0.5:
             logger.warning(
@@ -394,15 +506,38 @@ class DetrendVisits(BaseAlg):
                 visit,
                 100 * np.mean(mask),
             )
+        return mask
+
+    def _detrend(
+        self, time, flux, cadno, mask, visit, obsmode, periodic, nominal_period
+    ):
+        """
+        Detrend one visit; returns the predicted trend (same length as time)
+
+        Segments (split at gaps and flux jumps) each have their own mean and
+        share one GP: RotationTerm if the star is periodic, else SHOTerm, with
+        fallbacks to simpler models on LinAlgError.
+        """
+        exptime = EXPTIME[obsmode]
+        gap_tolerance = np.max(
+            [int(np.min(self.durations) / exptime * 5 / 2), self.CADENCE_FLOOR[obsmode]]
+        )
+        logger.debug("visit %d: gap tolerance = %d cadences", visit, gap_tolerance)
 
         seg_id = self._identify_breaks(
-            cadno, flux, gap_tolerance_cadences, jump_tolerance=5.0, mask=mask
+            cadno, flux, mask, gap_tolerance, jump_tolerance=5.0
         )
         # ramp origin per segment, from all cadences, so fit and prediction agree
         seg_t0 = np.array([time[seg_id == i].min() for i in range(seg_id.max() + 1)])
 
-        # use successively simpler models as fallbacks
-        models = [("RotationTerm", True), ("RotationTerm", False), ("SHOTerm", False)]
+        if periodic:
+            models = [
+                ("RotationTerm", True),
+                ("RotationTerm", False),
+                ("SHOTerm", False),
+            ]
+        else:
+            models = [("SHOTerm", True), ("SHOTerm", False)]
         for gp_term, correct_ramp in models:
             model = _GPTrendModel(
                 time,
@@ -412,8 +547,8 @@ class DetrendVisits(BaseAlg):
                 seg_t0,
                 gp_term,
                 correct_ramp,
-                nominal_oscillation_period,
-                self._min_oscillation_period(obsmode),
+                nominal_period,
+                self._min_period(obsmode),
             )
             try:
                 return self._fit(model, visit)
@@ -453,18 +588,28 @@ class DetrendVisits(BaseAlg):
         tight_mask = method == "tight_mask"
 
         lc = self.litecurve
-        nominal_oscillation_period = self._nominal_oscillation_period(lc)
+        visits = np.unique(lc.visit)
+        in_visit = {v: lc.visit == v for v in visits}
+        obsmode = {v: lc.obsmode[in_visit[v]][0] for v in visits}
 
-        for v in np.unique(lc.visit):
-            use = lc.visit == v
+        # transit masks first: the star-level kernel choice needs every visit
+        masks = {
+            v: self._transit_mask(lc.time[in_visit[v]], v, obsmode[v], tight_mask)
+            for v in visits
+        }
+        periodic, nominal_period = self._nominal_period(lc, masks)
+
+        for v in visits:
+            use = in_visit[v]
             pred = self._detrend(
                 lc.time[use],
                 lc.flux[use],
                 lc.cadno[use],
+                masks[v],
                 v,
-                lc.obsmode[use][0],
-                nominal_oscillation_period,
-                tight_mask,
+                obsmode[v],
+                periodic,
+                nominal_period,
             )
             lc.flux[use] /= pred
             lc.error[use] /= pred

@@ -2,16 +2,20 @@
 Tests for alderaan/algorithms/detrend_visits.py
 
 Fast tier: segment identification, GP trend model (mean function ramp origin,
-finite log posterior), Lomb-Scargle period estimate, method check, GP
-fallback chain.
+finite log posterior, no RotationTerm timescale collapse), single-visit ACF
+periodicity test, star-level kernel choice and nominal period, method check,
+GP fallback chains.
 Slow tier: GP detrending of a synthetic two-visit litecurve with a slow stellar
 trend, a data gap, and injected transits.
 """
 
 import copy
+from types import SimpleNamespace
 
+import celerite2
 import numpy as np
 import pytest
+from celerite2 import terms as GPterms
 from celerite2.driver import LinAlgError
 
 from alderaan.algorithms import DetrendVisits
@@ -81,6 +85,7 @@ def _synthetic_system(seed=0):
         TransitTimes("Kepler", "SYN", index, EPOCH + PERIOD * index)
     )
     planet.set_static_period_and_epoch()
+    planet.transit_times.ttv_scatter = 0.0  # no TTVs (RegularizeOMC sets this)
 
     return star, [planet], litecurve, clean
 
@@ -94,18 +99,18 @@ class TestIdentifyBreaks:
     def test_time_gap_splits_segments(self):
         cadno, flux, mask = self._series()
         cadno[500:] += 50
-        seg_id = DetrendVisits._identify_breaks(cadno, flux, 13, 5.0, mask)
+        seg_id = DetrendVisits._identify_breaks(cadno, flux, mask, 13, 5.0)
         np.testing.assert_array_equal(seg_id, np.arange(len(cadno)) >= 500)
 
     def test_flux_jump_splits_segments_outside_transit_mask_only(self):
         cadno, flux, mask = self._series()
         flux[300:] += 0.01
 
-        seg_id = DetrendVisits._identify_breaks(cadno, flux, 13, 5.0, mask)
+        seg_id = DetrendVisits._identify_breaks(cadno, flux, mask, 13, 5.0)
         np.testing.assert_array_equal(seg_id, np.arange(len(cadno)) >= 300)
 
         mask[295:305] = True
-        seg_id = DetrendVisits._identify_breaks(cadno, flux, 13, 5.0, mask)
+        seg_id = DetrendVisits._identify_breaks(cadno, flux, mask, 13, 5.0)
         assert not seg_id.any()
 
     def test_fully_masked_segment_merges_into_previous(self):
@@ -113,7 +118,7 @@ class TestIdentifyBreaks:
         cadno[500:] += 50
         cadno[530:] += 50
         mask[500:530] = True
-        seg_id = DetrendVisits._identify_breaks(cadno, flux, 13, 5.0, mask)
+        seg_id = DetrendVisits._identify_breaks(cadno, flux, mask, 13, 5.0)
         np.testing.assert_array_equal(seg_id, np.arange(len(cadno)) >= 530)
 
 
@@ -159,7 +164,7 @@ class TestGPTrendModel:
     @pytest.mark.parametrize(
         "name, value",
         [
-            ("log_Q0", -48.8),  # Q2 rounds to 1/2: celerite2 gives NaN
+            ("log_Q0", 600.0),  # Q0 overflows
             ("log_dQ", 600.0),  # Q1**2 overflows: celerite2 raises OverflowError
             ("log_sigma", 400.0),  # sigma**2 overflows
         ],
@@ -182,22 +187,130 @@ class TestGPTrendModel:
         x[model.ix[name]] = value
         assert model.logp(x) == -np.inf
 
+    def test_rotation_term_decay_time_does_not_collapse(self):
+        # at the lowest allowed Q0, the P/2 term's decay time 2Q/w0 stays at
+        # its Q = 1 value, sqrt(3) P / (4 pi), instead of going to zero
+        time = np.arange(0.0, 20.0, EXPTIME[LC])
+        flux = 1 + NOISE * np.random.default_rng(4).normal(size=time.size)
+        model = _GPTrendModel(
+            time,
+            flux,
+            np.ones(time.size, dtype=bool),
+            np.zeros(time.size, dtype=int),
+            np.array([0.0]),
+            "RotationTerm",
+            False,
+            2.0,
+            1.0,
+        )
+        x = model.x0.copy()
+        mu, sd = model.priors["log_Q0"]
+        x[model.ix["log_Q0"]] = mu - 4 * sd
+        p = model.unpack(x)
+        period = model.hyperparameters(p)[0]
+        damping_rate = model._gp(p).kernel.get_coefficients()[4]
+        assert 1 / damping_rate[1] >= np.sqrt(3) * period / (4 * np.pi) * (1 - 1e-9)
 
-class TestOscillationPeriod:
-    @staticmethod
-    def _sinusoid(period):
-        time = np.arange(0, 60, EXPTIME[LC])
-        return time, 1 + 1e-3 * np.sin(2 * np.pi * time / period)
 
-    def test_recovers_injected_period(self):
-        time, flux = self._sinusoid(9.0)
-        period = DetrendVisits._estimate_oscillation_period(time, flux, 1.0)
-        assert period == pytest.approx(9.0, rel=0.02)
+def _acf_visit(kernel, exptime=EXPTIME[LC], seed=0):
+    """
+    One 90-day visit: a celerite2 GP draw plus unit white noise, with a 2-day
+    gap and one masked transit; returns (cadno, flux, mask)
+    """
+    rng = np.random.default_rng(seed)
+    cadno = np.arange(int(90 / exptime))
+    time = cadno * exptime
+    keep = (time < 40) | (time > 42)
+    cadno, time = cadno[keep], time[keep]
+    flux = rng.standard_normal(time.size)
+    if kernel is not None:
+        gp = celerite2.GaussianProcess(kernel)
+        gp.compute(time, diag=np.full(time.size, 1e-12))
+        flux += gp.dot_tril(rng.standard_normal(time.size))
+    return cadno, flux, np.abs(time - 60) < 0.25
 
-    def test_never_below_minimum_period(self):
-        time, flux = self._sinusoid(0.5)
-        period = DetrendVisits._estimate_oscillation_period(time, flux, 2.0)
-        assert period >= 1.001 * 2.0
+
+ROTATION = GPterms.RotationTerm(sigma=10.0, period=4.0, Q0=5.0, dQ=1.0, f=0.5)
+
+
+class TestACFPeriod:
+    @pytest.mark.parametrize("obsmode", [LC, "short cadence"])
+    def test_detects_rotation_period(self, obsmode):
+        exptime = EXPTIME[obsmode]
+        cadno, flux, mask = _acf_visit(ROTATION, exptime)
+        periodic, period_acf, _, _ = DetrendVisits._acf_period(
+            cadno, flux, mask, exptime, 0.5
+        )
+        assert periodic
+        assert period_acf == pytest.approx(4.0, rel=0.1)
+
+    def test_aperiodic_red_noise_is_not_periodic_and_gives_timescale(self):
+        red = GPterms.SHOTerm(sigma=10.0, rho=5.0, Q=1 / np.sqrt(2))
+        cadno, flux, mask = _acf_visit(red)
+        periodic, _, period_half, _ = DetrendVisits._acf_period(
+            cadno, flux, mask, EXPTIME[LC], 0.5
+        )
+        assert not periodic
+        assert 5.0 / 1.5 < period_half < 5.0 * 1.5
+
+    def test_white_noise_is_not_periodic(self):
+        cadno, flux, mask = _acf_visit(None)
+        periodic, _, _, _ = DetrendVisits._acf_period(
+            cadno, flux, mask, EXPTIME[LC], 0.5
+        )
+        assert not periodic
+
+
+class TestNominalPeriod:
+    @pytest.mark.parametrize(
+        "visit_results, periodic, period",
+        [
+            # (periodic, period_acf, period_half) per visit; the P/2 visit is clipped
+            (
+                [
+                    (True, 4.0, 6.0),
+                    (True, 4.1, 6.0),
+                    (True, 3.9, 6.0),
+                    (True, 2.0, 6.0),
+                ],
+                True,
+                4.0,
+            ),
+            # 1 of 4 visits periodic: an SHOTerm star, period from period_half
+            (
+                [
+                    (True, 4.0, 6.0),
+                    (False, np.nan, 6.0),
+                    (False, np.nan, 6.0),
+                    (False, np.nan, 6.0),
+                ],
+                False,
+                6.0,
+            ),
+        ],
+    )
+    def test_star_kernel_and_clipped_geometric_mean(
+        self, monkeypatch, visit_results, periodic, period
+    ):
+        results = iter(visit_results)
+        monkeypatch.setattr(
+            DetrendVisits,
+            "_acf_period",
+            staticmethod(lambda *args: (*next(results), 10.0)),
+        )
+        star, planets, litecurve, _ = _synthetic_system()
+        alg = DetrendVisits(star, planets, litecurve)
+        lc = SimpleNamespace(
+            visit=np.arange(4),
+            obsmode=np.full(4, LC),
+            cadno=np.arange(4),
+            flux=np.ones(4),
+        )
+        masks = {v: np.zeros(1, dtype=bool) for v in range(4)}
+
+        got_periodic, got_period = alg._nominal_period(lc, masks)
+        assert got_periodic == periodic
+        assert got_period == pytest.approx(period, rel=0.02)
 
 
 class TestPerform:
@@ -206,9 +319,22 @@ class TestPerform:
         with pytest.raises(ValueError, match="wide_mask"):
             DetrendVisits(star, planets, litecurve).perform(method="none")
 
-    @pytest.mark.parametrize("n_fail", [2, 3])
-    def test_falls_back_to_simpler_gp_on_linalg_error(self, monkeypatch, n_fail):
-        # the first n_fail models of the fallback chain fail; 3 fails them all
+    @pytest.mark.parametrize(
+        "periodic, chain",
+        [
+            (
+                True,
+                [("RotationTerm", True), ("RotationTerm", False), ("SHOTerm", False)],
+            ),
+            (False, [("SHOTerm", True), ("SHOTerm", False)]),
+        ],
+    )
+    @pytest.mark.parametrize("fail_all", [False, True])
+    def test_falls_back_to_simpler_gp_on_linalg_error(
+        self, monkeypatch, periodic, chain, fail_all
+    ):
+        # the star's kernel picks the chain; all but the last model fail, or all
+        n_fail = len(chain) if fail_all else len(chain) - 1
         tried = []
 
         def fake_fit(model, visit):
@@ -218,18 +344,21 @@ class TestPerform:
             return np.ones_like(model.time)
 
         monkeypatch.setattr(DetrendVisits, "_fit", staticmethod(fake_fit))
+        monkeypatch.setattr(
+            DetrendVisits,
+            "_nominal_period",
+            lambda self, lc, masks: (periodic, 9.0),
+        )
         star, planets, litecurve, _ = _synthetic_system()
         litecurve.select(litecurve.visit == 1)
         alg = DetrendVisits(star, planets, litecurve)
 
-        chain = [("RotationTerm", True), ("RotationTerm", False), ("SHOTerm", False)]
-        if n_fail < 3:
-            alg.perform(method="wide_mask")
-            assert tried == chain
-        else:
+        if fail_all:
             with pytest.raises(LinAlgError):
                 alg.perform(method="wide_mask")
-            assert tried == chain
+        else:
+            alg.perform(method="wide_mask")
+        assert tried == chain
 
     @pytest.mark.slow
     @pytest.mark.parametrize("method", ["wide_mask", "tight_mask"])
