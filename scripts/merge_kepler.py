@@ -1,19 +1,32 @@
 """Make one Kepler KOI catalog from Lissauer+2024 and the DR22, DR24, DR25 tables.
 
 The KOIs and values are those of Lissauer+2024 (Table 1), converted to DR
-columns (LISSAUER_TO_DR). The ephemeris of a KOI in ALIASES replaces the
-Lissauer+2024 ephemeris.
+columns (LISSAUER_TO_DR). Depth, duration, and impact (SHAPE_COLUMNS) are from
+the first of DR25 > DR24 > DR22 with the same period (within SHAPE_PERIOD_TOL)
+and positive depth and duration; else from Lissauer+2024. Non-empty values in
+OVERRIDES (manual corrections, with reasons) replace all of these. False
+positives (alderaan_disp = FP, including FP in OVERRIDES) are dropped.
 
-The DR tables are used only for checks: each DR entry is compared with the
-Lissauer+2024 entry, and inconsistencies are written to notes/kepler.md.
+Each DR entry is also compared with the Lissauer+2024 entry, and
+inconsistencies are written to notes/kepler.md.
 
-Added column:
-    alderaan_disp  FP = false positive, PC = planet candidate (transit to
-                 model; includes Lissauer+2024 M, mass > 13 M_Jup), A =
-                 ambiguous. From the Lissauer+2024 disposition (F -> FP,
-                 P or M -> PC, S or R -> A).
+Disposition (alderaan_disp): FP = false positive, PC = planet candidate
+(transit to model; includes Lissauer+2024 M, mass > 13 M_Jup), A = ambiguous.
+From the Lissauer+2024 disposition (F -> FP, P or M -> PC, S or R -> A).
 Differences from the DR25 supplemental disposition are written to
 notes/kepler.md.
+
+Stellar parameters (Teff [K], logg [cgs], [Fe/H], mass, radius, density) are
+all from the first source with all six values: Berger+2023 > Berger+2020 >
+CKS (Fulton & Petigura 2018) > DR25 > Mathur+2017 (STAR_SOURCES).
+
+The output has the columns of the ALDERAAN KOI catalog (OUTPUT_COLUMNS; see
+tests/catalogs/kepler_dr25_gaia_dr2_crossmatch.csv), without ror and dor:
+    disposition  alderaan_disp
+    koi_id       KOI host star (e.g. K00001); npl = number of output KOIs on it
+    logrho       log10(density / solar density)
+    limbdark_*   empty
+    snr          koi_model_snr (Lissauer+2024)
 
 Usage (from the repo root):
     python scripts/merge_kepler.py
@@ -28,6 +41,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG_DIR = ROOT / "reference" / "kepler"  # published tables (inputs)
 ALDERAAN_DIR = ROOT / "reference" / "alderaan"  # tables made in this repo
+STARS_DIR = ROOT / "reference" / "stars"
 OUTPUT = ALDERAAN_DIR / "kepler_merged_alderaan.csv"
 REPORT = ROOT / "notes" / "kepler.md"
 # text from this line to the end of REPORT is written by hand and kept on rerun
@@ -112,10 +126,91 @@ LISSAUER_TO_DR = {
     "koi_smet_err2": (540, 544, "-"),
 }
 LISSAUER_T0_OFFSET = 67  # Lissauer T0 (BJD - 2454900) -> koi_time0bk (BJD - 2454833)
-# ephemerides that override Lissauer+2024 (period aliases), with sources
-ALIASES = ALDERAAN_DIR / "kepler_period_aliases_alderaan.csv"
+# depth, duration, impact: from a DR catalog with the same period (see merge)
+SHAPE_COLUMNS = [
+    c + s
+    for c in ["koi_depth", "koi_duration", "koi_impact"]
+    for s in ["", "_err1", "_err2"]
+]
+SHAPE_PERIOD_TOL = 0.01  # fractional; excludes period aliases
+# manual corrections of catalog values (empty: not corrected), with reasons
+OVERRIDES = ALDERAAN_DIR / "kepler_overrides_alderaan.csv"
 # Lissauer+2024 status letter -> alderaan_disp
 LISSAUER_DISP = {"F": "FP", "M": "PC", "P": "PC", "S": "A", "R": "A"}
+
+# Berger+2023 Gaia-Kepler-TESS host stars, output (Table 4)
+BERGER_OUTPUT = "gaia_stars_berger_2023.csv"
+# Berger+2020 Gaia-Kepler stars, output (Table 2); iso_rho is log10(rho / rho_sun)
+BERGER_2020 = "gaia_stars_berger_2020.txt"
+# stellar parameters, in the order of BERGER_OUTPUT; rho in solar units
+STAR_PARAMS = ["teff", "logg", "feh", "mass", "rad", "rho"]
+STAR_COLUMNS = [f"star_{p}{s}" for p in STAR_PARAMS for s in ["", "_err1", "_err2"]]
+# stellar parameter sources, in order of preference
+STAR_SOURCES = [
+    "berger2023",
+    "berger2020",
+    "cks",
+    "dr25",
+    "mathur2017",
+]
+RHO_SUN = 1.408  # g/cm3
+# CKS (Fulton & Petigura 2018) Table 2, one row per KOI host star
+CKS = "cks_stars_fulton_petigura_2018.txt"
+# CKS fields (first and last byte, from its ReadMe): value, upper, lower error
+CKS_FIELDS = {
+    "teff": [(8, 11), (13, 14), (16, 17)],
+    "feh": [(19, 23), (25, 28), (30, 33)],
+    "mass": [(80, 84), (86, 90), (92, 96)],  # Miso
+    "rad": [(98, 103), (105, 109), (111, 115)],  # Riso
+    "rho": [(117, 120), (122, 125), (127, 130)],  # rhoiso, g/cm3
+}
+LOGG_SUN = 4.438  # cgs
+# output columns: (output name, merged column)
+OUTPUT_COLUMNS = [
+    ("planet_name", "kepoi_name"),
+    ("disposition", "alderaan_disp"),
+    ("kic_id", "kepid"),
+    ("koi_id", "koi_id"),
+    ("npl", "npl"),
+    ("kep_mag", "koi_kepmag"),
+    *[
+        (name + s, col + s)
+        for name, col in [
+            ("Mstar", "star_mass"),
+            ("Rstar", "star_rad"),
+            ("logrho", "logrho"),
+            ("Teff", "star_teff"),
+            ("FeH", "star_feh"),
+            ("logg", "star_logg"),
+        ]
+        for s in ["", "_err1", "_err2"]
+    ],
+    ("limbdark_1", "limbdark_1"),
+    ("limbdark_2", "limbdark_2"),
+    *[
+        (name + s, col + s)
+        for name, col in [
+            ("period", "koi_period"),
+            ("epoch", "koi_time0bk"),
+            ("depth", "koi_depth"),
+            ("duration", "koi_duration"),
+            ("impact", "koi_impact"),
+        ]
+        for s in ["", "_err1", "_err2"]
+    ],
+    ("snr", "koi_model_snr"),
+]
+# Mathur+2017 DR25 stellar properties (Table 4), all Kepler targets
+MATHUR = "kepler_stars_mathur_2017.txt"
+# Mathur+2017 fields (first and last byte, from its ReadMe): value, upper, lower error
+MATHUR_FIELDS = {
+    "teff": [(10, 14), (16, 19), (21, 24)],
+    "logg": [(26, 31), (33, 37), (39, 43)],
+    "feh": [(45, 50), (52, 56), (58, 62)],
+    "mass": [(87, 91), (93, 97), (99, 103)],
+    "rad": [(64, 70), (72, 77), (79, 85)],
+    "rho": [(105, 113), (115, 123), (125, 133)],  # g/cm3
+}
 
 
 def load_catalogs():
@@ -166,23 +261,187 @@ def load_lissauer(header):
     return table, pd.Series(status)
 
 
-def merge(lissauer):
-    """Lissauer+2024 values, with the ephemerides in ALIASES."""
-    overrides = pd.read_csv(ALIASES, dtype=str, keep_default_na=False)
+def merge(lissauer, tables):
+    """Lissauer+2024 values, with SHAPE_COLUMNS from DR25 > DR24 > DR22 and
+    OVERRIDES (see module docstring); shape_source records the source of
+    SHAPE_COLUMNS."""
+    overrides = pd.read_csv(OVERRIDES, dtype=str, keep_default_na=False)
     overrides = overrides.set_index("kepoi_name").drop(columns="comment")
     if overrides.index.duplicated().any():
-        raise ValueError(f"{ALIASES.name}: duplicate KOI")
+        raise ValueError(f"{OVERRIDES.name}: duplicate KOI")
     missing = overrides.index.difference(lissauer.index)
     if len(missing):
-        raise ValueError(f"{ALIASES.name}: KOIs not in {LISSAUER}: {list(missing)}")
+        raise ValueError(f"{OVERRIDES.name}: KOIs not in {LISSAUER}: {list(missing)}")
+    disp = overrides.get("alderaan_disp", pd.Series(dtype=str))
+    if not disp.isin(["", *set(LISSAUER_DISP.values())]).all():
+        raise ValueError(f"{OVERRIDES.name}: unexpected alderaan_disp")
     merged = lissauer.copy()
-    merged.loc[overrides.index, overrides.columns] = overrides
+
+    def override():
+        for col in overrides.columns:
+            v = overrides.loc[overrides[col] != "", col]
+            merged.loc[v.index, col] = v
+
+    override()  # first, so that DR periods are matched to corrected periods
+    merged["shape_source"] = "lissauer"
+    period = merged["koi_period"].astype(float)
+    for source, t in tables.items():
+        t = t.reindex(merged.index)
+        dr = t[["koi_period", "koi_depth", "koi_duration"]].replace("", np.nan)
+        dr = dr.astype(float)
+        use = (
+            (merged["shape_source"] == "lissauer")
+            & ((dr["koi_period"] / period - 1).abs() < SHAPE_PERIOD_TOL)
+            & (dr["koi_depth"] > 0)
+            & (dr["koi_duration"] > 0)
+        )
+        merged.loc[use, SHAPE_COLUMNS] = t.loc[use, SHAPE_COLUMNS]
+        merged.loc[use, "shape_source"] = source
+    override()
+    shape = overrides[[c for c in SHAPE_COLUMNS if c in overrides]]
+    merged.loc[shape.index[(shape != "").any(axis=1)], "shape_source"] = "override"
     # every KOI needs an ephemeris, depth, and duration
     needed = ["koi_period", "koi_time0bk", "koi_depth", "koi_duration"]
     empty = merged.index[(merged[needed] == "").any(axis=1)]
     if len(empty):
         raise ValueError(f"missing ephemeris, depth, or duration: {list(empty)}")
     return merged.sort_index()
+
+
+def load_berger_2023():
+    """Berger+2023 stellar parameters, indexed by kepid."""
+    t = pd.read_csv(STARS_DIR / BERGER_OUTPUT)
+    if t["id_starname"].duplicated().any():
+        raise ValueError(f"{BERGER_OUTPUT}: duplicate id_starname")
+    t = t[t["id_starname"].str.startswith("kic")]
+    t = t.set_index(t["id_starname"].str.removeprefix("kic"))
+    stars = t[[c.replace("star_", "iso_") for c in STAR_COLUMNS]]
+    stars.columns = STAR_COLUMNS
+    return stars
+
+
+def load_berger_2020():
+    """Berger+2020 stellar parameters, indexed by kepid; rho in solar units."""
+    t = pd.read_csv(STARS_DIR / BERGER_2020, sep="&", usecols=range(19))
+    if t["KIC"].duplicated().any():
+        raise ValueError(f"{BERGER_2020}: duplicate KIC")
+    t = t.set_index(t["KIC"].astype(str))
+    log = t["iso_rho"]
+    t["iso_rho"] = 10**log
+    for s in ["_err1", "_err2"]:
+        t["iso_rho" + s] = 10 ** (log + t["iso_rho" + s]) - t["iso_rho"]
+    stars = t[[c.replace("star_", "iso_") for c in STAR_COLUMNS]]
+    stars.columns = STAR_COLUMNS
+    return stars
+
+
+def load_cks(merged):
+    """CKS stellar parameters, indexed by kepid; logg from Miso and Riso."""
+    rows = {}
+    with open(STARS_DIR / CKS) as f:
+        for line in f:
+            if not line.startswith("K"):
+                continue
+            row = {}
+            for p, fields in CKS_FIELDS.items():
+                v = [float(line[a - 1 : b]) for a, b in fields]
+                row[f"star_{p}"], row[f"star_{p}_err1"] = v[0], v[1]
+                row[f"star_{p}_err2"] = -v[2]  # lower error, positive in the table
+            rows[line[:6]] = row
+    stars = pd.DataFrame.from_dict(rows, orient="index")
+    # no isochrone fit: Miso, Riso, rhoiso are 0
+    iso = ["star_mass", "star_rad", "star_rho"]
+    stars.loc[(stars[iso] == 0).any(axis=1), iso] = np.nan
+    for s in ["", "_err1", "_err2"]:
+        stars["star_rho" + s] /= RHO_SUN
+    m, r = stars["star_mass"], stars["star_rad"]
+    stars["star_logg"] = LOGG_SUN + np.log10(m) - 2 * np.log10(r)
+    # first-order propagation; upper error from the mass upper and radius lower errors
+    for s, o, sign in [("_err1", "_err2", 1), ("_err2", "_err1", -1)]:
+        frac = np.hypot(stars["star_mass" + s] / m, 2 * stars["star_rad" + o] / r)
+        stars["star_logg" + s] = sign * frac / np.log(10)
+    # KOI host star (e.g. K00001) -> kepid
+    host = merged["kepid"].groupby(merged.index.str[:6]).first()
+    missing = stars.index.difference(host.index)
+    if len(missing):
+        raise ValueError(f"{CKS}: KOIs not in {LISSAUER}: {list(missing)}")
+    return stars.set_index(host[stars.index].to_numpy())[STAR_COLUMNS]
+
+
+def load_mathur():
+    """Mathur+2017 stellar parameters, indexed by kepid; rho in solar units."""
+    with open(STARS_DIR / MATHUR) as f:
+        lines = f.readlines()
+    # data follow the last dashed line of the ReadMe
+    start = max(i for i, line in enumerate(lines) if line.startswith("-----")) + 1
+    fields = [(1, 8)] + [ab for v in MATHUR_FIELDS.values() for ab in v]
+    t = pd.read_fwf(
+        STARS_DIR / MATHUR,
+        colspecs=[(a - 1, b) for a, b in fields],
+        names=["kepid", *STAR_COLUMNS],
+        skiprows=start,
+        header=None,
+    )
+    if t["kepid"].duplicated().any():
+        raise ValueError(f"{MATHUR}: duplicate KIC")
+    stars = t.set_index(t["kepid"].astype(str))[STAR_COLUMNS]
+    for p in STAR_PARAMS:
+        stars[f"star_{p}_err2"] *= -1  # lower error, positive in the table
+    for s in ["", "_err1", "_err2"]:
+        stars["star_rho" + s] /= RHO_SUN
+    return stars
+
+
+def dr_stars(table):
+    """Stellar parameters of a DR KOI table, indexed by kepid; rho = M / R^3.
+
+    Solar placeholders (koi_sparprov = Solar) are left out.
+    """
+    t = table[table["koi_sparprov"] != "Solar"]
+    t = t.mask(t == "").drop_duplicates("kepid").set_index("kepid")
+    dr = {
+        "teff": "steff",
+        "logg": "slogg",
+        "feh": "smet",
+        "mass": "smass",
+        "rad": "srad",
+    }
+    stars = pd.DataFrame(index=t.index)
+    for p, c in dr.items():
+        for s in ["", "_err1", "_err2"]:
+            stars[f"star_{p}{s}"] = t[f"koi_{c}{s}"].astype(float)
+    m, r = stars["star_mass"], stars["star_rad"]
+    stars["star_rho"] = m / r**3
+    # first-order propagation; upper error from the mass upper and radius lower errors
+    for s, o, sign in [("_err1", "_err2", 1), ("_err2", "_err1", -1)]:
+        frac = np.hypot(stars["star_mass" + s] / m, 3 * stars["star_rad" + o] / r)
+        stars["star_rho" + s] = sign * stars["star_rho"] * frac
+    return stars[STAR_COLUMNS]
+
+
+def add_stars(merged, tables):
+    """Add stellar parameters (STAR_COLUMNS).
+
+    Each star takes all its parameters from the first source in STAR_SOURCES
+    that has all six values; star_source records it (empty: no source).
+    """
+    sources = {
+        "berger2023": load_berger_2023(),
+        "berger2020": load_berger_2020(),
+        "cks": load_cks(merged),
+        "dr25": dr_stars(tables["dr25"].reset_index()),
+        "mathur2017": load_mathur(),
+    }
+    assert list(sources) == STAR_SOURCES
+    kepid = merged["kepid"]
+    merged["star_source"] = ""
+    for col in STAR_COLUMNS:
+        merged[col] = np.nan
+    for name, stars in sources.items():
+        values = stars.dropna(subset=[f"star_{p}" for p in STAR_PARAMS])
+        use = (merged["star_source"] == "") & kepid.isin(values.index)
+        merged.loc[use, STAR_COLUMNS] = values.loc[kepid[use], STAR_COLUMNS].to_numpy()
+        merged.loc[use, "star_source"] = name
 
 
 def koi_name(number):
@@ -308,6 +567,7 @@ def write_report(tables, lissauer, merged, kepid_rows, alias_rows, param_rows, c
             [t.index.to_series() for t in tables.values()]
         ).value_counts()
     )
+    out = merged[merged["alderaan_disp"] != "FP"]  # rows of OUTPUT
     lines = [
         "# Kepler KOI catalog merge",
         "",
@@ -319,9 +579,30 @@ def write_report(tables, lissauer, merged, kepid_rows, alias_rows, param_rows, c
         "- Input: Lissauer+2024 "
         + f"{len(lissauer)}, "
         + ", ".join(f"{s.upper()} {len(t)}" for s, t in tables.items()),
-        f"- Output: `{OUTPUT.relative_to(ROOT)}`, {len(merged)} KOIs; values from",
-        f"  Lissauer+2024, ephemerides overridden by `{ALIASES.relative_to(ROOT)}`",
+        f"- Output: `{OUTPUT.relative_to(ROOT)}`, {len(out)} KOIs (FP dropped);",
+        "  values from Lissauer+2024, corrections from",
+        f"  `{OVERRIDES.relative_to(ROOT)}`",
+        "- Source of output depth, duration, impact: "
+        + ", ".join(
+            f"{s.upper()} {(out['shape_source'] == s).sum()}"
+            for s in [*CATALOGS, "lissauer", "override"]
+        )
+        + "; zero depth or duration: "
+        + (
+            ", ".join(
+                out.index[
+                    (out["koi_depth"].astype(float) == 0)
+                    | (out["koi_duration"].astype(float) == 0)
+                ]
+            )
+            or "none"
+        ),
         f"- KOIs in more than one DR catalog: {n_multi}",
+        f"- Output stars: {out['kepid'].nunique()}; source of stellar parameters: "
+        + ", ".join(
+            f"{s or 'none'} {out.loc[out['star_source'] == s, 'kepid'].nunique()}"
+            for s in [*STAR_SOURCES, ""]
+        ),
         "",
         "Each DR entry of a KOI is compared with its Lissauer+2024 entry. A",
         "difference is reported only if it exceeds both a fractional",
@@ -357,7 +638,7 @@ def write_report(tables, lissauer, merged, kepid_rows, alias_rows, param_rows, c
         f"DR period within {ALIAS_TOL:g} of 2, 3, 4, 5 or 1/2, 1/3, 1/4, 1/5 times the",
         "Lissauer+2024 period. Other parameters are not compared for these",
         "entries. The output period is the Lissauer+2024 period, except where",
-        f"`{ALIASES.relative_to(ROOT)}` overrides the ephemeris (sources in its",
+        f"`{OVERRIDES.relative_to(ROOT)}` overrides the ephemeris (sources in its",
         "`comment` column).",
         "",
         "| KOI | aliased catalogs | Lissauer period | output period |",
@@ -429,18 +710,35 @@ def write_report(tables, lissauer, merged, kepid_rows, alias_rows, param_rows, c
     REPORT.write_text("\n".join(lines) + "\n\n" + manual)
 
 
+def output_catalog(merged):
+    """The output catalog (OUTPUT_COLUMNS): PC and A KOIs, sorted by KOI."""
+    out = merged[merged["alderaan_disp"] != "FP"].reset_index(names="kepoi_name")
+    out["koi_id"] = out["kepoi_name"].str[:6]
+    out["npl"] = out.groupby("koi_id")["kepoi_name"].transform("size")
+    rho = out["star_rho"]
+    out["logrho"] = np.log10(rho)
+    for s in ["_err1", "_err2"]:
+        out["logrho" + s] = np.log10(rho + out["star_rho" + s]) - out["logrho"]
+    out["limbdark_1"] = out["limbdark_2"] = np.nan
+    # computed values to 3 decimals; others as in their source tables
+    computed = [c for c in out.columns if c.startswith(("star_", "logrho"))]
+    out[computed] = out[computed].round(3)
+    out = out[[col for _, col in OUTPUT_COLUMNS]]
+    out.columns = [name for name, _ in OUTPUT_COLUMNS]
+    return out.sort_values("planet_name").reset_index(drop=True)
+
+
 def main():
     tables, header = load_catalogs()
     lissauer, status = load_lissauer(header)
     kepid_rows, alias_rows, param_rows = compare(tables, lissauer)
-    merged = merge(lissauer)
-    changes = designate(merged, status)
-    # DR columns that Lissauer+2024 provides
-    columns = [c for c in header if c in LISSAUER_TO_DR or c == "kepoi_name"]
-    columns += ["alderaan_disp"]
-    merged.reset_index(names="kepoi_name")[columns].to_csv(OUTPUT, index=False)
+    changes = designate(lissauer, status)
+    merged = merge(lissauer, tables)
+    add_stars(merged, tables)
+    output = output_catalog(merged)
+    output.to_csv(OUTPUT)
     write_report(tables, lissauer, merged, kepid_rows, alias_rows, param_rows, changes)
-    print(f"wrote {OUTPUT.relative_to(ROOT)} ({len(merged)} KOIs)")
+    print(f"wrote {OUTPUT.relative_to(ROOT)} ({len(output)} KOIs)")
     print(f"wrote {REPORT.relative_to(ROOT)}")
 
 
