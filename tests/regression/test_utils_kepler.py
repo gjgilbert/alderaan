@@ -26,11 +26,11 @@ CATALOG_DIR = Path(__file__).resolve().parents[1] / "catalogs"
 TARGET = "K00137"
 KIC_ID = 8644288
 
-KOI_CSV = str(CATALOG_DIR / "kepler_dr25_gaia_dr2_crossmatch.csv")
+KOI_CSV = str(CATALOG_DIR / "kepler_merged_alderaan.csv")
 HOLCZER_TXT = str(CATALOG_DIR / "holczer_2016_kepler_ttvs.txt")
 
 # Kepler-18 d, b, c in ascending period
-K00137_PERIODS = [3.504691252, 7.641567589, 14.85890852]
+K00137_PERIODS = [3.50471620, 7.64156004, 14.85892272]
 
 
 class TestParseKoiCatalog:
@@ -44,13 +44,28 @@ class TestParseKoiCatalog:
         npt.assert_allclose(catalog.depth[1], 2269.7e-6)
         npt.assert_allclose(catalog.duration[1], 3.41018 / 24)
 
+    def test_blank_limb_darkening_allowed(self, tmp_path):
+        rows = pd.read_csv(KOI_CSV, index_col=0)
+        rows = rows[rows.koi_id == TARGET].copy()
+        rows[["limbdark_1", "limbdark_2"]] = np.nan
+        path = tmp_path / "koi.csv"
+        rows.to_csv(path)
+
+        catalog = parse_koi_catalog(str(path), TARGET)
+        assert catalog.limbdark_1.isna().all() and catalog.limbdark_2.isna().all()
+
+        rows.iloc[0, rows.columns.get_loc("limbdark_1")] = 0.4
+        rows.to_csv(path)
+        with pytest.raises(ValueError, match="inconsistent limbdark_1"):
+            parse_koi_catalog(str(path), TARGET)
+
     def test_unknown_koi_raises(self):
         with pytest.raises(ValueError, match="K99999 not found"):
             parse_koi_catalog(KOI_CSV, "K99999")
 
 
 def _planet(period, epoch, t_min, t_max):
-    p = Planet("Kepler", "SYN", period, epoch, 1e-3, 0.1, 0.3)
+    p = Planet("Kepler", "SYN", period, epoch, 1e-3, 0.1)
     p.set_transit_times(
         TransitTimes.from_linear_ephemeris("Kepler", "SYN", period, epoch, t_min, t_max)
     )

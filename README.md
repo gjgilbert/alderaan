@@ -42,7 +42,7 @@ Required flags:
 * `--run_id`: run identifier; outputs of different runs never mix, so a rerun needs a new run_id
 * `--input_dir`: directory of MAST photometry downloads (`kplr*_llc.fits`)
 * `--output_dir`: directory for outputs
-* `--catalog_dir`: directory holding `kepler_dr25_gaia_dr2_crossmatch.csv` and `holczer_2016_kepler_ttvs.txt`
+* `--catalog_dir`: directory holding `kepler_merged_alderaan.csv` (from `scripts/merge_kepler.py`) and `holczer_2016_kepler_ttvs.txt`
 
 Optional flags: `--visits` (Kepler quarters to load; default all) and `--log_level` (console level; the log file always records DEBUG).
 

@@ -44,7 +44,7 @@ def _synthetic_system(seed=0):
 
     star = Star("Kepler", "SYN", 1.01, 1, U1, U2)
     planet = Planet(
-        "Kepler", "SYN", PERIOD, EPOCH, approx_transit_depth(ROR, IMPACT), T14, IMPACT
+        "Kepler", "SYN", PERIOD, EPOCH, approx_transit_depth(ROR, IMPACT), T14
     )
     planet.set_transit_shape(planet.depth, T14, IMPACT, ROR)
     planet.set_transit_times(

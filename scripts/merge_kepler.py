@@ -1,7 +1,7 @@
 """Make one Kepler KOI catalog from Lissauer+2024 and the DR22, DR24, DR25 tables.
 
 The KOIs and values are those of Lissauer+2024 (Table 1), converted to DR
-columns (LISSAUER_TO_DR). Depth, duration, and impact (SHAPE_COLUMNS) are from
+columns (LISSAUER_TO_DR). Depth and duration (SHAPE_COLUMNS) are from
 the first of DR25 > DR24 > DR22 with the same period (within SHAPE_PERIOD_TOL)
 and positive depth and duration; else from Lissauer+2024. Non-empty values in
 OVERRIDES (manual corrections, with reasons) replace all of these. False
@@ -20,15 +20,17 @@ Stellar parameters (Teff [K], logg [cgs], [Fe/H], mass, radius, density) are
 all from the first source with all six values: Berger+2023 > Berger+2020 >
 CKS (Fulton & Petigura 2018) > DR25 > Mathur+2017 (STAR_SOURCES).
 
-The output has the columns of the ALDERAAN KOI catalog (OUTPUT_COLUMNS; see
-tests/catalogs/kepler_dr25_gaia_dr2_crossmatch.csv), without ror and dor:
+The output is the ALDERAAN KOI catalog read by load_kepler_data
+(OUTPUT_COLUMNS):
     disposition  alderaan_disp
     koi_id       KOI host star (e.g. K00001); npl = number of output KOIs on it
     logrho       log10(density / solar density)
     limbdark_*   quadratic limb darkening (u1, u2), Kepler band, from ldtk
                  (PHOENIX spectra) for the star's Teff, logg, [Fe/H]; one
                  fit per star, with parameter samples seeded by kic_id;
-                 empty without stellar parameters
+                 empty without stellar parameters or cached spectra, for
+                 Teff < 2300 K, Teff >= 12000 K, or logg < 3.0, or if the
+                 fit failed or is unphysical (see limbdark)
     snr          koi_model_snr (Lissauer+2024)
 
 Usage (from the repo root):
@@ -130,11 +132,9 @@ LISSAUER_TO_DR = {
     "koi_smet_err2": (540, 544, "-"),
 }
 LISSAUER_T0_OFFSET = 67  # Lissauer T0 (BJD - 2454900) -> koi_time0bk (BJD - 2454833)
-# depth, duration, impact: from a DR catalog with the same period (see merge)
+# depth, duration: from a DR catalog with the same period (see merge)
 SHAPE_COLUMNS = [
-    c + s
-    for c in ["koi_depth", "koi_duration", "koi_impact"]
-    for s in ["", "_err1", "_err2"]
+    c + s for c in ["koi_depth", "koi_duration"] for s in ["", "_err1", "_err2"]
 ]
 SHAPE_PERIOD_TOL = 0.01  # fractional; excludes period aliases
 # manual corrections of catalog values (empty: not corrected), with reasons
@@ -198,7 +198,6 @@ OUTPUT_COLUMNS = [
             ("epoch", "koi_time0bk"),
             ("depth", "koi_depth"),
             ("duration", "koi_duration"),
-            ("impact", "koi_impact"),
         ]
         for s in ["", "_err1", "_err2"]
     ],
@@ -586,7 +585,7 @@ def write_report(tables, lissauer, merged, kepid_rows, alias_rows, param_rows, c
         f"- Output: `{OUTPUT.relative_to(ROOT)}`, {len(out)} KOIs (FP dropped);",
         "  values from Lissauer+2024, corrections from",
         f"  `{OVERRIDES.relative_to(ROOT)}`",
-        "- Source of output depth, duration, impact: "
+        "- Source of output depth, duration: "
         + ", ".join(
             f"{s.upper()} {(out['shape_source'] == s).sum()}"
             for s in [*CATALOGS, "lissauer", "override"]
@@ -719,13 +718,22 @@ def limbdark(stars, nsamples=100):
 
     ldtk interpolates PHOENIX intensity profiles at Teff, logg, [Fe/H] samples
     drawn from normal distributions (sigma = mean of |err1| and |err2|) and
-    fits the quadratic law to their mean profile. Uses only the local ldtk cache;
-    NaN without stellar parameters or without the cached spectra (listed).
+    fits the quadratic law to their mean profile (diagonal likelihood). Uses only
+    the local ldtk cache. NaN (listed) without stellar parameters, without the
+    cached spectra, outside 2300 K <= Teff < 12000 K (the PHOENIX grid) and
+    logg >= 3.0, if the fit failed (non-finite errors; ldtk then returns its
+    starting point), or if the fit (to 3 decimals, as written) is unphysical
+    (Kipping 2013: u1 > 0, u1 + u2 < 1, u1 + 2 u2 > 0). Below logg = 3
+    spherical and plane-parallel atmospheres diverge and two-parameter laws fit
+    poorly (Neilson & Lester 2013).
     """
     ld = pd.DataFrame(np.nan, index=stars.index, columns=["u1", "u2"])
     params = ["star_teff", "star_logg", "star_feh"]
-    uncached = []
+    uncached, excluded, failed, unphysical = [], [], [], []
     for kepid, r in stars.dropna(subset=params).iterrows():
+        if not 2300 <= r["star_teff"] < 12000 or r["star_logg"] < 3.0:
+            excluded.append(r["koi_id"])
+            continue
         teff, logg, feh = [
             (r[f"star_{p}"], (r[f"star_{p}_err1"] - r[f"star_{p}_err2"]) / 2)
             for p in ["teff", "logg", "feh"]
@@ -743,9 +751,24 @@ def limbdark(stars, nsamples=100):
             teff=rng.normal(*teff, nsamples),
             logg=rng.normal(*logg, nsamples),
             metal=rng.normal(*feh, nsamples),
+            # ldtk 1.9 default (reduced-rank) gives unphysical fits for giants
+            likelihood="diagonal",
         )
-        coeffs, _ = profiles.coeffs_qd()
-        ld.loc[kepid] = coeffs[0]
+        coeffs, errors = profiles.coeffs_qd()
+        if not np.all(np.isfinite(errors[0])):
+            failed.append(r["koi_id"])
+            continue
+        u1, u2 = np.round(coeffs[0], 3)
+        if not (u1 > 0 and u1 + u2 < 1 and u1 + 2 * u2 > 0):
+            unphysical.append(r["koi_id"])
+            continue
+        ld.loc[kepid] = u1, u2
+    print(
+        "no limb darkening, Teff < 2300 K, Teff >= 12000 K, or logg < 3.0: "
+        f"{len(excluded)} stars"
+    )
+    print(f"no limb darkening, fit failed ({len(failed)}): {failed}")
+    print(f"no limb darkening, unphysical fit ({len(unphysical)}): {unphysical}")
     print(f"no limb darkening, spectra not cached ({len(uncached)}): {uncached}")
     return ld
 

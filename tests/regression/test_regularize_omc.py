@@ -36,7 +36,7 @@ def _system(ntransit=140, outliers=(), missing=(), seed=11):
         ttime_obs[i] = np.nan
         ttime_err[i] = np.nan
 
-    p = Planet("Kepler", "SYN", PERIOD, EPOCH, 1e-3, 0.15, 0.3)
+    p = Planet("Kepler", "SYN", PERIOD, EPOCH, 1e-3, 0.15)
     # unmeasured transits start on the linear ephemeris
     ttime_mod = np.where(np.isfinite(ttime_obs), ttime_obs, linear)
     p.set_transit_times(
@@ -707,7 +707,7 @@ class TestSelectMatern32Gate:
         # modeled times of the unmeasured transits set the linear ephemeris
         ttime_mod = ttime_obs.copy()
         ttime_mod[[9, 11, 19, 21]] = [682.185284, 804.452014, 1292.91796, 1415.18586]
-        planets[0] = Planet("Kepler", "SYN", 61.08, 132.49, 1e-3, 0.15, 0.3)
+        planets[0] = Planet("Kepler", "SYN", 61.08, 132.49, 1e-3, 0.15)
         planets[0].set_transit_times(
             TransitTimes(
                 "Kepler",

@@ -79,7 +79,6 @@ def _synthetic_system(seed=0):
         EPOCH,
         approx_transit_depth(ROR, IMPACT),
         T14,
-        IMPACT,
     )
     planet.set_transit_times(
         TransitTimes("Kepler", "SYN", index, EPOCH + PERIOD * index)

@@ -20,8 +20,6 @@ class Planet:
         transit depth (fraction)
     duration : float
         transit duration (days)
-    impact : float
-        impact parameter
 
     Notes
     -----
@@ -29,14 +27,14 @@ class Planet:
     linear ephemeris fit to those transit times
     """
 
-    def __init__(self, mission, target, period, epoch, depth, duration, impact):
+    def __init__(self, mission, target, period, epoch, depth, duration):
         self.mission = mission
         self.target = target
         self._period = period
         self._epoch = epoch
         self.depth = depth
         self.duration = duration
-        self.impact = impact
+        self.impact = None  # set with ror by set_transit_shape
         self.ror = None
 
         self.transit_times = None

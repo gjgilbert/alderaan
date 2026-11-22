@@ -303,17 +303,17 @@ class TransitModel:
 
     def ln_likelihood(self, theta):
         """
-        Gaussian log-likelihood of theta, plus a prior tying limb darkening to the
-        star's (u1, u2); returns -1e300 where the result is not finite
+        Gaussian log-likelihood of theta, plus (if star.ld_prior) a Gaussian
+        prior of width 0.1 tying limb darkening to the star's (u1, u2); returns
+        -1e300 where the result is not finite
         """
         lnlike = -0.5 * np.sum(self.residuals(theta) ** 2)
 
-        # enforce prior on physical limb darkening (see Kipping 2013)
-        u1, u2 = ld_q_to_u(theta[-2], theta[-1])
-
-        sig_ld_sq = 0.01
-        lnlike -= 1.0 / (2 * sig_ld_sq) * (u1 - self.star.u1) ** 2
-        lnlike -= 1.0 / (2 * sig_ld_sq) * (u2 - self.star.u2) ** 2
+        if self.star.ld_prior:
+            u1, u2 = ld_q_to_u(theta[-2], theta[-1])
+            sig_ld_sq = 0.01
+            lnlike -= 1.0 / (2 * sig_ld_sq) * (u1 - self.star.u1) ** 2
+            lnlike -= 1.0 / (2 * sig_ld_sq) * (u2 - self.star.u2) ** 2
 
         if not np.isfinite(lnlike):
             return -1e300

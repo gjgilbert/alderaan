@@ -26,7 +26,7 @@ def parse_koi_catalog(filepath, koi_id):
     Read a Kepler Object of Interest catalog and perform consistency checks
 
     Expected columns include
-        [kic_id, koi_id, npl, period, epoch, depth, duration, impact,
+        [kic_id, koi_id, npl, period, epoch, depth, duration,
          limbdark_1, limbdark_2]
 
     Parameters
@@ -52,10 +52,12 @@ def parse_koi_catalog(filepath, koi_id):
     # sort by ascending period
     catalog = catalog.sort_values(by="period").reset_index(drop=True)
 
-    # check for consistency in multi-planet systems
+    # check for consistency in multi-planet systems (limb darkening may be blank)
     for col in ("kic_id", "npl", "limbdark_1", "limbdark_2"):
-        if (catalog[col] != catalog[col][0]).any():
+        if catalog[col].nunique(dropna=False) > 1:
             raise ValueError(f"{koi_id}: inconsistent {col} across rows in {filepath}")
+    if catalog.limbdark_1.isna()[0] != catalog.limbdark_2.isna()[0]:
+        raise ValueError(f"{koi_id}: only one of limbdark_1, limbdark_2 in {filepath}")
 
     if catalog.npl[0] != len(catalog):
         raise ValueError(
@@ -66,7 +68,7 @@ def parse_koi_catalog(filepath, koi_id):
         raise ValueError(f"{koi_id}: duplicate periods in {filepath}")
 
     # check for NaN valued transit parameters
-    params = catalog["period epoch depth duration impact".split()]
+    params = catalog["period epoch depth duration".split()]
     if params.isna().any().any():
         raise ValueError(
             f"{koi_id}: NaN values in columns "
@@ -285,19 +287,24 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
     litecurve : LiteCurve
         raw litecurve, all visits concatenated
     """
-    koi_filepath = os.path.join(catalog_dir, "kepler_dr25_gaia_dr2_crossmatch.csv")
+    koi_filepath = os.path.join(catalog_dir, "kepler_merged_alderaan.csv")
     ttv_filepath = os.path.join(catalog_dir, "holczer_2016_kepler_ttvs.txt")
 
     # load KOI catalog
     catalog = parse_koi_catalog(koi_filepath, target)
 
+    # blank catalog limb darkening: start from a roughly solar Kepler-band
+    # value and sample limb darkening without a prior
+    ld_prior = bool(np.isfinite(catalog.limbdark_1[0]))
+    u1, u2 = (catalog.limbdark_1[0], catalog.limbdark_2[0]) if ld_prior else (0.4, 0.25)
     star = Star(
         "Kepler",
         target,
         catalog.koi_id[0],
         int(catalog.kic_id[0]),
-        catalog.limbdark_1[0],
-        catalog.limbdark_2[0],
+        u1,
+        u2,
+        ld_prior=ld_prior,
     )
 
     # load lightcurves
@@ -332,7 +339,6 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
             row.epoch,
             row.depth,
             row.duration,
-            row.impact,
         )
         p.set_transit_times(
             TransitTimes.from_linear_ephemeris(
@@ -358,18 +364,25 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
             )
         logger.info(
             "planet %d (catalog): P = %.6f d, epoch = %.5f BKJD, depth = %.0f ppm, "
-            "T14 = %.2f hr, b = %.2f; %d transits, %d with Holczer+2016 times",
+            "T14 = %.2f hr; %d transits, %d with Holczer+2016 times",
             n,
             p.period,
             p.epoch,
             p.depth * 1e6,
             p.duration * 24,
-            p.impact,
             n_after,
             np.sum(np.isfinite(p.transit_times.ttime_err)),
         )
 
-    logger.info("star: u1 = %.3f, u2 = %.3f (catalog)", star.u1, star.u2)
+    if star.ld_prior:
+        logger.info("star: u1 = %.3f, u2 = %.3f (catalog)", star.u1, star.u2)
+    else:
+        logger.warning(
+            "star: no catalog limb darkening; u1 = %.3f, u2 = %.3f (default) fixed "
+            "in the quick fits, sampled without a prior",
+            star.u1,
+            star.u2,
+        )
     logger.info(
         "loaded %s: %d planets, quarters %s, %d cadences",
         target,

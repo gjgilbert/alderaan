@@ -48,7 +48,6 @@ def _synthetic_system(truth, depth_scale=1.3, duration_scale=1.2, seed=0):
             epoch,
             depth_scale * approx_transit_depth(ror, impact),
             duration_scale * T14,
-            0.5,
         )
         p.set_transit_times(
             TransitTimes("Kepler", "SYN", index, epoch + period * index)

@@ -61,7 +61,6 @@ def _synthetic_system(truth, seed=0, noise=NOISE, obsmode=LC):
             epoch,
             approx_transit_depth(ror, impact),
             T14,
-            impact,
         )
         p.set_transit_shape(approx_transit_depth(ror, impact), T14, impact, ror)
         p.set_transit_times(TransitTimes("Kepler", "SYN", index, linear))
