@@ -138,8 +138,18 @@ class LiteCurve:
             header = fits.getheader(mf)
             if header["OBSMODE"] == obsmode and np.isin(header["QUARTER"], visits):
                 # read from an open HDUList; lk.read(path) leaves the file open
+                # lightkurve removes cadences flagged by the Kepler project
+                # pipeline (default bitmask)
                 with fits.open(mf) as hdul:
-                    raw.append(lk.KeplerLightCurve.read(hdul, format="kepler"))
+                    lkc = lk.KeplerLightCurve.read(hdul, format="kepler")
+                    logger.info(
+                        "Q%d: removed %d of %d cadences with Kepler quality flags "
+                        "(default bitmask)",
+                        header["QUARTER"],
+                        len(hdul[1].data) - len(lkc.time),
+                        len(hdul[1].data),
+                    )
+                raw.append(lkc)
             else:
                 logger.debug(
                     "skipped %s (OBSMODE = %s, QUARTER = %d not requested)",
@@ -180,26 +190,16 @@ class LiteCurve:
 
         lklc = lk.LightCurveCollection(quarters).stitch()
 
-        # remove cadences flagged by Kepler project pipeline
-        qmask = lk.KeplerQualityFlags.create_quality_mask(
-            lklc.quality.value, bitmask="default"
-        )
-        logger.info(
-            "removed %d of %d cadences with Kepler quality flags (default bitmask)",
-            np.sum(~qmask),
-            len(qmask),
-        )
-
         # span (t_start, t_end) is that of the quality-filtered cadences
         return cls(
             "Kepler",
             target,
-            time=lklc.time.value[qmask],
-            flux=lklc.flux.value[qmask],
-            error=lklc.flux_err.value[qmask],
-            cadno=lklc.cadenceno.value[qmask],
-            visit=np.asarray(lklc.quarter)[qmask],
-            obsmode=np.full(np.sum(qmask), obsmode),
+            time=lklc.time.value,
+            flux=lklc.flux.value,
+            error=lklc.flux_err.value,
+            cadno=lklc.cadenceno.value,
+            visit=np.asarray(lklc.quarter),
+            obsmode=np.full(len(lklc.time), obsmode),
         )
 
     def select(self, mask):
@@ -318,7 +318,5 @@ class LiteCurve:
         if new_figure:
             ax.figure.tight_layout()
         save_and_close(ax.figure, fig_path, close=new_figure)
-
-        return ax.figure
 
         return ax.figure

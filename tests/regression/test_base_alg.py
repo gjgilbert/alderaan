@@ -146,6 +146,18 @@ class TestMakeTransitMask:
         mask = alg.make_transit_mask(time=np.array([7.0, 7.3]), rel_size=2.0)
         np.testing.assert_array_equal(mask, [False, True])
 
+    @pytest.mark.parametrize("flag", ["phot_coverage", "phot_noise"])
+    def test_phot_only_skips_transits_with_bad_photometry(self, flag):
+        # transits at 2, 7, 12; the transit at 7 has bad photometry
+        alg = self._alg()
+        getattr(alg.planets[0].transit_times, flag)[1] = False
+        time = np.array([2.0, 7.0, 12.0])
+        np.testing.assert_array_equal(
+            alg.make_transit_mask(time=time, rel_size=2.0, phot_only=True),
+            [True, False, True],
+        )
+        assert np.all(alg.make_transit_mask(time=time, rel_size=2.0))
+
     def test_masks_every_transit_of_every_planet(self):
         planets = [_planet(5.0, 2.0, 0.1), _planet(7.0, 4.5, 0.2, ntransit=7)]
         alg = BaseAlg(_star(), planets, _litecurve())

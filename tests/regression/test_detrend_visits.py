@@ -4,9 +4,8 @@ Tests for alderaan/algorithms/detrend_visits.py
 Fast tier: segment identification, GP trend model (mean function ramp origin,
 finite log posterior, no RotationTerm timescale collapse), single-visit ACF
 periodicity test, star-level kernel choice and nominal period, method check,
-GP fallback chains.
-Slow tier: GP detrending of a synthetic two-visit litecurve with a slow stellar
-trend, a data gap, and injected transits.
+GP fallback chains, and GP detrending of a synthetic two-visit litecurve with a
+slow stellar trend, a data gap, and injected transits. No slow tier.
 """
 
 import copy
@@ -386,7 +385,6 @@ class TestPerform:
             alg.perform(method="wide_mask")
         assert tried == chain
 
-    @pytest.mark.slow
     @pytest.mark.parametrize("method", ["wide_mask", "tight_mask"])
     def test_removes_trend_and_preserves_transits(self, method):
         star, planets, litecurve, clean = _synthetic_system()

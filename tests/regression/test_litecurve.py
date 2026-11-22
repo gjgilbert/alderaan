@@ -175,8 +175,10 @@ class TestFromKplrPdcsap:
         assert len(flagged) > 0
         assert not np.any(np.isin(kplr_lc.cadno, flagged))
 
-    def test_missing_obsmode_fails(self):
-        with pytest.raises(FileNotFoundError, match="short cadence"):
-            LiteCurve.from_kplr_pdcsap(
-                str(DATA_DIR), TARGET, KIC_ID, "short cadence", visits=VISITS
-            )
+
+def test_missing_obsmode_fails():
+    # reads FITS headers only, so fast
+    with pytest.raises(FileNotFoundError, match="short cadence"):
+        LiteCurve.from_kplr_pdcsap(
+            str(DATA_DIR), TARGET, KIC_ID, "short cadence", visits=VISITS
+        )

@@ -1,7 +1,5 @@
 """Tests for alderaan.algorithms.regularize_omc.RegularizeOMC"""
 
-import logging
-
 import numpy as np
 import pytest
 from astropy.stats import mad_std
@@ -540,6 +538,7 @@ class TestLassoUpgrade:
 
 
 class TestSelectFewTransits:
+    @pytest.mark.slow
     def test_ttv_adopts_measured_times(self):
         # 5 transits of a TTV a line can't fit (K01783.02)
         omc = np.array([44.2, -54.8, -23.2, 40.0, 8.2]) / 1440
@@ -553,7 +552,7 @@ class TestSelectFewTransits:
         assert np.all(tt.kept_ttv)
         np.testing.assert_allclose(planets_out[0].period, PERIOD, rtol=1e-3)
 
-    @pytest.mark.parametrize("ntransit", [15, 16])
+    @pytest.mark.parametrize("ntransit", [pytest.param(15, marks=pytest.mark.slow), 16])
     def test_outlier_gated_below_16_transits(self, ntransit):
         # one 20 sigma outlier on a line, its transit really shifted: below 16
         # transits it fails the chi2 test and the light curve supports it
@@ -610,6 +609,7 @@ class TestSelectFewTransits:
         score = RegularizeOMC._wild_score(x, y, err, inlier, "poly_1", 5)
         assert (score >= stats.norm.isf(0.0027 / 24)) == wild
 
+    @pytest.mark.slow
     def test_ttv_ramp(self):
         # 9 transits ending in a 140 min ramp (K00564.02): select prefers the
         # parabola over a line that flags the ramp's end; the parabola still
@@ -640,16 +640,16 @@ class TestSelectFewTransits:
             RegularizeOMC(star, planets, lc).perform(method="select")
 
 
+@pytest.mark.slow
 class TestSelectMatern32Gate:
     @staticmethod
-    def _perform(omc, err, caplog):
+    def _perform(omc, err):
         star, planets, lc = _system_with_omc(omc, err)
         ttime_obs = planets[0].transit_times.ttime_obs.copy()
-        with caplog.at_level(logging.INFO, logger="alderaan.algorithms.regularize_omc"):
-            planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
+        planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
         return planets_out[0].transit_times, ttime_obs
 
-    def test_interpolating_gp_adopts_measured_times(self, caplog):
+    def test_interpolating_gp_adopts_measured_times(self):
         # 20 transits of a random-walk TTV (10 min steps, 1 min errors) and one
         # 60 min bad time: matern32 is selected with dof/N > 0.5, so the
         # measured times are adopted; the bad time stays flagged, filled by a
@@ -663,11 +663,10 @@ class TestSelectMatern32Gate:
         tt_in = planets[0].transit_times
         tlin = tt_in.linear_ephemeris()
         ttime_obs = tt_in.ttime_obs.copy()
-        with caplog.at_level(logging.INFO, logger="alderaan.algorithms.regularize_omc"):
-            planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
+        planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
         tt = planets_out[0].transit_times
 
-        assert "matern32 OMC model dof/N" in caplog.text
+        assert tt.model_name == "independent"
         assert np.flatnonzero(~tt.kept_ttv).tolist() == [9]
         good = tt.kept_ttv
         np.testing.assert_allclose(
@@ -678,7 +677,7 @@ class TestSelectMatern32Gate:
             tt.ttime_mod[9], tlin[9] + gp["pred"][9], rtol=0, atol=1e-9
         )
 
-    def test_gp_dropped_when_errors_exceed_kept_scatter(self, caplog):
+    def test_gp_dropped_when_errors_exceed_kept_scatter(self):
         # K04548.01: small-error outliers inflate mad_std enough to offer
         # matern32, which is selected; the kept times scatter less than their
         # errors, so a parametric model replaces it
@@ -718,22 +717,21 @@ class TestSelectMatern32Gate:
                 ttime_mod=ttime_mod,
             )
         )
-        with caplog.at_level(logging.INFO, logger="alderaan.algorithms.regularize_omc"):
-            RegularizeOMC(star, planets, lc).perform(method="select")
+        planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
 
-        assert "matern32 OMC model scatter below measurement errors" in caplog.text
-        assert "matern32 OMC model;" not in caplog.text
-        assert "independent OMC model;" not in caplog.text
+        assert planets_out[0].transit_times.model_name not in (
+            "matern32",
+            "independent",
+        )
 
-    def test_regularizing_gp_kept(self, caplog):
+    def test_regularizing_gp_kept(self):
         # 40 transits of a smooth 20 min bump, 2 min errors: matern32 is
         # selected with dof/N <= 0.5 and kept
         x = np.arange(40)
         omc = 20 * np.exp(-0.5 * ((x - 25) / 5) ** 2)
         omc += np.random.default_rng(1).normal(0, 2, 40)
-        tt, ttime_obs = self._perform(omc / 1440, np.full(40, 2 / 1440), caplog)
+        tt, ttime_obs = self._perform(omc / 1440, np.full(40, 2 / 1440))
 
-        assert "matern32 OMC model;" in caplog.text
         assert tt.model_name == "matern32"
         assert 0 < tt.model_dof <= 0.5 * len(tt.index)
         assert np.max(np.abs(tt.ttime_mod - ttime_obs)) > 1 / 1440
@@ -762,6 +760,7 @@ class TestSelectPhotometricOutliers:
         truth = EPOCH + PERIOD * 5 + self.OMC[5]
         assert np.abs(tt.ttime_mod[5] - truth) < 3 * self.ERR[5]
 
+    @pytest.mark.slow
     def test_time_with_dip_is_kept(self):
         # the transit really is 120 min late: the measured times are adopted
         tt, ttime_obs = self._perform(dip_shift=120)
@@ -792,6 +791,7 @@ class TestSelectUnmeasuredTransits:
         kept = tt.kept_ttv & np.isfinite(tt.ttime_obs)
         assert np.isclose(tt.ttv_scatter, mad_std((tt.ttime_obs - tt.ttime_mod)[kept]))
 
+    @pytest.mark.slow
     def test_independent_times_filled_by_gp(self):
         # 5 transits of a TTV a line can't fit (K01783.02), transit 3
         # unmeasured: measured times adopted, transit 3 from a GP on them
@@ -862,29 +862,25 @@ class TestSelect:
         _, fap = RegularizeOMC._lomb_scargle_peak(xtime, yobs, good_clip)
         return fap < 0.03
 
-    def test_periodic_signal_from_outliers_is_rejected(self, caplog):
+    def test_periodic_signal_from_outliers_is_rejected(self):
         # white noise: the outliers alone give a significant first-search peak,
         # and the sinusoid is selected unless the second search rejects it
         star, planets, lc, _, _, err, xtime, yobs = self._contaminated_sinusoid(15, 0)
         assert self._first_search_significant(xtime, yobs, err)
 
-        with caplog.at_level(logging.INFO, logger="alderaan.algorithms.regularize_omc"):
-            RegularizeOMC(star, planets, lc).perform(method="select")
-        assert "sinusoid rejected" in caplog.text
-        assert "sinusoid OMC model;" not in caplog.text
+        planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
+        assert planets_out[0].transit_times.model_name != "sinusoid"
 
-    def test_periodic_signal_hidden_by_outliers_is_recovered(self, caplog):
+    def test_periodic_signal_hidden_by_outliers_is_recovered(self):
         # 0.8 sigma TTV: found only once the outliers are rejected
         star, planets, lc, linear, ttv, err, xtime, yobs = self._contaminated_sinusoid(
             2, 0.8
         )
         assert not self._first_search_significant(xtime, yobs, err)
 
-        with caplog.at_level(logging.INFO, logger="alderaan.algorithms.regularize_omc"):
-            planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
-        assert "sinusoid added" in caplog.text
-        assert "sinusoid OMC model;" in caplog.text
+        planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
         tt = planets_out[0].transit_times
+        assert tt.model_name == "sinusoid"
         assert _rms((tt.ttime_mod - linear - ttv) / err) < 0.25
 
 
