@@ -195,6 +195,9 @@ def bin_data(time, data, binsize, bin_centers=None):
     -------
     bin_centers : ndarray
     binned_data : ndarray
+        mean of data in each bin
+    binned_error : ndarray
+        standard error of the mean in each bin
     """
     if bin_centers is None:
         bin_centers = np.hstack(
@@ -205,10 +208,13 @@ def bin_data(time, data, binsize, bin_centers=None):
         )
 
     binned_data = np.zeros(len(bin_centers))
+    binned_error = np.zeros(len(bin_centers))
     for i, t0 in enumerate(bin_centers):
-        binned_data[i] = np.mean(data[np.abs(time - t0) < binsize / 2])
+        d = data[np.abs(time - t0) < binsize / 2]
+        binned_data[i] = np.mean(d)
+        binned_error[i] = np.std(d) / np.sqrt(d.size)
 
-    return bin_centers, binned_data
+    return bin_centers, binned_data, binned_error
 
 
 def legendre_p1(x, domain):

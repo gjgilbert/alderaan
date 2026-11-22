@@ -305,9 +305,9 @@ class Results:
 
         # bin the exposure-integrated model at each cadence exactly as the data
         # are binned, so binned data and binned model are directly comparable
-        t_binned, f_binned = bin_data(t_folded, f_folded, T14 / 11)
-        _, m_binned = bin_data(t_folded, f_folded - residuals, T14 / 11)
-        _, r_binned = bin_data(t_folded, residuals, T14 / 11)
+        t_binned, f_binned, f_binned_err = bin_data(t_folded, f_folded, T14 / 11)
+        _, m_binned, _ = bin_data(t_folded, f_folded - residuals, T14 / 11)
+        _, r_binned, r_binned_err = bin_data(t_folded, residuals, T14 / 11)
 
         # deterministic subset of points to plot
         rng = np.random.default_rng(SEED)
@@ -320,7 +320,7 @@ class Results:
         )
 
         ax[0].plot(t_folded[inds] * 24, f_folded[inds], "o", color="lightgrey")
-        ax[0].plot(t_binned * 24, f_binned, "s", color="w", mec="k", ms=10)
+        ax[0].errorbar(t_binned * 24, f_binned, f_binned_err, fmt="o", color="k", ms=3)
         ax[0].plot(t_mod * 24, f_mod, color=f"C{n}", lw=3)
         for f in f_mod_integrated:
             ax[0].plot(t_mod * 24, f, "k--", lw=2)
@@ -328,7 +328,7 @@ class Results:
         label_axes(ax[0], ylabel="Flux", title=f"{self.target} - Planet {n}")
 
         ax[1].plot(t_folded[inds] * 24, residuals[inds], ".", color="lightgrey")
-        ax[1].plot(t_binned * 24, r_binned, "s", color="w", mec="k", ms=10)
+        ax[1].errorbar(t_binned * 24, r_binned, r_binned_err, fmt="o", color="k", ms=3)
         ax[1].axhline(0, color="k", ls="--", lw=2)
         ax[1].set_xlim(t_folded.min() * 24, t_folded.max() * 24)
         annotate_plot(ax[1], f"RMS = {int(np.std(residuals) * 1e6)} ppm", "lower left")
