@@ -160,7 +160,8 @@ def match_holczer16_transit_times(planets, transit_times, t_min, t_max):
     planets : list of Planet
         matched planets carry every transit of the Holczer+2016 linear
         ephemeris within [t_min, t_max), with Holczer+2016 times as ttime_obs
-        (NaN where Holczer+2016 has no measurement)
+        (interpolated in OMC where Holczer+2016 has no measurement; ttime_err
+        NaN there)
 
     Raises
     ------
@@ -186,15 +187,21 @@ def match_holczer16_transit_times(planets, transit_times, t_min, t_max):
 
             index, ttime, error = transit_times[k]
             try:
-                # every transit of the Holczer linear ephemeris within [t_min, t_max);
-                # epochs Holczer did not measure keep ttime_obs = NaN
+                # every transit of the Holczer linear ephemeris within [t_min, t_max)
                 h_period, h_epoch = robust_polyfit(index, ttime, 1)
                 tt = TransitTimes.from_linear_ephemeris(
                     p.mission, p.target, h_period, h_epoch, t_min, t_max
                 )
                 k_h = np.round((ttime - tt.ttime_mod[0]) / h_period).astype(int)
                 use = (k_h >= 0) & (k_h < len(tt.index))
-                ttime_obs = np.full(len(tt.index), np.nan)
+                # epochs Holczer did not measure: ttime_obs is interpolated from
+                # the full Holczer OMC (flat beyond its ends), so it is not a
+                # measurement there; ttime_err stays NaN
+                order = np.argsort(index)
+                t_lin = h_epoch + h_period * index[order]
+                ttime_obs = tt.ttime_mod + np.interp(
+                    tt.ttime_mod, t_lin, ttime[order] - t_lin
+                )
                 ttime_err = np.full(len(tt.index), np.nan)
                 ttime_obs[k_h[use]] = ttime[use]
                 ttime_err[k_h[use]] = error[use]
@@ -205,9 +212,7 @@ def match_holczer16_transit_times(planets, transit_times, t_min, t_max):
                         tt.index,
                         ttime_obs=ttime_obs,
                         ttime_err=ttime_err,
-                        ttime_mod=np.where(
-                            np.isfinite(ttime_obs), ttime_obs, tt.ttime_mod
-                        ),
+                        ttime_mod=ttime_obs,
                     )
                 )
             except ValueError as e:
