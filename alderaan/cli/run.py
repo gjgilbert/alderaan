@@ -33,7 +33,7 @@ def build_parser():
         "--catalog_dir",
         type=Path,
         required=True,
-        help="catalog directory",
+        help="catalog root directory, e.g. reference/",
     )
     parser.add_argument(
         "--visits",

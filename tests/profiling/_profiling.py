@@ -64,7 +64,7 @@ from alderaan.algorithms import (  # noqa: E402
 
 TESTS_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = TESTS_DIR / "data" / "MAST_downloads"
-CATALOG_DIR = TESTS_DIR / "catalogs"
+CATALOG_DIR = TESTS_DIR.parent / "reference"
 REPORTS_DIR = Path(__file__).resolve().parent / "reports"
 
 TARGET = "K00137"

@@ -22,12 +22,12 @@ from alderaan.utils.kepler import (
     parse_koi_catalog,
 )
 
-CATALOG_DIR = Path(__file__).resolve().parents[1] / "catalogs"
+CATALOG_DIR = Path(__file__).resolve().parents[2] / "reference"
 TARGET = "K00137"
 KIC_ID = 8644288
 
-KOI_CSV = str(CATALOG_DIR / "kepler_merged_alderaan.csv")
-HOLCZER_TXT = str(CATALOG_DIR / "holczer_2016_kepler_ttvs.txt")
+KOI_CSV = str(CATALOG_DIR / "alderaan" / "kepler_merged_alderaan.csv")
+HOLCZER_TXT = str(CATALOG_DIR / "kepler" / "kepler_ttvs_holczer_2016.txt")
 
 # Kepler-18 d, b, c in ascending period
 K00137_PERIODS = [3.50471620, 7.64156004, 14.85892272]

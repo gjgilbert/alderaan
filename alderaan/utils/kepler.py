@@ -8,6 +8,7 @@ __all__ = [
     "load_kepler_data",
 ]
 
+import io
 import logging
 import os
 
@@ -87,6 +88,9 @@ def parse_holczer16_catalog(filepath, koi_id):
     """
     Read the Holczer+2016 transit time table for one KOI
 
+    The table is the CDS file as downloaded; rows follow the header's last
+    dashed separator line
+
     Automatically corrects for zero-point offsets between catalogs
       - Holczer+2016 used BJD - 2454900
       - Kepler Project used BKJD = BJD - 2454833
@@ -104,11 +108,17 @@ def parse_holczer16_catalog(filepath, koi_id):
         one tuple per planet of this KOI found in the table, in planet-number
         order (e.g. 1234.01, 1234.02, ...)
     """
+    with open(filepath) as f:
+        text = f.read()
+    separator = text.rfind("\n---")
+    if separator < 0:
+        raise ValueError(f"{filepath}: no CDS header separator line found")
+    start = text.index("\n", separator + 1)
+
     # planet ids stay strings: as floats, e.g. 1234.10 would read as 1234.1
     data = pd.read_csv(
-        filepath,
+        io.StringIO(text[start:]),
         sep=r"\s+",
-        comment="#",
         header=None,
         usecols=range(5),
         names=["planet_id", "index", "ttime", "omc", "error"],
@@ -276,7 +286,8 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
     input_dir : str
         directory of MAST photometry downloads
     catalog_dir : str
-        directory holding the KOI and Holczer+2016 catalogs
+        catalog root (e.g. reference/), holding alderaan/kepler_merged_alderaan.csv
+        and kepler/kepler_ttvs_holczer_2016.txt
     visits : list of int, optional
         quarters to load; default loads all
 
@@ -288,8 +299,8 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
     litecurve : LiteCurve
         raw litecurve, all visits concatenated
     """
-    koi_filepath = os.path.join(catalog_dir, "kepler_merged_alderaan.csv")
-    ttv_filepath = os.path.join(catalog_dir, "holczer_2016_kepler_ttvs.txt")
+    koi_filepath = os.path.join(catalog_dir, "alderaan", "kepler_merged_alderaan.csv")
+    ttv_filepath = os.path.join(catalog_dir, "kepler", "kepler_ttvs_holczer_2016.txt")
 
     # load KOI catalog
     catalog = parse_koi_catalog(koi_filepath, target)

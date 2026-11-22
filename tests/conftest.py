@@ -2,7 +2,7 @@
 Shared pytest configuration and fixtures
 
 Real-data fixtures load K00137 (Kepler-18, 3 planets) from tests/data and
-tests/catalogs; tests that use them, or that run samplers, are marked
+reference/; tests that use them, or that run samplers, are marked
 @pytest.mark.slow.
 """
 
@@ -15,7 +15,7 @@ import pytest
 
 TESTS_DIR = Path(__file__).resolve().parent
 DATA_DIR = TESTS_DIR / "data" / "MAST_downloads"
-CATALOG_DIR = TESTS_DIR / "catalogs"
+CATALOG_DIR = TESTS_DIR.parent / "reference"
 
 TARGET = "K00137"
 KIC_ID = 8644288
