@@ -4,6 +4,7 @@ __all__ = [
     "parse_koi_catalog",
     "parse_holczer16_catalog",
     "match_holczer16_transit_times",
+    "drop_few_transit_planets",
     "load_kepler_data",
 ]
 
@@ -14,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from alderaan.data_models import LiteCurve, Planet, Star, TransitTimes
+from alderaan.data_models.transit_times import linear_ephemeris_times
 from alderaan.utils.stats import robust_polyfit
 
 logger = logging.getLogger(__name__)
@@ -210,6 +212,56 @@ def match_holczer16_transit_times(planets, transit_times, t_min, t_max):
     return planets
 
 
+def drop_few_transit_planets(catalog, litecurve):
+    """
+    Drop catalog planets with < 3 transits within the litecurve span (too few for
+    an ephemeris) and remove cadences within 3 T14 windows around their transits
+    from the litecurve (in place); error for a single-planet system, or if no
+    planet would remain
+
+    Parameters
+    ----------
+    catalog : pd.DataFrame
+        output of parse_koi_catalog (duration in days)
+    litecurve : LiteCurve
+
+    Returns
+    -------
+    catalog : pd.DataFrame
+        rows of the planets kept, npl updated
+    """
+    keep_planet = np.ones(len(catalog), dtype=bool)
+    keep_cadence = np.ones(len(litecurve.time), dtype=bool)
+    for n, row in enumerate(catalog.itertuples()):
+        ttime = linear_ephemeris_times(
+            row.period, row.epoch, litecurve.t_start, litecurve.t_end
+        )
+        if len(ttime) >= 3:
+            continue
+        if len(catalog) == 1:
+            raise ValueError(
+                f"planet {n}: {len(ttime)} transits within litecurve span (< 3)"
+            )
+        logger.warning(
+            "planet %d (P = %.6f d): %d transits within litecurve span (< 3); "
+            "dropped and its transits removed from the litecurve",
+            n,
+            row.period,
+            len(ttime),
+        )
+        keep_planet[n] = False
+        for tc in ttime:
+            keep_cadence &= np.abs(litecurve.time - tc) >= 1.5 * row.duration
+
+    if not np.any(keep_planet):
+        raise ValueError("every planet has < 3 transits within litecurve span")
+    litecurve.select(keep_cadence)
+
+    catalog = catalog[keep_planet].reset_index(drop=True)
+    catalog["npl"] = len(catalog)
+    return catalog
+
+
 def load_kepler_data(target, input_dir, catalog_dir, visits=None):
     """
     Load the star, planets, and long cadence litecurve for one Kepler target
@@ -239,7 +291,6 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
     # load KOI catalog
     catalog = parse_koi_catalog(koi_filepath, target)
 
-    npl = int(catalog.npl[0])
     star = Star(
         "Kepler",
         target,
@@ -268,6 +319,8 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
             raise FileNotFoundError(
                 f"requested quarters {missing} not found in {input_dir}"
             )
+
+    catalog = drop_few_transit_planets(catalog, litecurve)
 
     # initialize planets
     planets = []
@@ -320,7 +373,7 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
     logger.info(
         "loaded %s: %d planets, quarters %s, %d cadences",
         target,
-        npl,
+        len(planets),
         ",".join(str(v) for v in loaded),
         len(litecurve.time),
     )

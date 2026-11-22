@@ -170,9 +170,8 @@ class TestTooFewTransits:
         assert len(planets_out) == 1
         assert planets_out[0].period == pytest.approx(PERIOD)
         assert "planet 1: 2 good transits" in caplog.text
-        # wide_mask window: max(3 T14, 2 (exptime + 1 h))
-        half_width = 0.5 * max(3 * DURATION, 2 * (EXPTIME["long cadence"] + 1 / 24))
-        near = np.any(np.abs(lc.time[:, None] - tc2) < half_width, axis=1)
+        # 3 T14 window
+        near = np.any(np.abs(lc.time[:, None] - tc2) < 1.5 * DURATION, axis=1)
         np.testing.assert_array_equal(lc_out.time, lc.time[~near])
         np.testing.assert_array_equal(lc_out.flux, lc.flux[~near])
 

@@ -22,6 +22,13 @@ FIELDS = {
 }
 
 
+def linear_ephemeris_times(period, epoch, t_min, t_max):
+    """Transit times of a linear ephemeris within [t_min, t_max)"""
+    # start at the first transit at or after t_min, even if epoch is later
+    t_first = epoch - period * np.floor((epoch - t_min) / period)
+    return np.arange(t_first, t_max, period)
+
+
 class TransitTimes:
     """
     Observed and modeled transit times for one planet (immutable; transforms
@@ -126,9 +133,7 @@ class TransitTimes:
         Transit times predicted by a linear ephemeris within [t_min, t_max),
         indexed from 0; no measurements exist, so ttime_obs = ttime_mod = prediction
         """
-        # start at the first transit at or after t_min, even if epoch is later
-        t_first = epoch - period * np.floor((epoch - t_min) / period)
-        ttime = np.arange(t_first, t_max, period)
+        ttime = linear_ephemeris_times(period, epoch, t_min, t_max)
         return cls(mission, target, np.arange(len(ttime)), ttime)
 
     def linear_ephemeris(self):

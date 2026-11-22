@@ -9,10 +9,13 @@ from pathlib import Path
 
 import numpy as np
 import numpy.testing as npt
+import pandas as pd
 import pytest
 
-from alderaan.data_models import Planet, TransitTimes
+from alderaan.constants import EXPTIME
+from alderaan.data_models import LiteCurve, Planet, TransitTimes
 from alderaan.utils.kepler import (
+    drop_few_transit_planets,
     load_kepler_data,
     match_holczer16_transit_times,
     parse_holczer16_catalog,
@@ -90,6 +93,61 @@ class TestMatchHolczer16:
         tables = [(index, 101.0 + 4.0 * index, np.full(25, 1e-3))]
         with pytest.raises(ValueError, match="matches multiple planets"):
             match_holczer16_transit_times(planets, tables, self.T_MIN, self.T_MAX)
+
+
+def _catalog(rows):
+    """parse_koi_catalog-like table: (period, epoch, duration [days]) per planet"""
+    period, epoch, duration = np.array(rows, dtype=float).T
+    return pd.DataFrame(
+        {"npl": len(rows), "period": period, "epoch": epoch, "duration": duration}
+    )
+
+
+def _litecurve(t_max=80.0):
+    time = np.arange(0.0, t_max, EXPTIME["long cadence"])
+    npts = len(time)
+    return LiteCurve(
+        "Kepler",
+        "SYN",
+        time,
+        np.ones(npts),
+        np.full(npts, 1e-4),
+        np.arange(npts),
+        np.ones(npts, dtype=int),
+        np.full(npts, "long cadence"),
+    )
+
+
+class TestDropFewTransitPlanets:
+    def test_keeps_planets_with_three_transits(self):
+        catalog = _catalog([(3.1, 1.3, 0.2), (26.0, 10.0, 0.2)])  # 26, 3 transits
+        lc = _litecurve()
+        out = drop_few_transit_planets(catalog, lc)
+        assert len(out) == 2
+        assert len(lc.time) == len(_litecurve().time)
+
+    def test_single_planet_with_two_transits_raises(self):
+        with pytest.raises(ValueError, match="2 transits within litecurve span"):
+            drop_few_transit_planets(_catalog([(37.0, 21.5, 0.2)]), _litecurve())
+
+    def test_drops_planet_and_its_transits_in_multiplanet_system(self, caplog):
+        # planet 1: one transit, at 50.0
+        catalog = _catalog([(3.1, 1.3, 0.2), (100.0, 50.0, 0.4)])
+        lc = _litecurve()
+        time = lc.time.copy()
+
+        out = drop_few_transit_planets(catalog, lc)
+
+        npt.assert_allclose(out.period, [3.1])
+        assert (out.npl == 1).all()
+        assert "planet 1 (P = 100.000000 d): 1 transits" in caplog.text
+        # 3 T14 window around the dropped transit
+        npt.assert_array_equal(lc.time, time[np.abs(time - 50.0) >= 1.5 * 0.4])
+
+    def test_all_planets_dropped_raises(self):
+        catalog = _catalog([(100.0, 50.0, 0.2), (90.0, 30.0, 0.2)])
+        with pytest.raises(ValueError, match="every planet has < 3 transits"):
+            drop_few_transit_planets(catalog, _litecurve())
 
 
 @pytest.mark.slow

@@ -113,7 +113,7 @@ class FlagBadTransits(BaseAlg):
     def _drop_planets_with_few_transits(self):
         """
         Drop planets with < 3 good transits (too few for an ephemeris) and remove
-        their transit windows from the litecurve, so they cannot bias the
+        cadences within 3 T14 windows around their transits, so they cannot bias the
         detrending or the other planets; error if no planet would remain
         """
         lc = self.litecurve
@@ -133,11 +133,8 @@ class FlagBadTransits(BaseAlg):
                 ngood,
             )
             keep_planet[n] = False
-            # DetrendVisits wide_mask window
-            exptime = np.array([EXPTIME[om] for om in lc.obsmode_at(tt.ttime_mod)])
-            half_width = 0.5 * np.maximum(3 * p.duration, 2 * (exptime + 1 / 24))
-            for tc, hw in zip(tt.ttime_mod, half_width):
-                keep_cadence &= np.abs(lc.time - tc) >= hw
+            for tc in tt.ttime_mod:
+                keep_cadence &= np.abs(lc.time - tc) >= 1.5 * p.duration
 
         if not np.any(keep_planet):
             raise ValueError("every planet has < 3 good transits")
