@@ -1,12 +1,10 @@
 """
 Tests for alderaan/algorithms/quick_fit_transit_times.py
 
-Recovery of injected per-transit time offsets (TTVs) from a synthetic detrended
-long cadence litecurve, including a transit that overlaps a second planet's;
-poor photometry and undetected transits stay unmeasured; high-SNR short cadence
-transits are measured by cross-correlation; transits with a sibling in the window go to
-the optimizer, including a planet whose every transit has a USP sibling in
-the window.
+Recovers injected TTVs from a synthetic detrended litecurve, including
+overlapping transits; poor-photometry and undetected transits stay unmeasured;
+high-SNR short cadence transits are measured by cross-correlation; transits
+with a sibling in the window (e.g. a USP sibling) go to the optimizer.
 """
 
 import numpy as np

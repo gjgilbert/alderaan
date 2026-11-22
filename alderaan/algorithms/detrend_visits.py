@@ -24,8 +24,8 @@ class _GPTrendModel:
     mean (baseline x exponential ramp) plus a celerite2 GP shared by all segments
 
     Parameters form a flat vector of unconstrained values with Normal priors
-    (GP hyperparameters truncated at 4 sd);
-    for RotationTerm, mix ~ Uniform(0, 1) is carried as logit(mix)
+    (GP hyperparameters truncated at 4 sd); RotationTerm's mix ~ Uniform(0, 1)
+    is carried as logit(mix).
 
     Quality: q = 1/2 + exp(log_Q0) is the SHOTerm Q (> 1/2) or the
     RotationTerm Q0 (> 1/2, so both of its terms have Q = 1/2 + Q0 (+ dQ) > 1).
@@ -218,17 +218,7 @@ class DetrendVisits(BaseAlg):
 
         Breaks within gap_tolerance cadences of the previous break or the end
         are dropped. A segment with no unmasked cadences is merged into a
-        neighbor.
-
-        Parameters
-        ----------
-        cadno, flux : ndarray
-        mask : ndarray, bool
-            True near transit
-        gap_tolerance : int
-            cadences
-        jump_tolerance : float
-            sigma
+        neighbor. mask is True near transit.
         """
         # first cadence after each gap in time
         gap_locs = np.where(np.diff(cadno) > gap_tolerance)[0] + 1
@@ -263,7 +253,6 @@ class DetrendVisits(BaseAlg):
     def _acf_period(cadno, flux, mask, exptime, min_period):
         """
         ACF comb test for quasi-periodic variability in one visit
-        (notes/detrend_acf_plan.md)
 
         Null: Gaussian noise with the visit's smoothed spectrum. The comb C(P)
         is a Hann-tapered cosine over ACF lags [P/2, 3.5P), less the comb of the
@@ -478,8 +467,8 @@ class DetrendVisits(BaseAlg):
         # at short periods the general masks leave the GP too little data
         usp = np.array([p.period < 3 and p.ror < 0.05 for p in self.planets])
 
-        # tight is as narrow as possible for the best detrending;
-        # wide is cautious, keeping well clear of transits
+        # tight: as narrow as possible, for the best detrending;
+        # wide: cautious, well clear of transits
         if tight_mask:
             # full width = max(T14, 2 hours) + 2 x (exptime + the planet's ttv_buffer)
             mask = self.make_transit_mask(

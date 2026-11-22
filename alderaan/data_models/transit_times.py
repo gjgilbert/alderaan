@@ -48,9 +48,8 @@ class TransitTimes:
         modeled transit times; set equal to ttime_obs if not given
     phot_coverage, phot_noise : ndarray, optional
         False for transits with poor photometric coverage or high noise
-        (FlagBadTransits); they stay in masks and models but are not fit or
-        measured; the only gate on which transits' photometry is fit; default
-        all True
+        (FlagBadTransits); flagged transits stay in masks and models but their
+        photometry is not fit or measured; default all True
     kept_ttv : ndarray, optional
         False for observed transit times rejected as outliers (RegularizeOMC);
         affects only the OMC fit; default all True
@@ -130,8 +129,8 @@ class TransitTimes:
     @classmethod
     def from_linear_ephemeris(cls, mission, target, period, epoch, t_min, t_max):
         """
-        Transit times predicted by a linear ephemeris within [t_min, t_max),
-        indexed from 0; no measurements exist, so ttime_obs = ttime_mod = prediction
+        Linear ephemeris transit times within [t_min, t_max), indexed from 0;
+        ttime_obs = ttime_mod = prediction
         """
         ttime = linear_ephemeris_times(period, epoch, t_min, t_max)
         return cls(mission, target, np.arange(len(ttime)), ttime)
@@ -150,10 +149,7 @@ class TransitTimes:
         return sigma_cutoff(np.sum(kept)) * self.ttv_scatter
 
     def clip(self, t_min, t_max):
-        """
-        New TransitTimes with ttime_mod within [t_min, t_max] (inclusive), transit
-        index re-zeroed
-        """
+        """New TransitTimes with ttime_mod in [t_min, t_max], index re-zeroed"""
         use = (self.ttime_mod >= t_min) & (self.ttime_mod <= t_max)
         if np.sum(use) < 2:
             raise ValueError(
@@ -261,9 +257,7 @@ class TransitTimes:
         return ax.figure
 
     def _to_hdu(self, n):
-        """
-        BinTableHDU named TTIMES_nn for planet n (used by Results.to_fits)
-        """
+        """BinTableHDU named TTIMES_nn for planet n (used by Results.to_fits)"""
         columns = [
             fits.Column(name=k.upper(), format=FIELDS[k][1], array=getattr(self, k))
             for k in FIELDS
@@ -281,9 +275,7 @@ class TransitTimes:
 
     @classmethod
     def _from_hdu(cls, hdu):
-        """
-        Build from a TTIMES_nn table (used by Results.from_fits)
-        """
+        """Build from a TTIMES_nn table (used by Results.from_fits)"""
         data = hdu.data
         return cls(
             hdu.header["MISSION"],

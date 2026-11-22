@@ -47,13 +47,12 @@ def annotate_plot(ax, text, loc="upper right"):
 
 def save_and_close(fig, fig_path, compress_level=6, close=True):
     """
-    Write fig to fig_path as an RGB PNG at DPI and close it; no-op if fig_path is
-    None (figure stays open for interactive use); close=False keeps it open, for
-    figures the caller owns
+    Write fig to fig_path as an RGB PNG at DPI and close it (close=False keeps
+    it open, for figures the caller owns); no-op if fig_path is None
 
-    Writes the Agg buffer's RGB channels directly with Pillow, skipping the opaque
-    alpha channel that Figure.savefig would encode (faster, smaller file); dpi is
-    set before drawing because it fixes the buffer's pixel dimensions
+    Writes the Agg buffer's RGB channels with Pillow, skipping the opaque alpha
+    channel savefig would encode (faster, smaller file). dpi is set before
+    drawing because it fixes the buffer's pixel dimensions.
     """
     if fig_path is None:
         return

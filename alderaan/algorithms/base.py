@@ -37,9 +37,9 @@ class BaseAlg:
 
     Notes
     -----
-    Each subclass's perform() is wrapped to log its start (with keyword
-    arguments) and runtime to the subclass module's logger; failures propagate
-    to pipeline.py, which logs them.
+    Each subclass's perform() is wrapped to log its start (with arguments) and
+    runtime to the subclass module's logger; failures propagate to pipeline.py,
+    which logs them.
     """
 
     def __init_subclass__(cls, **kwargs):
@@ -48,7 +48,6 @@ class BaseAlg:
             cls.perform = _log_perform(cls.perform, cls.__name__, cls.__module__)
 
     def __init__(self, star, planets, litecurve):
-        # check inputs
         if not isinstance(litecurve, LiteCurve):
             raise TypeError("litecurve must be a LiteCurve")
         if not isinstance(planets, list):
@@ -59,7 +58,6 @@ class BaseAlg:
         if not isinstance(star, Star):
             raise TypeError("star must be a Star")
 
-        # set attributes
         self.litecurve = deepcopy(litecurve)
         self.npl = len(planets)
         self.planets = deepcopy(planets)
@@ -88,8 +86,8 @@ class BaseAlg:
             cadence times to mask (default = self.litecurve.time)
         phot_only : bool
             mask only transits with good photometry (TransitTimes.phot_coverage
-            and phot_noise), e.g. to select
-            the photometry a fit uses (default False: every transit)
+            and phot_noise), e.g. to select the photometry a fit uses
+            (default False: every transit)
 
         Returns
         -------

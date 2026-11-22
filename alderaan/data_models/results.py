@@ -106,7 +106,7 @@ class Results:
     @classmethod
     def from_fits(cls, results_filepath, detrended_filepath=None):
         """
-        Load a results file written by Results.to_fits and, optionally, a detrended
+        Load a file written by Results.to_fits and, optionally, a detrended
         litecurve written by LiteCurve.to_fits
 
         Parameters
@@ -161,9 +161,7 @@ class Results:
         )
 
     def plot_omc(self, n, show_outliers=False, fig_path=None):
-        """
-        Plot O-C for planet n; returns the Figure (see TransitTimes.plot_omc)
-        """
+        """Plot O-C for planet n; returns the Figure (see TransitTimes.plot_omc)"""
         tt = self.transit_times[n]
         return tt.plot_omc(
             show_outliers=show_outliers,
@@ -268,7 +266,6 @@ class Results:
         flux = self.litecurve.flux
         obsmode = self.litecurve.obsmode
 
-        # fold photometry on the model transit times
         t_folded, f_folded, om_folded = [], [], []
         for tc in self.median_transit_times(n):
             use = np.abs(time - tc) / T14 < 1.5
@@ -309,7 +306,6 @@ class Results:
         _, m_binned, _ = bin_data(t_folded, f_folded - residuals, T14 / 11)
         _, r_binned, r_binned_err = bin_data(t_folded, residuals, T14 / 11)
 
-        # deterministic subset of points to plot
         rng = np.random.default_rng(SEED)
         inds = rng.choice(
             len(t_folded), size=min(max_pts, len(t_folded)), replace=False

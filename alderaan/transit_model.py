@@ -52,15 +52,13 @@ class TransitModel:
     """
     Transit forward model for a star, planets, and litecurve
 
-    model_flux(theta) uses the parameterization
-        theta = npl * [C0, C1, ror, b, T14] + [q1, q2]
-     * linear perturbation C0 + C1 * legendre_p1(T, (t_start, t_end)) added to
-       each transit time on a fixed ephemeris, where T is each transit's time
-       on the planet's linear ephemeris and (t_start, t_end) is the photometry
-       span: C0 is the offset (days) at
+    theta = npl * [C0, C1, ror, b, T14] + [q1, q2]
+     * C0 + C1 * legendre_p1(T, (t_start, t_end)) shifts each transit time,
+       where T is the transit's time on the planet's linear ephemeris and
+       (t_start, t_end) is the photometry span: C0 is the offset (days) at
        mid-span, C1 the additional offset (days) at t_end
-     * shape parameters (ror = Rp/Rs, impact b, duration T14)
-     * limb darkening (q1,q2) in the Kipping 2013 basis
+     * shape: ror = Rp/Rs, impact b, duration T14
+     * limb darkening (q1, q2) in the Kipping 2013 basis
     """
 
     def __init__(self, star, planets, litecurve):
@@ -147,14 +145,13 @@ class TransitModel:
         """
         Warp litecurve times so each planet's transits line up on a fixed ephemeris
 
-        For each planet, every cadence is assigned to its nearest transit k: the
-        bin edges sit halfway between consecutive transit times. Then
-          * warped_time = time - (transit k's time), so the transit is at 0
+        Each cadence is assigned to its nearest transit k (bin edges halfway
+        between consecutive transit times), then
+          * warped_time = time - (transit k's time)
           * warped_legx = legendre_p1(ref_epoch + ref_period * k, (t_start, t_end)),
-            used by the linear ephemeris perturbation C0 + C1 * warped_legx
-        Missing transit indexes fall back to the least squares ephemeris of the
-        transit times, and cadences before the first or after the last transit
-        join those transits.
+            used by the perturbation C0 + C1 * warped_legx
+        Missing transit indexes use the least squares ephemeris; cadences
+        outside the first/last transit join those transits.
 
         Transit indexes must be zero-based.
         """
@@ -221,17 +218,17 @@ class TransitModel:
             theta.append(p.impact)
             theta.append(p.duration)
 
-        # limb darkening in the sampling basis (q1, q2), see Kipping 2013
         theta.extend([self.star.q1, self.star.q2])
 
         return np.array(theta)
 
     def model_flux(self, theta):
         """
-        theta : array-like
-            npl * [C0, C1, ror, b, T14] + [q1, q2]
+        Model flux at every litecurve cadence
 
-        Limb darkening is sampled in terms of [q1, q2] (see Kipping 2013)
+        theta : array-like
+            npl * [C0, C1, ror, b, T14] + [q1, q2], limb darkening in the
+            Kipping 2013 (q1, q2) basis
         """
         u1, u2 = ld_q_to_u(*np.array(theta[-2:]))
 
@@ -261,8 +258,8 @@ class TransitModel:
             # transit at ttime_mod + C0 + C1 * legx
             _t = warped_time[n] - (C0 + C1 * warped_legx[n])
 
-            # batman's _rsky returns no overlap (flux exactly 1) beyond |t_phi| > T14,
-            # so skip cadences whose every sub-exposure lies there; exact, not approx
+            # _rsky gives flux exactly 1 beyond |t_phi| > T14, so skipping cadences
+            # whose every sub-exposure lies there is exact
             period = self.static_period[n]
             t_phi = _t - period * np.round(_t / period)
             near = np.abs(t_phi) <= T14 + EXPTIME[obsmode]

@@ -30,41 +30,37 @@ class SampleTransitModel(BaseAlg):
     @staticmethod
     def _prior_transform(uniform_hypercube, tm):
         """
-        Prior transform over physical ALDERAAN basis {C0, C1, ror, b, T14}...{q1,q2}
+        Prior transform onto npl * [C0, C1, ror, b, T14] + [q1, q2]
 
-        Distributions are hard-coded to be:
-            Normal on ephemeris perturbations {C0,C1}: N(0, 0.1) days; C0 is the
-            offset at the photometry mid-span, C1 the additional offset at t_end
-            (see TransitModel)
-            Log-uniform on radius ratio ror = Rp/Rs and transit duration T14
-            Uniform on impact parameter b
-            Uniform on quadratic limb darkening coefficients {q1,q2}
+        Priors:
+            C0, C1: Normal N(0, 0.1) days (see TransitModel)
+            ror = Rp/Rs: log-uniform on (1e-5, 0.99)
+            b: uniform on (0, 1 + ror)
+            T14: log-uniform on (0.01, 3) x planet duration, so durations
+            must be known with reasonable confidence
+            q1, q2: uniform on (0, 1)
 
-        For motivation behind this prior-parameter choice see:
+        Motivation for these choices:
             Carter+ 2008 (2008ApJ...689..499C)
             Kipping 2013 (2013MNRAS.435.2152K)
             Gilbert, MacDougall, & Petigura 2022 (2022AJ....164...92G)
             MacDougal, Gilbert, & Petigura 2023 (2023AJ....166...61M)
 
-        Assumes that transit durations are known with reasonable confidence
-        * sampled T14 will be restricted between (0.01*fixed_duration, 3*fixed_duration)
-
         Parameters
         ----------
         uniform_hypercube : array-like, length 5 * npl + 2
-            list of parameters npl * [C0, C1, ror, b, T14] + [q1, q2]
+            U(0, 1) samples
         tm : TransitModel
-            transit model; planet durations set the T14 prior limits
+            planet durations set the T14 prior limits
 
         Returns
         -------
         transformed_hypercube : array_like, length 5 * npl + 2
-            transformed samples
+            samples in the physical basis
         """
-        u = np.asarray(uniform_hypercube)  # U(0,1) priors
-        x = np.zeros_like(u)  # physical priors
+        u = np.asarray(uniform_hypercube)
+        x = np.zeros_like(u)
 
-        # 5 * npl + 2 parameters: [C0, C1, ror, b, T14]...[q1, q2]
         for n in range(tm.npl):
             x[5 * n + 0] = norm_ppf(u[0 + n * 5], 0.0, 0.1)
             x[5 * n + 1] = norm_ppf(u[1 + n * 5], 0.0, 0.1)
@@ -74,7 +70,6 @@ class SampleTransitModel(BaseAlg):
                 u[4 + n * 5], 0.01 * tm.planets[n].duration, 3 * tm.planets[n].duration
             )
 
-        # limb darkening coefficients (see Kipping 2013)
         x[-2] = uniform_ppf(u[-2], 0, 1)
         x[-1] = uniform_ppf(u[-1], 0, 1)
 

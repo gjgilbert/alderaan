@@ -29,8 +29,9 @@ class ClipOutliers(BaseAlg):
     @staticmethod
     def _clip_outliers(flux, visit, sigma_upper, sigma_lower, kernel_size, mask=None):
         """
-        Sigma-clip outliers using astropy.stats.sigma_clip() and a smoothed trend
-        Applies an additional iteration wrapper to allow for masked cadences
+        Sigma-clip flux about a median-filter trend, iterating up to 3 times.
+        If > 1% of cadences are flagged, retry with a savgol trend; if still
+        > 1%, reject nothing that iteration.
 
         Returns a boolean mask over flux; True for cadences to keep
 
@@ -46,18 +47,15 @@ class ClipOutliers(BaseAlg):
             lower sigma clipping threshold
         kernel_size : int
             size of the smoothing filter kernel
-        mask : array-like, bool
-            (optional) do not reject cadences within masked regions;
-            useful for protecting transits
+        mask : array-like, bool, optional
+            never reject masked cadences (e.g. to protect transits)
         """
         if mask is None:
             mask = np.zeros(len(flux), dtype=bool)
         npts = len(flux)
         idx = np.arange(npts)
 
-        # at most 3 iterations; stop early once no new outliers are found
         for _ in range(3):
-            # first pass: try median filter
             smoothed = median_filter(flux, size=kernel_size, mode="mirror")
 
             bad = sigma_clip(
@@ -68,8 +66,6 @@ class ClipOutliers(BaseAlg):
             ).mask
             bad = bad * ~mask
 
-            # second pass: try savgol filter
-            # if over 1% of points were flagged with median filter
             if np.sum(bad) / len(bad) > 0.01:
                 logger.debug(
                     "visit %d: median filter flagged %d of %d cadences; "
@@ -87,7 +83,6 @@ class ClipOutliers(BaseAlg):
                 ).mask
                 bad = bad * ~mask
 
-            # third pass: skip outlier rejection
             if np.sum(bad) / len(bad) > 0.01:
                 logger.warning(
                     "visit %d: >1%% of cadences flagged by median and savgol filters "
@@ -100,8 +95,6 @@ class ClipOutliers(BaseAlg):
 
             flux = flux[~bad]
             idx = idx[~bad]
-
-            # update mask and iterate
             mask = mask[~bad]
 
             if not np.any(bad):
@@ -118,7 +111,8 @@ class ClipOutliers(BaseAlg):
         method : str
             'local_trend' : clip flux about a smoothed trend, sparing transits
                 (the larger of 3 x T14 or 2 x (exptime + 1 hour); 2 x T14 +
-                exptime for ultra-short-period planets, P < 3 d and ror < 0.05)
+                exptime for ultra-short-period planets, P < 3 d and ror < 0.05);
+                a second pass clips upper outliers everywhere, in transit too
             'transit_model' : clip (detrended) flux about the transit model
 
         Returns
@@ -135,7 +129,6 @@ class ClipOutliers(BaseAlg):
         lc = self.litecurve
         visits = np.unique(lc.visit)
 
-        # clip outliers from the incoming flux, one visit at a time
         if method == "transit_model":
             tm = TransitModel(self.star, self.planets, lc)
             f_mod = tm.model_flux(tm.theta_initial())

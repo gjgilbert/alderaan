@@ -110,7 +110,7 @@ class RegularizeOMC(BaseAlg):
             of the smoother matrix on mask (NaN elsewhere)
         """
 
-        # create Vandermonde matrix on xtime mapped to [-1, 1], for conditioning
+        # xtime mapped to [-1, 1] for conditioning
         x = legendre_p1(xtime, (xtime.min(), xtime.max()))
         X = np.vander(x, N=polyorder + 1, increasing=True)
 
@@ -128,7 +128,7 @@ class RegularizeOMC(BaseAlg):
         """
         Fit TTV observed-minus-calculated data with a lasso polynomial: an L1
         penalty on every coefficient on top of _poly_model's Normal(0, 10) prior.
-        The penalty minimizes BIC, with dof = number of nonzero coefficients
+        The penalty is chosen to minimize BIC, with dof = number of nonzero coefficients
         (Zou et al. 2007)
 
         Returns
@@ -179,7 +179,7 @@ class RegularizeOMC(BaseAlg):
         Parameters
         ----------
         ttv_period : float
-            pre-estimated sinusoid period; the model places tight priors on this period
+            pre-estimated TTV period; centers the frequency prior
 
         Returns
         -------
@@ -248,7 +248,6 @@ class RegularizeOMC(BaseAlg):
         """
         measured = np.isfinite(yobs)
 
-        # delta between each transit time
         dx = np.mean(np.diff(xtime[measured]))
 
         # maximum GP amplitude: the scatter in excess of the errors; with < 16
@@ -447,7 +446,6 @@ class RegularizeOMC(BaseAlg):
             ln_bg = np.log(f) + stats.norm.logpdf(res, scale=np.sqrt(s2 + V))
             return ln_fg, ln_bg
 
-        # fit on mask only
         r2, e2 = res[mask] ** 2, err2[mask]
 
         # start: foreground within 3 sigma of the normalized residuals
@@ -491,9 +489,7 @@ class RegularizeOMC(BaseAlg):
     def _lomb_scargle_peak(xtime, yobs, mask):
         """
         Highest peak of a Lomb-Scargle periodogram of OMC data and its
-        bootstrap false alarm probability
-        * assumes that data are nearly evenly sampled
-        * optimized for finding marginal periodic TTV signals in OMC data
+        bootstrap false alarm probability; assumes nearly even sampling
 
         Returns
         -------
@@ -511,14 +507,13 @@ class RegularizeOMC(BaseAlg):
         y = yobs[mask]
 
         try:
-            # sampling frequency
             fsamp = 1 / np.min(x[1:] - x[:-1])
 
             # Hann window to reduce ringing
             hann = signal.windows.hann(len(x))
             hann /= np.sum(hann)
 
-            # identify any egregious outliers
+            # egregious outliers excluded from the search
             out = np.abs(y - np.median(y)) / mad_std(y - np.median(y)) > 5.0
             xt = x[~out]
             yt = y[~out]

@@ -169,7 +169,7 @@ class TestTooFewTransits:
 
         assert len(planets_out) == 1
         assert planets_out[0].period == pytest.approx(PERIOD)
-        # 3 T14 window
+        # the dropped planet's 3 T14 windows are removed
         near = np.any(np.abs(lc.time[:, None] - tc2) < 1.5 * DURATION, axis=1)
         np.testing.assert_array_equal(lc_out.time, lc.time[~near])
         np.testing.assert_array_equal(lc_out.flux, lc.flux[~near])

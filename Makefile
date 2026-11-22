@@ -10,25 +10,23 @@ test:
 test-fast:
 	conda run -n alderaan python -m pytest tests/ -m "not slow"
 
-# Debug loop: rerun only last-failed (--lf) and halt at the first failure (-x).
-# Run `make test` once to seed the failure cache, then iterate on this.
+# Rerun only last-failed (--lf), halt at first failure (-x).
+# Seed the failure cache with `make test` first.
 test-debug:
 	conda run -n alderaan python -m pytest --lf -x
 
-# Profiling ("tallest tentpole" suite). Standalone harnesses in tests/profiling/
-# (not pytest tests); reports land in tests/profiling/reports/ (gitignored).
-# See the "## Profiling" section of CLAUDE.md.
+# Profiling: standalone harnesses in tests/profiling/ (not pytest tests).
+# See "## Profiling" in CLAUDE.md.
 #
-# `make profile` runs every per-algorithm harness in one process (profile_all.py) so
-# pipeline state is built once; `make profile-pipeline` (full run, I/O and plots) is
-# separate because it repeats all of that work.
-# Per-algorithm: `make profile-detrend_visits`, `make profile-regularize_omc`, etc.
-# Names mirror the test files (test_<x>.py <-> profile_<x>.py).
+# `make profile` runs every per-algorithm harness in one process (profile_all.py)
+# so pipeline state is built once. `make profile-pipeline` (full run, I/O, plots)
+# is separate because it repeats all of that work.
+# Per-algorithm: `make profile-<x>`; names mirror tests/regression/test_<x>.py.
 profile: profile-all
 
 profile-pipeline:
 	conda run -n alderaan python -m tests.profiling.profile_pipeline
 
-# Generic per-algorithm rule: profile-<x> -> tests/profiling/profile_<x>.py
+# profile-<x> -> tests/profiling/profile_<x>.py
 profile-%:
 	conda run -n alderaan python -m tests.profiling.profile_$*

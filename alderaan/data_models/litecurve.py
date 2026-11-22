@@ -97,26 +97,23 @@ class LiteCurve:
     @classmethod
     def from_kplr_pdcsap(cls, data_dir, target, kic_id, obsmode, visits=None):
         """
-        Load photometric data from Kepler Project PDCSAP Flux lightcurves
-        The raw fits files must be pre-downloaded from MAST servers and stored locally
+        Load Kepler PDCSAP lightcurves from pre-downloaded MAST fits files
 
-        This function performs minimal detrending steps
-         * remove_nans()
-         * normalize()
-         * remove cadences flagged by the Kepler pipeline (default bitmask)
+        Removes NaNs and cadences flagged by the Kepler pipeline (default
+        bitmask), and normalizes each quarter.
 
         Parameters
         ----------
         data_dir : str
-            path to where data are stored
+            directory of MAST fits files
         target : str
             target name, e.g. K00137
         kic_id : int
             KIC number
         obsmode : str
             'short cadence' or 'long cadence'
-        visits : list
-            (optional) visits (Kepler quarters) to load
+        visits : list, optional
+            visits (Kepler quarters) to load; default all
 
         Returns
         -------
@@ -127,7 +124,6 @@ class LiteCurve:
         if isinstance(visits, int):
             visits = [visits]
 
-        # read requested MAST files (visits are Kepler quarters)
         mast_files = sorted(
             glob.glob(os.path.join(data_dir, f"kplr{kic_id:09d}*.fits"))
         )
@@ -137,9 +133,8 @@ class LiteCurve:
         for mf in mast_files:
             header = fits.getheader(mf)
             if header["OBSMODE"] == obsmode and np.isin(header["QUARTER"], visits):
-                # read from an open HDUList; lk.read(path) leaves the file open
-                # lightkurve removes cadences flagged by the Kepler project
-                # pipeline (default bitmask)
+                # read from an open HDUList; lk.read(path) leaves the file open.
+                # lightkurve drops Kepler-flagged cadences (default bitmask)
                 with fits.open(mf) as hdul:
                     lkc = lk.KeplerLightCurve.read(hdul, format="kepler")
                     logger.info(
@@ -246,10 +241,7 @@ class LiteCurve:
         self.error = raw.error[idx].copy()
 
     def to_fits(self, filepath):
-        """
-        Save as a fits file: PRIMARY (MISSION, TARGET) + LITECURVE table
-        (header T_START, T_END)
-        """
+        """Save as fits: PRIMARY (MISSION, TARGET) + LITECURVE table (T_START, T_END)"""
         primary_hdu = fits.PrimaryHDU()
         primary_hdu.header["MISSION"] = self.mission
         primary_hdu.header["TARGET"] = self.target

@@ -52,10 +52,7 @@ class QuickFitTransitShape(BaseAlg):
         return theta
 
     def _theta_bounds(self):
-        """
-        theta : array-like
-            npl * [C0, C1, ror, b, T14] + [q1, q2]
-        """
+        """Bounds on theta = npl * [C0, C1, ror, b, T14] + [q1, q2]"""
         bounds = []
         for p in self.planets:
             bounds.append([-np.inf, np.inf])
@@ -95,7 +92,6 @@ class QuickFitTransitShape(BaseAlg):
         fix_C0_C1[-2:] = True
         fix_r_b_T14[-2:] = True
 
-        # do the optimization
         logp_start = tm.ln_likelihood(theta)
         for fix in [fix_r_b_T14, fix_C0_C1] * niter:
             logp_initial = tm.ln_likelihood(theta)

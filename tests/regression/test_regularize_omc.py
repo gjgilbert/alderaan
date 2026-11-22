@@ -515,7 +515,7 @@ class TestLassoUpgrade:
         return alg._lasso_upgrade(0, tlin, omc, err, f"poly_{order}", fit)
 
     def test_misfit_smooth_ttv_upgraded(self):
-        # 60 transits, 2 min errors, a 60 min quartic OMC: poly_2 fails chi2
+        # 60 transits, 2 min errors, a 15 min deep quartic OMC: poly_2 fails chi2
         x = np.linspace(-1, 1, 60)
         omc = (60 * (x**4 - x**2) + np.random.default_rng(5).normal(0, 2, 60)) / 1440
         err = np.full(60, 2 / 1440)

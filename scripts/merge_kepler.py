@@ -8,13 +8,12 @@ OVERRIDES (manual corrections, with reasons) replace all of these. False
 positives (alderaan_disp = FP, including FP in OVERRIDES) are dropped.
 
 Each DR entry is also compared with the Lissauer+2024 entry, and
-inconsistencies are written to notes/kepler.md.
+inconsistencies are written to REPORT.
 
 Disposition (alderaan_disp): FP = false positive, PC = planet candidate
 (transit to model; includes Lissauer+2024 M, mass > 13 M_Jup), A = ambiguous.
 From the Lissauer+2024 disposition (F -> FP, P or M -> PC, S or R -> A).
-Differences from the DR25 supplemental disposition are written to
-notes/kepler.md.
+Differences from the DR25 supplemental disposition are written to REPORT.
 
 Stellar parameters (Teff [K], logg [cgs], [Fe/H], mass, radius, density) are
 all from the first source with all six values: Berger+2023 > Berger+2020 >
@@ -25,12 +24,8 @@ The output is the ALDERAAN KOI catalog read by load_kepler_data
     disposition  alderaan_disp
     koi_id       KOI host star (e.g. K00001); npl = number of output KOIs on it
     logrho       log10(density / solar density)
-    limbdark_*   quadratic limb darkening (u1, u2), Kepler band, from ldtk
-                 (PHOENIX spectra) for the star's Teff, logg, [Fe/H]; one
-                 fit per star, with parameter samples seeded by kic_id;
-                 empty without stellar parameters or cached spectra, for
-                 Teff < 2300 K, Teff >= 12000 K, or logg < 3.0, or if the
-                 fit failed or is unphysical (see limbdark)
+    limbdark_*   quadratic limb darkening (u1, u2), Kepler band, from ldtk;
+                 one fit per star; empty if unavailable (see limbdark)
     snr          koi_model_snr (Lissauer+2024)
 
 Usage (from the repo root):
@@ -70,7 +65,7 @@ EPOCH_LIMIT = 0.5  # epoch offset, in units of transit duration
 ALIAS_RATIOS = [2, 3, 4, 5, 1 / 2, 1 / 3, 1 / 4, 1 / 5]
 ALIAS_TOL = 0.01  # fractional tolerance on the period ratio
 
-# Lissauer+2024 Table 1 (see notes/kepler.md)
+# Lissauer+2024 Table 1
 LISSAUER = "kepler_candidates_lissauer_2024.txt"
 # Lissauer+2024 Table 1 field (first and last byte, from its ReadMe) for each DR
 # column; "-" makes the positive lower uncertainty a negative err2
@@ -453,7 +448,7 @@ def koi_name(number):
 
 
 def designate(merged, status):
-    """Add alderaan_disp; return the DR25supp changes counts."""
+    """Add alderaan_disp; return counts of disposition changes from DR25supp."""
     status = status.reindex(merged.index)
     supp, lissauer = status.str[1], status.str[0]
     if not lissauer.isin(LISSAUER_DISP).all():
@@ -717,15 +712,18 @@ def limbdark(stars, nsamples=100):
     """Quadratic limb darkening (u1, u2) in the Kepler band, one row per kepid.
 
     ldtk interpolates PHOENIX intensity profiles at Teff, logg, [Fe/H] samples
-    drawn from normal distributions (sigma = mean of |err1| and |err2|) and
-    fits the quadratic law to their mean profile (diagonal likelihood). Uses only
-    the local ldtk cache. NaN (listed) without stellar parameters, without the
-    cached spectra, outside 2300 K <= Teff < 12000 K (the PHOENIX grid) and
-    logg >= 3.0, if the fit failed (non-finite errors; ldtk then returns its
-    starting point), or if the fit (to 3 decimals, as written) is unphysical
-    (Kipping 2013: u1 > 0, u1 + u2 < 1, u1 + 2 u2 > 0). Below logg = 3
-    spherical and plane-parallel atmospheres diverge and two-parameter laws fit
-    poorly (Neilson & Lester 2013).
+    (normal, sigma = mean of |err1| and |err2|, seeded by kepid) and fits the
+    quadratic law to their mean profile (diagonal likelihood). Uses only the
+    local ldtk cache.
+
+    NaN (reported) if:
+    - stellar parameters or cached spectra are missing;
+    - Teff is outside 2300-12000 K (the PHOENIX grid) or logg < 3.0, where
+      spherical and plane-parallel atmospheres diverge and two-parameter laws
+      fit poorly (Neilson & Lester 2013);
+    - the fit failed (non-finite errors; ldtk then returns its starting point);
+    - the fit, rounded to 3 decimals as written, is unphysical (Kipping 2013:
+      u1 > 0, u1 + u2 < 1, u1 + 2 u2 > 0).
     """
     ld = pd.DataFrame(np.nan, index=stars.index, columns=["u1", "u2"])
     params = ["star_teff", "star_logg", "star_feh"]
