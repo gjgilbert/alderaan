@@ -10,7 +10,7 @@ EPOCH = 100.2
 
 
 def _planet():
-    return Planet("Kepler", "K00137", PERIOD, EPOCH, 1e-3, 0.1, 0.3)
+    return Planet("Kepler", "K00137", PERIOD, EPOCH, 0.03, 0.0, 0.1)
 
 
 def _transit_times(period, epoch=EPOCH, n=10):

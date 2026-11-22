@@ -20,11 +20,11 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
-      # Externally-sourced data that must not be reformatted: catalogs/ directories.
+      # Externally-sourced data that must not be reformatted: reference/.
       - id: trailing-whitespace
-        exclude: '/catalogs/'
+        exclude: '^reference/'
       - id: end-of-file-fixer
-        exclude: '/catalogs/'
+        exclude: '^reference/'
       - id: check-yaml
       - id: check-toml
       - id: check-merge-conflict

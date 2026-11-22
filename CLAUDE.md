@@ -61,7 +61,7 @@ checkpoint, not after every edit. Match scope to blast radius:
 Layout: `tests/regression/test_<module>.py`, one file per module, named for the module
 (`test_litecurve.py`, `test_regularize_omc.py`, `test_base_alg.py`, `test_utils_stats.py`, ...).
 `tests/conftest.py` registers the `slow` marker and provides the `k00137` fixture
-(Kepler-18, quarters 4-6, from `tests/data` and `tests/catalogs`) and the
+(Kepler-18, quarters 4-6, from `tests/data` and `reference/`) and the
 `make_posteriors` factory. Fast tests use small
 synthetic objects built in the test file; anything loading real photometry or running
 a sampler is `@pytest.mark.slow` (reading a small catalog is fast). A known bug is a

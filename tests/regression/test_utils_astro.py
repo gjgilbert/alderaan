@@ -2,8 +2,10 @@
 
 import numpy as np
 import numpy.testing as npt
+import pytest
 
 from alderaan.utils.astro import (
+    approx_ror,
     approx_tc_error,
     approx_transit_depth,
     ld_q_to_u,
@@ -59,6 +61,18 @@ class TestApproxTransitDepth:
         d = approx_transit_depth(p, b)
         npt.assert_allclose(d[0], d[1], atol=1e-5)
         npt.assert_allclose(d[2], d[3], atol=1e-5)
+
+
+class TestApproxRor:
+    def test_inverts_approx_transit_depth(self):
+        # non-grazing and grazing
+        p = np.array([0.01, 0.1, 0.1, 0.1, 0.3])
+        b = np.array([0.0, 0.0, 0.85, 1.05, 0.9])
+        npt.assert_allclose(approx_ror(approx_transit_depth(p, b), b), p, rtol=1e-8)
+
+    def test_unphysical_depth_raises(self):
+        with pytest.raises(ValueError, match="must be in"):
+            approx_ror(0.0, 0.0)
 
 
 class TestApproxTcError:

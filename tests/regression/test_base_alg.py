@@ -13,7 +13,7 @@ def _star():
 
 def _planet(period, epoch, duration, ttv=0.0, ntransit=10):
     """Planet whose ttime_mod is a linear ephemeris plus a constant offset ttv"""
-    p = Planet("Kepler", "SYN", period, epoch, 1e-3, duration, 0.3)
+    p = Planet("Kepler", "SYN", period, epoch, 0.03, 0.0, duration)
     index = np.arange(ntransit)
     ttime = epoch + period * index
     p.set_transit_times(

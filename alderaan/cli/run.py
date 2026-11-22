@@ -30,10 +30,11 @@ def build_parser():
         help="outputs directory",
     )
     parser.add_argument(
-        "--catalog_dir",
+        "--catalog",
         type=Path,
         required=True,
-        help="catalog directory",
+        help="planet catalog in the format of "
+        "reference/alderaan/kepler_merged_alderaan.csv",
     )
     parser.add_argument(
         "--visits",
@@ -62,7 +63,7 @@ def main(argv=None):
         run_id=args.run_id,
         input_dir=str(args.input_dir.resolve()),
         output_dir=str(args.output_dir.resolve()),
-        catalog_dir=str(args.catalog_dir.resolve()),
+        catalog=str(args.catalog.resolve()),
         visits=args.visits,
         log_level=args.log_level,
     )

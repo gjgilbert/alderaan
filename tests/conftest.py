@@ -2,7 +2,7 @@
 Shared pytest configuration and fixtures
 
 Real-data fixtures load K00137 (Kepler-18, 3 planets) from tests/data and
-tests/catalogs; tests that use them, or that run samplers, are marked
+reference/; tests that use them, or that run samplers, are marked
 @pytest.mark.slow.
 """
 
@@ -15,7 +15,7 @@ import pytest
 
 TESTS_DIR = Path(__file__).resolve().parent
 DATA_DIR = TESTS_DIR / "data" / "MAST_downloads"
-CATALOG_DIR = TESTS_DIR / "catalogs"
+CATALOG = TESTS_DIR.parent / "reference" / "alderaan" / "kepler_merged_alderaan.csv"
 
 TARGET = "K00137"
 KIC_ID = 8644288
@@ -33,7 +33,7 @@ def pytest_configure(config):
 def _k00137_session():
     from alderaan.utils.kepler import load_kepler_data
 
-    return load_kepler_data(TARGET, str(DATA_DIR), str(CATALOG_DIR), visits=VISITS)
+    return load_kepler_data(TARGET, str(DATA_DIR), str(CATALOG), visits=VISITS)
 
 
 @pytest.fixture

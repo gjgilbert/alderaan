@@ -13,7 +13,7 @@ from alderaan.algorithms import SampleTransitModel
 from alderaan.constants import EXPTIME
 from alderaan.data_models import LiteCurve, Planet, Posteriors, Star, TransitTimes
 from alderaan.transit_model import TransitModel, exposure_offsets, transit_flux
-from alderaan.utils.astro import approx_transit_depth, ld_u_to_q
+from alderaan.utils.astro import ld_u_to_q
 
 LC = "long cadence"
 U1, U2 = 0.4, 0.25
@@ -43,10 +43,7 @@ def _synthetic_system(seed=0):
     )
 
     star = Star("Kepler", "SYN", 1.01, 1, U1, U2)
-    planet = Planet(
-        "Kepler", "SYN", PERIOD, EPOCH, approx_transit_depth(ROR, IMPACT), T14, IMPACT
-    )
-    planet.set_transit_shape(planet.depth, T14, IMPACT, ROR)
+    planet = Planet("Kepler", "SYN", PERIOD, EPOCH, ROR, IMPACT, T14)
     planet.set_transit_times(
         TransitTimes("Kepler", "SYN", index, EPOCH + PERIOD * index)
     )

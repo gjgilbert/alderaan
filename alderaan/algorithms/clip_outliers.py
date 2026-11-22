@@ -111,15 +111,6 @@ class ClipOutliers(BaseAlg):
         keep[idx] = True
         return keep
 
-    def _transit_theta(self, tm):
-        """Transit model parameters using the shape from QuickFitTransitShape"""
-        theta = tm.theta_initial()
-        for n, p in enumerate(self.planets):
-            theta[5 * n + 2] = p.ror
-            theta[5 * n + 3] = p.impact
-
-        return theta
-
     def perform(self, method):
         """
         Parameters
@@ -146,7 +137,7 @@ class ClipOutliers(BaseAlg):
         # clip outliers from the incoming flux, one visit at a time
         if method == "transit_model":
             tm = TransitModel(self.star, self.planets, lc)
-            f_mod = tm.model_flux(self._transit_theta(tm))
+            f_mod = tm.model_flux(tm.theta_initial())
 
         keep = np.ones(len(lc.time), dtype=bool)
         for v in visits:

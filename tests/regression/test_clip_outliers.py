@@ -20,12 +20,11 @@ def _system(duration=0.125, depth=4e-3, t_max=60.0, seed=42):
     star = Star("Kepler", "SYN", koi_id=1, kic_id=1, u1=0.4, u2=0.25)
 
     period, epoch = 4.3, 1.7
-    p = Planet("Kepler", "SYN", period, epoch, depth, duration, 0.3)
+    p = Planet("Kepler", "SYN", period, epoch, np.sqrt(depth), 0.3, duration)
     p.set_transit_times(
         TransitTimes.from_linear_ephemeris("Kepler", "SYN", period, epoch, 0, t_max)
     )
     p.set_static_period_and_epoch()
-    p.set_transit_shape(depth, duration, 0.3, np.sqrt(depth))
 
     time = np.arange(0.0, t_max, EXP_LC)
     npts = len(time)

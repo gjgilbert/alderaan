@@ -62,7 +62,7 @@ def _synthetic_system(inject_perturbation=False):
             "Kepler", "SYN", period, epoch, t_start, t_end
         )
         ttime = lin.ttime_mod + ttv * np.sin(2 * np.pi * lin.index / 4.3)
-        p = Planet("Kepler", "SYN", period, epoch, ror**2, T14, b)
+        p = Planet("Kepler", "SYN", period, epoch, ror, b, T14)
         p.set_transit_times(TransitTimes("Kepler", "SYN", lin.index, ttime))
         p.set_static_period_and_epoch()
         planets.append(p)
@@ -179,9 +179,7 @@ class TestTransitModel:
         for n, p in enumerate(planets):
             C0, C1, ror, b, T14 = theta[5 * n : 5 * (n + 1)]
             assert (C0, C1) == (0.0, 0.0)
-            npt.assert_allclose(ror, np.sqrt(p.depth))
-            assert 0 < b < 1
-            assert T14 == p.duration
+            assert (ror, b, T14) == (p.ror, p.impact, p.duration)
         npt.assert_allclose(theta[-2:], [star.q1, star.q2])
 
     def test_supersampling_at_least_seven_and_odd(self):
@@ -322,6 +320,19 @@ class TestTransitModel:
                 perturbed = theta.copy()
                 perturbed[i] += step
                 assert model.ln_likelihood(perturbed) < lnl_true
+
+    def test_ln_likelihood_limb_darkening_prior(self):
+        # sigma = 0.1 Gaussian on (u1, u2) about the star's values, only if
+        # star.ld_prior
+        star, planets, litecurve = _synthetic_system()
+        model = TransitModel(star, planets, litecurve)
+        theta = _theta_true()
+        theta[-2:] = ld_u_to_q(star.u1 + 0.1, star.u2)
+        chisq = np.sum(model.residuals(theta) ** 2)
+
+        npt.assert_allclose(model.ln_likelihood(theta), -0.5 * chisq - 0.5)
+        star.ld_prior = False
+        npt.assert_allclose(model.ln_likelihood(theta), -0.5 * chisq)
 
     def test_trim_keeps_selected_cadences(self):
         star, planets, litecurve = _synthetic_system()

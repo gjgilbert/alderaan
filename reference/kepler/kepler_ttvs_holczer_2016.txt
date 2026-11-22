@@ -1,49 +1,49 @@
-# Title: Transit Timing Observations From Kepler. IX. 
-#        Catalog Of The Full Long-Cadence Data Set  
-# Authors: Holczer T., Mazeh T., Nachmani G., Jontof-Hutter D., Ford E.B., 
-#          Fabrycky D., Darin R., Kane M., Steffen J.H.
-# Table: TTV, duration (TDV) and depth (TPV) changes of the transits
-# ================================================================================
-# Byte-by-byte Description of file: apjsaa25b0t3_mrt.txt
-# --------------------------------------------------------------------------------
-#    Bytes Format Units   Label   Explanations
-# --------------------------------------------------------------------------------
-#    1-  7 F7.2   ---     KOI     Kepler Object Identifier
-#    9- 12 I4     ---     n       Transit number
-#   14- 24 F11.6  d       tn      Expected Barycentric Julian Date 
-#                                  of mid-transit - 2454900
-#   26- 35 F10.4  min     O-C     The O-C time difference
-#   37- 43 E7.1   min   e_O-C     Uncertainty in O-C
-#       45 A1     ---   f_O-C     [*] Flag on O-C (1)
-#   47- 56 E10.3  ---     TDV     Fractional duration variation (2)
-#   58- 66 E9.3   ---   e_TDV     Uncertainty in TDV (3)
-#       68 A1     ---   f_TDV     [*] Flag on TDV (1)
-#   70- 79 E10.3  ---     TPV     Fractional depth variation (3)
-#   81- 89 E9.3   ---   e_TPV     Uncertainty in TDV (3)
-#       91 A1     ---   f_TPV     [*] Flag on TPV (1)
-#   93- 94 I2     ---     Out     Outlier flag (4)
-#       96 I1     ---     Over    Overlap flag (5)
-# --------------------------------------------------------------------------------
-# Note (1):
-#     * = we could not derive an uncertainty thus we used the median of the
-#         uncertainties instead.
-# Note (2): equal to the (duration of transit - average)/average. A 9.999e+00
-#           indicates a NaN value.
-# Note (3): A 9.999e+00 indicates a fixed duration and depth.
-# Note (4): The sum of:
-#     0 = not an outlier, 
-#     1 = no-variation p-value > 0.025, 
-#     2 = local TTV, 
-#     4 = global TTV, 
-#     8 = global TDV, 
-#    16 = global TPV, 
-#    32 = TTV, TDV or TPV uncertainty outlier (see Section 2.4).
-# Note (5): 
-#     0 = no overlapping, 
-#     1 = another relatively large interfering transit (>0.25 the "area" of the 
-#         transit) too close (expected time difference < 2 transit durations + 1 
-#         interfering transit duration).
-# --------------------------------------------------------------------------------
+Title: Transit Timing Observations From Kepler. IX. 
+       Catalog Of The Full Long-Cadence Data Set  
+Authors: Holczer T., Mazeh T., Nachmani G., Jontof-Hutter D., Ford E.B., 
+         Fabrycky D., Darin R., Kane M., Steffen J.H.
+Table: TTV, duration (TDV) and depth (TPV) changes of the transits
+================================================================================
+Byte-by-byte Description of file: apjsaa25b0t3_mrt.txt
+--------------------------------------------------------------------------------
+   Bytes Format Units   Label   Explanations
+--------------------------------------------------------------------------------
+   1-  7 F7.2   ---     KOI     Kepler Object Identifier
+   9- 12 I4     ---     n       Transit number
+  14- 24 F11.6  d       tn      Expected Barycentric Julian Date 
+                                 of mid-transit - 2454900
+  26- 35 F10.4  min     O-C     The O-C time difference
+  37- 43 E7.1   min   e_O-C     Uncertainty in O-C
+      45 A1     ---   f_O-C     [*] Flag on O-C (1)
+  47- 56 E10.3  ---     TDV     Fractional duration variation (2)
+  58- 66 E9.3   ---   e_TDV     Uncertainty in TDV (3)
+      68 A1     ---   f_TDV     [*] Flag on TDV (1)
+  70- 79 E10.3  ---     TPV     Fractional depth variation (3)
+  81- 89 E9.3   ---   e_TPV     Uncertainty in TDV (3)
+      91 A1     ---   f_TPV     [*] Flag on TPV (1)
+  93- 94 I2     ---     Out     Outlier flag (4)
+      96 I1     ---     Over    Overlap flag (5)
+--------------------------------------------------------------------------------
+Note (1):
+    * = we could not derive an uncertainty thus we used the median of the
+        uncertainties instead.
+Note (2): equal to the (duration of transit - average)/average. A 9.999e+00
+          indicates a NaN value.
+Note (3): A 9.999e+00 indicates a fixed duration and depth.
+Note (4): The sum of:
+    0 = not an outlier, 
+    1 = no-variation p-value > 0.025, 
+    2 = local TTV, 
+    4 = global TTV, 
+    8 = global TDV, 
+   16 = global TPV, 
+   32 = TTV, TDV or TPV uncertainty outlier (see Section 2.4).
+Note (5): 
+    0 = no overlapping, 
+    1 = another relatively large interfering transit (>0.25 the "area" of the 
+        transit) too close (expected time difference < 2 transit durations + 1 
+        interfering transit duration).
+--------------------------------------------------------------------------------
    1.01    0   55.763337    -0.05   8.5e-02    1.000e-03 2.900e-03   -5.700e-03 2.800e-03    0 0
    1.01    1   58.233950     0.077  8.6e-02   -2.000e-03 2.700e-03   -7.700e-03 2.700e-03    0 0
    1.01    2   60.704563    -0.037  8.6e-02    1.200e-03 2.400e-03   -1.090e-02 2.600e-03    0 0
