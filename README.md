@@ -33,7 +33,7 @@ Run the pipeline on one target with:
 alderaan run -m Kepler -t K00137 --run_id my_run \
     --input_dir /path/to/MAST_downloads \
     --output_dir /path/to/outputs \
-    --catalog_dir /path/to/alderaan/reference
+    --catalog /path/to/alderaan/reference/alderaan/kepler_merged_alderaan.csv
 ```
 
 Required flags:
@@ -42,7 +42,7 @@ Required flags:
 * `--run_id`: run identifier; outputs of different runs never mix, so a rerun needs a new run_id
 * `--input_dir`: directory of MAST photometry downloads (`kplr*_llc.fits`)
 * `--output_dir`: directory for outputs
-* `--catalog_dir`: catalog root holding `alderaan/kepler_merged_alderaan.csv` (from `scripts/merge_kepler.py`) and `kepler/kepler_ttvs_holczer_2016.txt`; the repo's `reference/` directory
+* `--catalog`: planet catalog, e.g. `reference/alderaan/kepler_merged_alderaan.csv` (from `scripts/merge_kepler.py`); any catalog in the same format works. Holczer+2016 transit times are always read from `reference/kepler/kepler_ttvs_holczer_2016.txt`
 
 Optional flags: `--visits` (Kepler quarters to load; default all) and `--log_level` (console level; the log file always records DEBUG).
 

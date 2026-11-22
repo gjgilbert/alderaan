@@ -28,7 +28,7 @@ def run():
             "profile",
             str(P.DATA_DIR),
             output_dir,
-            str(P.CATALOG_DIR),
+            str(P.CATALOG),
             P.VISITS,
         )
 

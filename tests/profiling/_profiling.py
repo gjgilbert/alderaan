@@ -64,7 +64,7 @@ from alderaan.algorithms import (  # noqa: E402
 
 TESTS_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = TESTS_DIR / "data" / "MAST_downloads"
-CATALOG_DIR = TESTS_DIR.parent / "reference"
+CATALOG = TESTS_DIR.parent / "reference" / "alderaan" / "kepler_merged_alderaan.csv"
 REPORTS_DIR = Path(__file__).resolve().parent / "reports"
 
 TARGET = "K00137"
@@ -135,7 +135,7 @@ def _load():
     from alderaan.utils.kepler import load_kepler_data
 
     star, planets, litecurve = load_kepler_data(
-        TARGET, str(DATA_DIR), str(CATALOG_DIR), visits=VISITS
+        TARGET, str(DATA_DIR), str(CATALOG), visits=VISITS
     )
     return star, planets, litecurve, copy.deepcopy(litecurve)
 

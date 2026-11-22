@@ -275,7 +275,7 @@ def drop_few_transit_planets(catalog, litecurve):
     return catalog
 
 
-def load_kepler_data(target, input_dir, catalog_dir, visits=None):
+def load_kepler_data(target, input_dir, catalog_path, visits=None):
     """
     Load the star, planets, and long cadence litecurve for one Kepler target
 
@@ -285,9 +285,9 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
         KOI identifier, e.g. K00137
     input_dir : str
         directory of MAST photometry downloads
-    catalog_dir : str
-        catalog root (e.g. reference/), holding alderaan/kepler_merged_alderaan.csv
-        and kepler/kepler_ttvs_holczer_2016.txt
+    catalog_path : str
+        planet catalog in the format of reference/alderaan/kepler_merged_alderaan.csv;
+        Holczer+2016 transit times are read from the repo's reference/kepler/
     visits : list of int, optional
         quarters to load; default loads all
 
@@ -299,11 +299,17 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
     litecurve : LiteCurve
         raw litecurve, all visits concatenated
     """
-    koi_filepath = os.path.join(catalog_dir, "alderaan", "kepler_merged_alderaan.csv")
-    ttv_filepath = os.path.join(catalog_dir, "kepler", "kepler_ttvs_holczer_2016.txt")
+    ttv_filepath = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "reference",
+        "kepler",
+        "kepler_ttvs_holczer_2016.txt",
+    )
 
     # load KOI catalog
-    catalog = parse_koi_catalog(koi_filepath, target)
+    catalog = parse_koi_catalog(catalog_path, target)
 
     # blank catalog limb darkening: start from a roughly solar Kepler-band
     # value and sample limb darkening without a prior

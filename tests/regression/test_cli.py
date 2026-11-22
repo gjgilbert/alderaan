@@ -53,8 +53,8 @@ class TestRun:
             str(tmp_path / "in"),
             "--output_dir",
             str(tmp_path / "out"),
-            "--catalog_dir",
-            str(tmp_path / "cat"),
+            "--catalog",
+            str(tmp_path / "cat.csv"),
             "--visits",
             "4",
             "5",
@@ -69,7 +69,7 @@ class TestRun:
                 run_id="r1",
                 input_dir=str((tmp_path / "in").resolve()),
                 output_dir=str((tmp_path / "out").resolve()),
-                catalog_dir=str((tmp_path / "cat").resolve()),
+                catalog=str((tmp_path / "cat.csv").resolve()),
                 visits=[4, 5],
                 log_level="DEBUG",
             )
@@ -77,8 +77,9 @@ class TestRun:
 
     @staticmethod
     def _argv(tmp_path, *extra):
-        dirs = [f"--{d}_dir={tmp_path / d}" for d in ("input", "output", "catalog")]
-        return ["-t", "K00137", "--run_id", "r1", *dirs, *extra]
+        dirs = [f"--{d}_dir={tmp_path / d}" for d in ("input", "output")]
+        catalog = f"--catalog={tmp_path / 'cat.csv'}"
+        return ["-t", "K00137", "--run_id", "r1", *dirs, catalog, *extra]
 
     def test_defaults(self, pipeline_calls, tmp_path):
         run.main(self._argv(tmp_path, "-m", "Kepler"))
@@ -86,9 +87,10 @@ class TestRun:
         assert kwargs["visits"] is None
         assert kwargs["log_level"] == "INFO"
 
-    @pytest.mark.parametrize("missing", ["input_dir", "output_dir", "catalog_dir"])
-    def test_directories_are_required(self, pipeline_calls, tmp_path, missing):
-        argv = [a for a in self._argv(tmp_path, "-m", "Kepler") if missing not in a]
+    @pytest.mark.parametrize("missing", ["input_dir", "output_dir", "catalog"])
+    def test_paths_are_required(self, pipeline_calls, tmp_path, missing):
+        argv = self._argv(tmp_path, "-m", "Kepler")
+        argv = [a for a in argv if not a.startswith(f"--{missing}=")]
         with pytest.raises(SystemExit) as exc:
             run.main(argv)
         assert exc.value.code == 2

@@ -202,4 +202,4 @@ class TestLoadKeplerData:
     def test_missing_requested_quarter_raises(self):
         data_dir = Path(__file__).resolve().parents[1] / "data" / "MAST_downloads"
         with pytest.raises(FileNotFoundError, match=r"quarters \[99\] not found"):
-            load_kepler_data(TARGET, str(data_dir), str(CATALOG_DIR), visits=[4, 99])
+            load_kepler_data(TARGET, str(data_dir), KOI_CSV, visits=[4, 99])

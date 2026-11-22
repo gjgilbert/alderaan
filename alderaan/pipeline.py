@@ -29,7 +29,7 @@ def main(
     run_id,
     input_dir,
     output_dir,
-    catalog_dir,
+    catalog,
     visits=None,
     log_level="INFO",
 ):
@@ -54,10 +54,10 @@ def main(
         "target %s, mission %s, run_id %s, visits %s", target, mission, run_id, visits
     )
     logger.info(
-        "input_dir %s, output_dir %s, catalog_dir %s",
+        "input_dir %s, output_dir %s, catalog %s",
         input_dir,
         output_dir,
-        catalog_dir,
+        catalog,
     )
     logger.info("log file: %s (console level %s)", log_path, log_level)
     logger.info(
@@ -70,7 +70,7 @@ def main(
 
     try:
         results_path = _run(
-            target, mission, run_id, input_dir, output_dir, catalog_dir, visits
+            target, mission, run_id, input_dir, output_dir, catalog, visits
         )
     except KeyboardInterrupt:
         logger.error(
@@ -93,7 +93,7 @@ def main(
         teardown_logging()
 
 
-def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
+def _run(target, mission, run_id, input_dir, output_dir, catalog, visits):
     results_dir = os.path.join(output_dir, run_id, "results", target)
     plots_dir = os.path.join(output_dir, run_id, "plots", target)
 
@@ -104,7 +104,7 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog_dir, visits):
         os.makedirs(d, exist_ok=True)
 
     # data i/o (Kepler only; main() rejects other missions)
-    star, planets, litecurve = load_kepler_data(target, input_dir, catalog_dir, visits)
+    star, planets, litecurve = load_kepler_data(target, input_dir, catalog, visits)
 
     raw_litecurve = copy.deepcopy(litecurve)
 

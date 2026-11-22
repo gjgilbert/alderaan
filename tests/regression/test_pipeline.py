@@ -12,7 +12,7 @@ import pytest
 from alderaan import pipeline
 from alderaan.utils import logger as alderaan_logger
 
-ARGS = dict(target="K00137", run_id="test", input_dir="in", catalog_dir="cat")
+ARGS = dict(target="K00137", run_id="test", input_dir="in", catalog="cat")
 
 
 def _log_text(output_dir):
