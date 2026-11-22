@@ -124,6 +124,22 @@ class TestMakeTransitMask:
             mask, [True, False, False, False, True, True, True, False]
         )
 
+    def test_rel_and_abs_size_per_planet(self):
+        # planet 0 at 7.0: max(2 x 0.1, 0.1) = 0.2 d full width, half width 0.1 d
+        # planet 1 at 4.5: max(1 x 0.1, 0.5) = 0.5 d full width, half width 0.25 d
+        planets = [_planet(5.0, 2.0, 0.1), _planet(7.0, 4.5, 0.1, ntransit=7)]
+        alg = BaseAlg(_star(), planets, _litecurve())
+        time = np.concatenate(
+            [
+                7.0 + np.array([0.1 - self.eps, 0.1 + self.eps]),
+                4.5 + np.array([0.25 - self.eps, 0.25 + self.eps]),
+            ]
+        )
+        mask = alg.make_transit_mask(
+            time=time, rel_size=[2.0, 1.0], abs_size=[0.1, 0.5]
+        )
+        np.testing.assert_array_equal(mask, [True, False, True, False])
+
     def test_centered_on_modeled_transit_times(self):
         # ttime_mod is offset 0.3 d from the linear ephemeris
         alg = self._alg(ttv=0.3)

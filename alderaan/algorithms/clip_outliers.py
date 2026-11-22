@@ -117,7 +117,8 @@ class ClipOutliers(BaseAlg):
         ----------
         method : str
             'local_trend' : clip flux about a smoothed trend, sparing transits
-                (the larger of 3 x T14 or 2 x (exptime + 1 hour))
+                (the larger of 3 x T14 or 2 x (exptime + 1 hour); 2 x T14 +
+                exptime for ultra-short-period planets, P < 3 d and ror < 0.05)
             'transit_model' : clip (detrended) flux about the transit model
 
         Returns
@@ -145,10 +146,16 @@ class ClipOutliers(BaseAlg):
             npts_initial = int(np.sum(use))
 
             if method == "local_trend":
-                # full width = max(3 x T14, 2 x (exptime + 1 hour))
+                # full width = max(3 x T14, 2 x (exptime + 1 hour)); 2 x T14 +
+                # exptime for ultra-short-period planets (P < 3 d, ror < 0.05), as
+                # in the DetrendVisits wide mask
                 exptime = EXPTIME[lc.obsmode[use][0]]
+                usp = np.array([p.period < 3 and p.ror < 0.05 for p in self.planets])
                 transit_mask = self.make_transit_mask(
-                    rel_size=3.0, abs_size=2 * (exptime + 1 / 24), time=lc.time[use]
+                    rel_size=np.where(usp, 2.0, 3.0),
+                    abs_size=np.where(usp, 0.0, 2 * (exptime + 1 / 24)),
+                    buffer=np.where(usp, exptime, 0.0),
+                    time=lc.time[use],
                 )
                 keep[use] = self._clip_outliers(
                     lc.flux[use],

@@ -312,6 +312,35 @@ class TestNominalPeriod:
         assert got_period == pytest.approx(period, rel=0.02)
 
 
+class TestTransitMask:
+    @staticmethod
+    def _width(period, ror, duration, tight_mask, ttv_scatter=0.01):
+        """Full width (days) of the mask around one transit of a lone planet"""
+        planet = Planet("Kepler", "SYN", period, 0.0, ror, 0.0, duration)
+        index = np.arange(3)
+        planet.set_transit_times(TransitTimes("Kepler", "SYN", index, period * index))
+        planet.transit_times.ttv_scatter = ttv_scatter
+        star = Star("Kepler", "SYN", 1.01, 1, U1, U2)
+        _, _, litecurve, _ = _synthetic_system()
+        alg = DetrendVisits(star, [planet], litecurve)
+        dt = 1e-4
+        time = period + np.arange(-0.5, 0.5, dt)
+        return np.sum(alg._transit_mask(time, 1, LC, tight_mask)) * dt
+
+    @pytest.mark.parametrize("tight_mask, k", [(False, 2.0), (True, 1.5)])
+    @pytest.mark.parametrize("duration", [0.02, 0.1])
+    def test_usp_full_width_is_k_t14_plus_exptime(self, tight_mask, k, duration):
+        # P < 3 d, ror < 0.05: k x T14 + exptime, no floor, no ttv buffer
+        assert self._width(1.0, 0.02, duration, tight_mask) == pytest.approx(
+            k * duration + EXPTIME[LC], abs=1e-3
+        )
+
+    def test_non_usp_keeps_three_t14_wide_mask(self):
+        # period >= 3 d or ror >= 0.05
+        assert self._width(5.0, 0.02, 0.1, False) == pytest.approx(0.3, abs=1e-3)
+        assert self._width(1.0, 0.06, 0.1, False) == pytest.approx(0.3, abs=1e-3)
+
+
 class TestPerform:
     def test_rejects_unknown_method(self):
         star, planets, litecurve, _ = _synthetic_system()

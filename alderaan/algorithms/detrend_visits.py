@@ -475,23 +475,32 @@ class DetrendVisits(BaseAlg):
     def _transit_mask(self, time, visit, obsmode, tight_mask):
         """Transit mask (True near transit) for one visit"""
         exptime = EXPTIME[obsmode]
+        # ultra-short-period planets (P < 3 d, ror < 0.05): full width
+        # k x T14 + exptime (exposure smearing), no floor or ttv_buffer; at short
+        # periods the general masks leave the GP too little out-of-transit data
+        usp = np.array([p.period < 3 and p.ror < 0.05 for p in self.planets])
 
         # tight is as narrow as possible for the best detrending;
         # wide is cautious, keeping well clear of transits
         if tight_mask:
-            # full width = max(T14, 2 hours) + 2 x (exptime + the planet's ttv_buffer)
+            # full width = max(T14, 2 hours) + 2 x (exptime + the planet's ttv_buffer);
+            # USP: 1.5 x T14 + exptime
             mask = self.make_transit_mask(
-                rel_size=1.0,
-                abs_size=2 / 24,
+                rel_size=np.where(usp, 1.5, 1.0),
+                abs_size=np.where(usp, 0.0, 2 / 24),
                 buffer=[
-                    2 * (exptime + p.transit_times.ttv_buffer()) for p in self.planets
+                    exptime if u else 2 * (exptime + p.transit_times.ttv_buffer())
+                    for u, p in zip(usp, self.planets)
                 ],
                 time=time,
             )
         else:
-            # full width = max(3 x T14, 2 x (exptime + 1 hour))
+            # full width = max(3 x T14, 2 x (exptime + 1 hour)); USP: 2 x T14 + exptime
             mask = self.make_transit_mask(
-                rel_size=3.0, abs_size=2 * (exptime + 1 / 24), time=time
+                rel_size=np.where(usp, 2.0, 3.0),
+                abs_size=np.where(usp, 0.0, 2 * (exptime + 1 / 24)),
+                buffer=np.where(usp, exptime, 0.0),
+                time=time,
             )
         logger.debug(
             "visit %d: %s transit mask covers %d of %d cadences",
@@ -574,6 +583,8 @@ class DetrendVisits(BaseAlg):
                 2 x (exptime + 1 hour)
             'tight_mask' : mask transits over max(T14, 2 hours) +
                 2 x (exptime + each planet's TransitTimes.ttv_buffer)
+            Ultra-short-period planets (P < 3 d, ror < 0.05) use 2 x T14 + exptime
+            (wide) and 1.5 x T14 + exptime (tight)
 
         Returns
         -------

@@ -75,10 +75,12 @@ class BaseAlg:
 
         Parameters
         ----------
-        rel_size : float
-            full width of masked region in units of transit duration (T14)
-        abs_size : float
-            floor on rel_size * T14 in days, so short transits are not under-masked
+        rel_size : float or array-like
+            full width of masked region in units of transit duration (T14);
+            one value for all planets or one per planet
+        abs_size : float or array-like
+            floor on rel_size * T14 in days, so short transits are not under-masked;
+            one value for all planets or one per planet
         buffer : float or array-like
             extra full width in days added after the floor (e.g. cadence + TTVs);
             one value for all planets or one per planet
@@ -94,17 +96,21 @@ class BaseAlg:
         mask : ndarray, bool
             True for cadences near a transit of any planet
         """
-        if rel_size == 0 and abs_size == 0:
+        rel_size = np.broadcast_to(rel_size, self.npl)
+        abs_size = np.broadcast_to(abs_size, self.npl)
+        buffer = np.broadcast_to(buffer, self.npl)
+        if np.any((rel_size == 0) & (abs_size == 0)):
             raise ValueError("either rel_size or abs_size must be nonzero")
 
         if time is None:
             time = self.litecurve.time
 
         mask = np.zeros((self.npl, len(time)), dtype=int)
-        buffer = np.broadcast_to(buffer, self.npl)
 
         for n, p in enumerate(self.planets):
-            half_width = 0.5 * (np.max([rel_size * p.duration, abs_size]) + buffer[n])
+            half_width = 0.5 * (
+                np.max([rel_size[n] * p.duration, abs_size[n]]) + buffer[n]
+            )
             tt = p.transit_times
             phot = tt.phot_coverage & tt.phot_noise
             ttime = tt.ttime_mod[phot] if phot_only else tt.ttime_mod
