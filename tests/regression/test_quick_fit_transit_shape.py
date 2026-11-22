@@ -18,8 +18,8 @@ LC = "long cadence"
 U1, U2 = 0.4, 0.25
 NOISE = 1e-4
 
-# (period, epoch, ror, impact, T14) per planet; impacts are away from the 0.5
-# starting value and high enough for ingress/egress shape to constrain b
+# (period, epoch, ror, impact, T14) per planet; impacts are high enough for
+# ingress/egress shape to constrain b
 TRUTH = [(5.3, 102.1, 0.08, 0.7, 0.15), (11.7, 104.6, 0.05, 0.8, 0.2)]
 
 

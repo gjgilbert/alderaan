@@ -10,6 +10,7 @@ from alderaan.transit_model import (
     TRANSIT_PARAMETER_LABELS,
     TransitModel,
 )
+from alderaan.utils.astro import approx_transit_depth
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +20,36 @@ class QuickFitTransitShape(BaseAlg):
     Fit radius ratio, impact parameter, and duration; limb darkening is fixed
     at the star's values
 
+    The fit starts from b = 0.38, 0.71, 0.84 (all planets at once), with ror
+    scaled to preserve each planet's limb-darkened depth, and keeps the maximum
+    likelihood result
+
     Parameters
     ----------
     star : Star
     planets : list of Planet
     litecurve : LiteCurve
     """
+
+    def _theta_start(self, tm, b):
+        """
+        Starting theta with every planet at impact parameter b
+
+        ror is scaled so the limb-darkened depth ror**2 * I(mu) / <I> matches
+        the depth of the planet's current (ror, b), with mu = sqrt(1 - b**2)
+        and I(1) = 1
+        """
+        u1, u2 = self.star.u1, self.star.u2
+        mu = np.sqrt(1 - b**2)
+        ld_scale = (1 - u1 * (1 - mu) - u2 * (1 - mu) ** 2) / (1 - u1 / 3 - u2 / 6)
+
+        theta = tm.theta_initial()
+        for n, p in enumerate(self.planets):
+            depth = approx_transit_depth(p.ror, p.impact)
+            theta[5 * n + 2] = np.sqrt(depth / ld_scale)
+            theta[5 * n + 3] = b
+
+        return theta
 
     def _theta_bounds(self):
         """
@@ -44,8 +69,7 @@ class QuickFitTransitShape(BaseAlg):
 
         return np.array(bounds)
 
-    def _optimize(self, tm, niter=3):
-        theta = tm.theta_initial()
+    def _optimize(self, tm, theta, niter=3):
         bounds = self._theta_bounds()
 
         def _fxn(x, x0, fix, tm):
@@ -140,7 +164,16 @@ class QuickFitTransitShape(BaseAlg):
         for obsmode in tm.unique_obsmodes:
             logger.info("supersample factor (%s): %d", obsmode, tm.supersample[obsmode])
 
-        theta = self._optimize(tm)
-        self._update_planets(theta)
+        best_logp, best_theta = -np.inf, None
+        for b in (0.38, 0.71, 0.84):
+            theta = self._optimize(tm, self._theta_start(tm, b))
+            logp = tm.ln_likelihood(theta)
+            logger.info("shape fit from b = %.2f: logp = %.6g", b, logp)
+            if logp > best_logp:
+                best_logp, best_theta = logp, theta
+
+        if best_theta is None:
+            raise ValueError("shape fit: no start reached a finite likelihood")
+        self._update_planets(best_theta)
 
         return self.planets, self.litecurve
