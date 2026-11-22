@@ -42,6 +42,7 @@ class Planet:
 
         self.static_period = None
         self.static_epoch = None
+        self.meta = {}  # FITS header cards (see pipeline._run)
 
     @property
     def period(self):

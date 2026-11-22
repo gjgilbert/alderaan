@@ -395,3 +395,4 @@ class TestPerform:
         residual = detrended.flux - clean.flux
         assert np.std(residual) < 0.3 * NOISE
         np.testing.assert_allclose(detrended.error, clean.error, rtol=1e-3)
+        assert detrended.meta["DTKERNEL"] in ("RotationTerm", "SHOTerm")

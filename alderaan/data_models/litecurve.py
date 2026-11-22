@@ -63,6 +63,7 @@ class LiteCurve:
     ):
         self.mission = mission
         self.target = target
+        self.meta = {}  # FITS header cards, written to PRIMARY
 
         self.time = np.asarray(time, dtype=float)
         self.t_start = float(self.time.min() if t_start is None else t_start)
@@ -86,13 +87,16 @@ class LiteCurve:
         logger.info("reading %s", filepath)
         with fits.open(filepath) as hdul:
             hdu = hdul["LITECURVE"]
-            return cls(
+            lc = cls(
                 hdu.header["MISSION"],
                 hdu.header["TARGET"],
                 **{k: hdu.data[k.upper()] for k in FIELDS},
                 t_start=hdu.header["T_START"],
                 t_end=hdu.header["T_END"],
             )
+            skip = ("SIMPLE", "BITPIX", "NAXIS", "EXTEND", "MISSION", "TARGET", "NPL")
+            lc.meta = {k: v for k, v in hdul[0].header.items() if k not in skip}
+        return lc
 
     @classmethod
     def from_kplr_pdcsap(cls, data_dir, target, kic_id, obsmode, visits=None):
@@ -241,10 +245,14 @@ class LiteCurve:
         self.error = raw.error[idx].copy()
 
     def to_fits(self, filepath):
-        """Save as fits: PRIMARY (MISSION, TARGET) + LITECURVE table (T_START, T_END)"""
+        """
+        Save as fits: PRIMARY (MISSION, TARGET, meta) + LITECURVE table (T_START,
+        T_END)
+        """
         primary_hdu = fits.PrimaryHDU()
         primary_hdu.header["MISSION"] = self.mission
         primary_hdu.header["TARGET"] = self.target
+        primary_hdu.header.update(self.meta)
 
         width = max([1, *map(len, self.obsmode)])
         columns = [

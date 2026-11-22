@@ -611,4 +611,6 @@ class DetrendVisits(BaseAlg):
             lc.flux[use] /= pred
             lc.error[use] /= pred
 
+        lc.meta["DTKERNEL"] = "RotationTerm" if periodic else "SHOTerm"
+        lc.meta["DTNOMP"] = float(nominal_period)
         return self.planets, lc

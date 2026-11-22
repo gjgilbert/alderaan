@@ -123,9 +123,11 @@ class TestFits:
     def test_round_trip(self, tmp_path):
         lc = _lc()
         lc.select(lc.time > 130.3)
+        lc.meta = {"VISITS": "4", "DTNOMP": 2.5}
         path = str(tmp_path / "lc.fits")
         lc.to_fits(path)
         out = LiteCurve.from_fits(path)
+        assert out.meta == lc.meta
 
         assert (out.mission, out.target) == (lc.mission, lc.target)
         assert (out.t_start, out.t_end) == (lc.t_start, lc.t_end)

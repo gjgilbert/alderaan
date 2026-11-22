@@ -79,6 +79,7 @@ class Posteriors:
         self.t_start = float(t_start)
         self.t_end = float(t_end)
         self.supersample = {str(om): int(ss) for om, ss in supersample.items()}
+        self.meta = {}  # FITS header cards, written to SAMPLES; not read back
 
         if len(self.ref_epoch) != self.npl:
             raise ValueError("ref_epoch must have one entry per planet")
@@ -157,6 +158,7 @@ class Posteriors:
         samples_hdu.header["NBATCH"] = len(info["batch_nlive"])
         for i, nlive in enumerate(info["batch_nlive"]):
             samples_hdu.header[f"NLIVE{i}"] = nlive
+        samples_hdu.header.update(self.meta)
 
         ephem_hdu = fits.BinTableHDU.from_columns(
             [

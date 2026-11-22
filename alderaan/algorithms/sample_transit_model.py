@@ -96,19 +96,22 @@ class SampleTransitModel(BaseAlg):
 
     def _sample(self, tm):
         ndim = 5 * tm.npl + 2
+        settings = {"seed": SEED, "bound": "multi", "sample": "rwalk"}
         logger.info(
-            "dynesty DynamicNestedSampler: ndim = %d, bound = multi, sample = rwalk, "
+            "dynesty DynamicNestedSampler: ndim = %d, bound = %s, sample = %s, "
             "default nlive/dlogz",
             ndim,
+            settings["bound"],
+            settings["sample"],
         )
         sampler = dynesty.DynamicNestedSampler(
             tm.ln_likelihood,
             self._prior_transform,
             ndim,
-            bound="multi",
-            sample="rwalk",
+            bound=settings["bound"],
+            sample=settings["sample"],
             ptform_args=(tm,),
-            rstate=np.random.default_rng(SEED),
+            rstate=np.random.default_rng(settings["seed"]),
         )
         sampler.run_nested(
             print_progress=True,
@@ -128,7 +131,7 @@ class SampleTransitModel(BaseAlg):
             1 / np.sum(weights**2),
         )
 
-        return results
+        return results, settings
 
     @staticmethod
     def _log_posterior_summary(results, tm):
@@ -183,9 +186,14 @@ class SampleTransitModel(BaseAlg):
         for obsmode in tm.unique_obsmodes:
             logger.info("supersample factor (%s): %d", obsmode, tm.supersample[obsmode])
 
-        results = self._sample(tm)
+        results, settings = self._sample(tm)
         self._log_posterior_summary(results, tm)
 
-        return Posteriors.from_dynesty(
+        posteriors = Posteriors.from_dynesty(
             self.litecurve.mission, self.litecurve.target, results, tm
         )
+        posteriors.meta.update({k.upper(): v for k, v in settings.items()})
+        posteriors.meta["LDPRIOR"] = self.star.ld_prior
+        if self.star.ld_prior:
+            posteriors.meta.update(LD_U1=self.star.u1, LD_U2=self.star.u2)
+        return posteriors

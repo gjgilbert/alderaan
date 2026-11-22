@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
 
-import alderaan
 from alderaan.constants import EXPTIME, KEPLER_SCIT, SEED
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.posteriors import Posteriors
@@ -42,6 +41,7 @@ class Results:
         self.posteriors = posteriors
         self.transit_times = transit_times
         self.litecurve = litecurve
+        self.meta = {}  # FITS header cards, written to PRIMARY
 
         components = []
         if posteriors is not None:
@@ -75,20 +75,17 @@ class Results:
             return self.posteriors.npl
         return None
 
-    def to_fits(self, filepath, run_id):
+    def to_fits(self, filepath):
         """
-        Write PRIMARY, SAMPLES + EPHEMERIS (if posteriors), and TTIMES_nn (if
-        transit_times); the detrended litecurve is written by LiteCurve.to_fits
-
-        The PRIMARY header records the run_id, ALDERAAN version, and git hash
+        Write PRIMARY (MISSION, TARGET, NPL, meta), SAMPLES + EPHEMERIS (if
+        posteriors), and TTIMES_nn (if transit_times); the detrended litecurve
+        is written by LiteCurve.to_fits
         """
         primary_hdu = fits.PrimaryHDU()
         primary_hdu.header["MISSION"] = self.mission
         primary_hdu.header["TARGET"] = self.target
         primary_hdu.header["NPL"] = self.npl
-        primary_hdu.header["RUN_ID"] = run_id
-        primary_hdu.header["VERSION"] = alderaan.__version__
-        primary_hdu.header["GIT_HASH"] = alderaan.git_hash()
+        primary_hdu.header.update(self.meta)
 
         # component HDU builders are private to data_models; Results owns the file
         hdul = fits.HDUList([primary_hdu])
@@ -119,6 +116,8 @@ class Results:
         logger.info("reading %s", results_filepath)
         with fits.open(results_filepath) as hdul:
             npl = hdul[0].header["NPL"]
+            skip = ("SIMPLE", "BITPIX", "NAXIS", "EXTEND", "MISSION", "TARGET", "NPL")
+            meta = {k: v for k, v in hdul[0].header.items() if k not in skip}
 
             if "SAMPLES" in hdul:
                 posteriors = Posteriors._from_hdus(hdul["SAMPLES"], hdul["EPHEMERIS"])
@@ -137,9 +136,11 @@ class Results:
         else:
             litecurve = LiteCurve.from_fits(detrended_filepath)
 
-        return cls(
+        results = cls(
             posteriors=posteriors, transit_times=transit_times, litecurve=litecurve
         )
+        results.meta = meta
+        return results
 
     def summary(self):
         return self.posteriors.summary()
