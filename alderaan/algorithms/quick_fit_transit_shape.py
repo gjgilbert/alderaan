@@ -10,7 +10,6 @@ from alderaan.transit_model import (
     TRANSIT_PARAMETER_LABELS,
     TransitModel,
 )
-from alderaan.utils.astro import approx_transit_depth
 
 logger = logging.getLogger(__name__)
 
@@ -118,20 +117,13 @@ class QuickFitTransitShape(BaseAlg):
 
     def _update_planets(self, theta):
         for n, p in enumerate(self.planets):
-            ror, impact = theta[2 + n * 5], theta[3 + n * 5]
-            p.set_transit_shape(
-                depth=approx_transit_depth(ror, impact),
-                duration=theta[4 + n * 5],
-                impact=impact,
-                ror=ror,
-            )
+            p.set_transit_shape(*theta[2 + n * 5 : 5 + n * 5])
             logger.info(
-                "planet %d: ror = %.4f, b = %.3f, T14 = %.3f hr, depth = %.0f ppm",
+                "planet %d: ror = %.4f, b = %.3f, T14 = %.3f hr",
                 n,
                 p.ror,
                 p.impact,
                 p.duration * 24,
-                p.depth * 1e6,
             )
 
     def perform(self):

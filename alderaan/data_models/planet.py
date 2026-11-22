@@ -16,10 +16,12 @@ class Planet:
         initial orbital period (days), e.g. from a catalog
     epoch : float
         initial transit epoch
-    depth : float
-        transit depth (fraction)
+    ror : float
+        planet-to-star radius ratio Rp/Rs
+    impact : float
+        impact parameter
     duration : float
-        transit duration (days)
+        transit duration T14 (days)
 
     Notes
     -----
@@ -27,15 +29,14 @@ class Planet:
     linear ephemeris fit to those transit times
     """
 
-    def __init__(self, mission, target, period, epoch, depth, duration):
+    def __init__(self, mission, target, period, epoch, ror, impact, duration):
         self.mission = mission
         self.target = target
         self._period = period
         self._epoch = epoch
-        self.depth = depth
+        self.ror = ror
+        self.impact = impact
         self.duration = duration
-        self.impact = None  # set with ror by set_transit_shape
-        self.ror = None
 
         self.transit_times = None
 
@@ -83,22 +84,19 @@ class Planet:
         self.static_period = self.period
         self.static_epoch = self.epoch
 
-    def set_transit_shape(self, depth, duration, impact, ror):
+    def set_transit_shape(self, ror, impact, duration):
         """
         Set transit shape parameters (e.g. from QuickFitTransitShape)
 
         Parameters
         ----------
-        depth : float
-            transit depth (fraction)
-        duration : float
-            transit duration (days)
-        impact : float
-            impact parameter
         ror : float
             planet-to-star radius ratio Rp/Rs
+        impact : float
+            impact parameter
+        duration : float
+            transit duration T14 (days)
         """
-        self.depth = depth
-        self.duration = duration
-        self.impact = impact
         self.ror = ror
+        self.impact = impact
+        self.duration = duration

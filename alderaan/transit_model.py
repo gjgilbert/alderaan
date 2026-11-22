@@ -100,8 +100,9 @@ class TransitModel:
 
         # ingress/egress timescale estimate following Winn 2010
         period = np.array([p.period for p in self.planets])
-        depth = np.array([p.depth for p in self.planets])
-        tau12 = (13 / 24) * (period / 365.25) ** (1 / 3) * np.sqrt(depth)
+        ror = np.array([p.ror for p in self.planets])
+        depth = ror**2
+        tau12 = (13 / 24) * (period / 365.25) ** (1 / 3) * ror
 
         # supersample factor (forced odd, minimum 7) following Kipping 2010,
         # and exposure time integration offsets; short cadence is not supersampled
@@ -212,7 +213,7 @@ class TransitModel:
 
     def theta_initial(self):
         """
-        Starting parameters from the planets' depths and durations
+        Starting parameters from the planets' ror, impact, and duration
 
         Returns
         -------
@@ -220,15 +221,11 @@ class TransitModel:
             npl * [C0, C1, ror, b, T14] + [q1, q2]
         """
         theta = []
-        for n, p in enumerate(self.planets):
-            if not p.depth > 0:
-                raise ValueError(
-                    f"planet {n}: depth = {p.depth} must be positive to initialize ror"
-                )
+        for p in self.planets:
             theta.append(0.0)
             theta.append(0.0)
-            theta.append(np.sqrt(p.depth))
-            theta.append(0.5)
+            theta.append(p.ror)
+            theta.append(p.impact)
             theta.append(p.duration)
 
         # limb darkening in the sampling basis (q1, q2), see Kipping 2013

@@ -57,12 +57,12 @@ def _synthetic_system(inject_perturbation=False):
 
     star = Star("Kepler", "SYN", "K99999", 1, U1, U2)
     planets, ttimes = [], []
-    for (period, epoch, ror, _b, T14, ttv), (C0, C1) in zip(PLANETS, PERTURBATION):
+    for (period, epoch, ror, b, T14, ttv), (C0, C1) in zip(PLANETS, PERTURBATION):
         lin = TransitTimes.from_linear_ephemeris(
             "Kepler", "SYN", period, epoch, t_start, t_end
         )
         ttime = lin.ttime_mod + ttv * np.sin(2 * np.pi * lin.index / 4.3)
-        p = Planet("Kepler", "SYN", period, epoch, ror**2, T14)
+        p = Planet("Kepler", "SYN", period, epoch, ror, b, T14)
         p.set_transit_times(TransitTimes("Kepler", "SYN", lin.index, ttime))
         p.set_static_period_and_epoch()
         planets.append(p)
@@ -179,9 +179,7 @@ class TestTransitModel:
         for n, p in enumerate(planets):
             C0, C1, ror, b, T14 = theta[5 * n : 5 * (n + 1)]
             assert (C0, C1) == (0.0, 0.0)
-            npt.assert_allclose(ror, np.sqrt(p.depth))
-            assert 0 < b < 1
-            assert T14 == p.duration
+            assert (ror, b, T14) == (p.ror, p.impact, p.duration)
         npt.assert_allclose(theta[-2:], [star.q1, star.q2])
 
     def test_supersampling_at_least_seven_and_odd(self):

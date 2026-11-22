@@ -12,7 +12,7 @@ from alderaan.algorithms import QuickFitTransitShape
 from alderaan.constants import EXPTIME
 from alderaan.data_models import LiteCurve, Planet, Star, TransitTimes
 from alderaan.transit_model import exposure_offsets, transit_flux
-from alderaan.utils.astro import approx_transit_depth
+from alderaan.utils.astro import approx_ror, approx_transit_depth
 
 LC = "long cadence"
 U1, U2 = 0.4, 0.25
@@ -46,7 +46,8 @@ def _synthetic_system(truth, depth_scale=1.3, duration_scale=1.2, seed=0):
             "SYN",
             period,
             epoch,
-            depth_scale * approx_transit_depth(ror, impact),
+            approx_ror(depth_scale * approx_transit_depth(ror, impact), 0.0),
+            0.0,
             duration_scale * T14,
         )
         p.set_transit_times(

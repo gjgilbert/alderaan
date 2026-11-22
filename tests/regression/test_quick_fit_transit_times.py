@@ -59,10 +59,10 @@ def _synthetic_system(truth, seed=0, noise=NOISE, obsmode=LC):
             "SYN",
             period,
             epoch,
-            approx_transit_depth(ror, impact),
+            ror,
+            impact,
             T14,
         )
-        p.set_transit_shape(approx_transit_depth(ror, impact), T14, impact, ror)
         p.set_transit_times(TransitTimes("Kepler", "SYN", index, linear))
         p.set_static_period_and_epoch()
         planets.append(p)

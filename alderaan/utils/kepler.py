@@ -16,6 +16,7 @@ import pandas as pd
 
 from alderaan.data_models import LiteCurve, Planet, Star, TransitTimes
 from alderaan.data_models.transit_times import linear_ephemeris_times
+from alderaan.utils.astro import approx_ror
 from alderaan.utils.stats import robust_polyfit
 
 logger = logging.getLogger(__name__)
@@ -337,7 +338,8 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
             target,
             row.period,
             row.epoch,
-            row.depth,
+            approx_ror(row.depth, 0.0),
+            0.0,
             row.duration,
         )
         p.set_transit_times(
@@ -363,12 +365,13 @@ def load_kepler_data(target, input_dir, catalog_dir, visits=None):
                 "planet %d: only %d transits within litecurve span", n, n_after
             )
         logger.info(
-            "planet %d (catalog): P = %.6f d, epoch = %.5f BKJD, depth = %.0f ppm, "
-            "T14 = %.2f hr; %d transits, %d with Holczer+2016 times",
+            "planet %d (catalog): P = %.6f d, epoch = %.5f BKJD, ror = %.4f, "
+            "b = %.1f, T14 = %.2f hr; %d transits, %d with Holczer+2016 times",
             n,
             p.period,
             p.epoch,
-            p.depth * 1e6,
+            p.ror,
+            p.impact,
             p.duration * 24,
             n_after,
             np.sum(np.isfinite(p.transit_times.ttime_err)),

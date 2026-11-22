@@ -2,6 +2,7 @@
 
 __all__ = [
     "approx_tc_error",
+    "approx_ror",
     "approx_transit_depth",
     "ld_q_to_u",
     "ld_u_to_q",
@@ -9,6 +10,7 @@ __all__ = [
 
 
 import numpy as np
+from scipy.optimize import brentq
 
 
 def ld_q_to_u(q1, q2):
@@ -40,29 +42,47 @@ def approx_transit_depth(p, b):
     depth : array-like
         transit depth
     """
-    # broadcasting
-    p = p * np.ones(np.atleast_1d(b).shape)
-    b = b * np.ones(np.atleast_1d(p).shape)
+    p, b = np.asarray(p, dtype=float), np.asarray(b, dtype=float)
 
-    # non-grazing transit (b <= 1-p)
-    d = p**2
+    # grazing transit (1-p < b < 1+p); terms are unused outside this regime, and
+    # clipped against roundoff at the contact points
+    with np.errstate(divide="ignore", invalid="ignore"):
+        k0 = np.arccos(np.clip((p**2 + b**2 - 1) / (2 * p * b), -1, 1))
+        k1 = np.arccos(np.clip((1 - p**2 + b**2) / (2 * b), -1, 1))
+        s0 = np.sqrt(np.maximum(4 * b**2 - (1 + b**2 - p**2) ** 2, 0) / 4)
+    grazing = (b > 1 - p) & (b < 1 + p)
 
-    # grazing transit (1-p < b < 1+p)
-    grazing = (b > 1 - p) * (b < 1 + p)
+    # non-grazing transit (b <= 1-p), non-transiting (b >= 1+p)
+    d = np.where(grazing, (p**2 * k0 + k1 - s0) / np.pi, p**2)
+    return np.where(b >= 1 + p, 0.0, d)
 
-    pg = p[grazing]
-    bg = b[grazing]
 
-    k0 = np.arccos((pg**2 + bg**2 - 1) / (2 * pg * bg))
-    k1 = np.arccos((1 - pg**2 + bg**2) / (2 * bg))
-    s0 = np.sqrt((4 * bg**2 - (1 + bg**2 - pg**2) ** 2) / 4)
+def approx_ror(depth, b):
+    """Invert approx_transit_depth: radius ratio from transit depth
 
-    d[grazing] = (1 / np.pi) * (pg**2 * k0 + k1 - s0)
+    Parameters
+    ----------
+    depth : array-like
+        transit depth, 0 < depth < 1
+    b : array-like
+        impact parameter, b >= 0
 
-    # non-transiting (b >= 1+p)
-    d[b >= 1 + p] = 0.0
+    Returns
+    -------
+    ror : array-like
+        planet-to-star radius ratio Rp/Rs
+    """
+    if np.any(~((np.asarray(depth) > 0) & (np.asarray(depth) < 1))):
+        raise ValueError(f"depth = {depth} must be in (0, 1)")
 
-    return np.squeeze(d)
+    def _ror(d, b):
+        p = np.sqrt(d)
+        if b <= 1 - p:
+            return p
+        # grazing: depth < p**2 at p = sqrt(d), depth = 1 at p = 1 + b
+        return brentq(lambda x: approx_transit_depth(x, b) - d, p, 1 + b)
+
+    return np.vectorize(_ror, otypes=[float])(depth, b)
 
 
 def approx_tc_error(ror, b, T14, exptime, sigma_f):

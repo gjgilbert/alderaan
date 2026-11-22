@@ -23,7 +23,6 @@ from alderaan.algorithms.detrend_visits import _GPTrendModel
 from alderaan.constants import EXPTIME
 from alderaan.data_models import LiteCurve, Planet, Star, TransitTimes
 from alderaan.transit_model import exposure_offsets, transit_flux
-from alderaan.utils.astro import approx_transit_depth
 
 LC = "long cadence"
 U1, U2 = 0.4, 0.25
@@ -77,7 +76,8 @@ def _synthetic_system(seed=0):
         "SYN",
         PERIOD,
         EPOCH,
-        approx_transit_depth(ROR, IMPACT),
+        ROR,
+        IMPACT,
         T14,
     )
     planet.set_transit_times(

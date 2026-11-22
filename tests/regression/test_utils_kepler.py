@@ -65,7 +65,7 @@ class TestParseKoiCatalog:
 
 
 def _planet(period, epoch, t_min, t_max):
-    p = Planet("Kepler", "SYN", period, epoch, 1e-3, 0.1)
+    p = Planet("Kepler", "SYN", period, epoch, 0.03, 0.0, 0.1)
     p.set_transit_times(
         TransitTimes.from_linear_ephemeris("Kepler", "SYN", period, epoch, t_min, t_max)
     )
