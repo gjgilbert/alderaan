@@ -475,16 +475,13 @@ class DetrendVisits(BaseAlg):
     def _transit_mask(self, time, visit, obsmode, tight_mask):
         """Transit mask (True near transit) for one visit"""
         exptime = EXPTIME[obsmode]
-        # ultra-short-period planets (P < 3 d, ror < 0.05): full width
-        # k x T14 + exptime (exposure smearing), no floor or ttv_buffer; at short
-        # periods the general masks leave the GP too little out-of-transit data
+        # at short periods the general masks leave the GP too little data
         usp = np.array([p.period < 3 and p.ror < 0.05 for p in self.planets])
 
         # tight is as narrow as possible for the best detrending;
         # wide is cautious, keeping well clear of transits
         if tight_mask:
-            # full width = max(T14, 2 hours) + 2 x (exptime + the planet's ttv_buffer);
-            # USP: 1.5 x T14 + exptime
+            # full width = max(T14, 2 hours) + 2 x (exptime + the planet's ttv_buffer)
             mask = self.make_transit_mask(
                 rel_size=np.where(usp, 1.5, 1.0),
                 abs_size=np.where(usp, 0.0, 2 / 24),
@@ -495,7 +492,7 @@ class DetrendVisits(BaseAlg):
                 time=time,
             )
         else:
-            # full width = max(3 x T14, 2 x (exptime + 1 hour)); USP: 2 x T14 + exptime
+            # full width = max(3 x T14, 2 x (exptime + 1 hour))
             mask = self.make_transit_mask(
                 rel_size=np.where(usp, 2.0, 3.0),
                 abs_size=np.where(usp, 0.0, 2 * (exptime + 1 / 24)),

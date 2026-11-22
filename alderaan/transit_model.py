@@ -13,7 +13,7 @@ from copy import copy
 import numpy as np
 from batman import _quadratic_ld, _rsky
 
-from alderaan.constants import EXPTIME
+from alderaan.constants import EXPTIME, KEPLER_LCIT
 from alderaan.utils.astro import ld_q_to_u
 from alderaan.utils.stats import legendre_p1
 
@@ -104,27 +104,20 @@ class TransitModel:
         depth = ror**2
         tau12 = (13 / 24) * (period / 365.25) ** (1 / 3) * ror
 
-        # supersample factor (forced odd, minimum 7) following Kipping 2010,
-        # and exposure time integration offsets; short cadence is not supersampled
         self.supersample = {}
         self.exptime_offsets = {}
         for om in self.unique_obsmodes:
-            if om == "short cadence":
-                self.supersample[om] = 1
-                self.exptime_offsets[om] = np.array([0.0])
-                continue
-
             exptime = EXPTIME[om]
-            # sigma so binning error is < 0.1% of this obsmode's photometric
-            # uncertainty
+            # Kipping 2010; 0.04 sigma inflates the effective noise < 0.1%
             use = lc.obsmode == om
             sigma = np.mean(lc.error[use] / lc.flux[use]) * 0.04
-            supersample = np.array(
-                np.ceil(np.sqrt((depth / tau12) * (exptime / 8 / sigma))), dtype=int
+            n_noise = np.sqrt((depth / tau12) * (exptime / 8 / sigma))
+            # integration error < 1% of depth at short periods; error ~ exptime / N^2
+            n_min = np.maximum(7, 13 * period ** (-1 / 6)) * np.sqrt(
+                exptime / KEPLER_LCIT
             )
-            self.supersample[om] = np.max(
-                np.hstack([supersample + (supersample % 2 + 1), 7])
-            )
+            n = int(np.ceil(np.max(np.hstack([n_noise, n_min]))))
+            self.supersample[om] = n + (1 - n % 2)  # odd
             self.exptime_offsets[om] = exposure_offsets(exptime, self.supersample[om])
             logger.debug(
                 "supersample (%s) = %d (min tau12 = %.2f min, sigma = %.2e)",

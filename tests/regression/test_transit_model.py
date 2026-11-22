@@ -182,11 +182,12 @@ class TestTransitModel:
             assert (ror, b, T14) == (p.ror, p.impact, p.duration)
         npt.assert_allclose(theta[-2:], [star.q1, star.q2])
 
-    def test_supersampling_at_least_seven_and_odd(self):
+    def test_supersampling_odd_and_above_period_floor(self):
         star, planets, litecurve = _synthetic_system()
         model = TransitModel(star, planets, litecurve)
         ss = model.supersample["long cadence"]
-        assert ss >= 7 and ss % 2 == 1
+        p_min = min(p.period for p in planets)
+        assert ss >= max(7, 13 * p_min ** (-1 / 6)) and ss % 2 == 1
         assert model.exptime_offsets["long cadence"].size == ss
 
     def test_reproduces_injected_ttv_transits(self):
@@ -260,13 +261,11 @@ class TestTransitModel:
         )
         model = TransitModel(star, planets, litecurve)
 
-        assert model.supersample["short cadence"] == 1
         assert model.supersample["long cadence"] >= 7
+        assert model.supersample["short cadence"] >= 3
+        assert all(ss % 2 == 1 for ss in model.supersample.values())
         residuals = model.residuals(_theta_true())
-        is_lc = obsmode == "long cadence"
-        npt.assert_allclose(residuals[is_lc], 0.0, atol=0.05)
-        # short cadence is not integrated over its 1 min exposure (by design)
-        npt.assert_allclose(residuals[~is_lc], 0.0, atol=0.1)
+        npt.assert_allclose(residuals, 0.0, atol=0.05)
 
     def test_models_short_cadence_inside_a_long_cadence_transit(self):
         # short cadence covers only the second half of one transit, so no transit

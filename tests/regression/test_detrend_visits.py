@@ -330,13 +330,11 @@ class TestTransitMask:
     @pytest.mark.parametrize("tight_mask, k", [(False, 2.0), (True, 1.5)])
     @pytest.mark.parametrize("duration", [0.02, 0.1])
     def test_usp_full_width_is_k_t14_plus_exptime(self, tight_mask, k, duration):
-        # P < 3 d, ror < 0.05: k x T14 + exptime, no floor, no ttv buffer
         assert self._width(1.0, 0.02, duration, tight_mask) == pytest.approx(
             k * duration + EXPTIME[LC], abs=1e-3
         )
 
     def test_non_usp_keeps_three_t14_wide_mask(self):
-        # period >= 3 d or ror >= 0.05
         assert self._width(5.0, 0.02, 0.1, False) == pytest.approx(0.3, abs=1e-3)
         assert self._width(1.0, 0.06, 0.1, False) == pytest.approx(0.3, abs=1e-3)
 

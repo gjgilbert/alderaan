@@ -146,9 +146,8 @@ class ClipOutliers(BaseAlg):
             npts_initial = int(np.sum(use))
 
             if method == "local_trend":
-                # full width = max(3 x T14, 2 x (exptime + 1 hour)); 2 x T14 +
-                # exptime for ultra-short-period planets (P < 3 d, ror < 0.05), as
-                # in the DetrendVisits wide mask
+                # full width = max(3 x T14, 2 x (exptime + 1 hour)); USPs as in
+                # the DetrendVisits wide mask
                 exptime = EXPTIME[lc.obsmode[use][0]]
                 usp = np.array([p.period < 3 and p.ror < 0.05 for p in self.planets])
                 transit_mask = self.make_transit_mask(
