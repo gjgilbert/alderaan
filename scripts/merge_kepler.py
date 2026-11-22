@@ -25,7 +25,10 @@ tests/catalogs/kepler_dr25_gaia_dr2_crossmatch.csv), without ror and dor:
     disposition  alderaan_disp
     koi_id       KOI host star (e.g. K00001); npl = number of output KOIs on it
     logrho       log10(density / solar density)
-    limbdark_*   empty
+    limbdark_*   quadratic limb darkening (u1, u2), Kepler band, from ldtk
+                 (PHOENIX spectra) for the star's Teff, logg, [Fe/H]; one
+                 fit per star, with parameter samples seeded by kic_id;
+                 empty without stellar parameters
     snr          koi_model_snr (Lissauer+2024)
 
 Usage (from the repo root):
@@ -35,6 +38,7 @@ Usage (from the repo root):
 from decimal import Decimal
 from pathlib import Path
 
+import ldtk
 import numpy as np
 import pandas as pd
 
@@ -710,6 +714,42 @@ def write_report(tables, lissauer, merged, kepid_rows, alias_rows, param_rows, c
     REPORT.write_text("\n".join(lines) + "\n\n" + manual)
 
 
+def limbdark(stars, nsamples=100):
+    """Quadratic limb darkening (u1, u2) in the Kepler band, one row per kepid.
+
+    ldtk interpolates PHOENIX intensity profiles at Teff, logg, [Fe/H] samples
+    drawn from normal distributions (sigma = mean of |err1| and |err2|) and
+    fits the quadratic law to their mean profile. Uses only the local ldtk cache;
+    NaN without stellar parameters or without the cached spectra (listed).
+    """
+    ld = pd.DataFrame(np.nan, index=stars.index, columns=["u1", "u2"])
+    params = ["star_teff", "star_logg", "star_feh"]
+    uncached = []
+    for kepid, r in stars.dropna(subset=params).iterrows():
+        teff, logg, feh = [
+            (r[f"star_{p}"], (r[f"star_{p}_err1"] - r[f"star_{p}_err2"]) / 2)
+            for p in ["teff", "logg", "feh"]
+        ]
+        try:
+            sc = ldtk.LDPSetCreator(
+                teff, logg, feh, filters=[ldtk.filters.kepler], offline_mode=True
+            )
+        except FileNotFoundError:
+            uncached.append(r["koi_id"])
+            continue
+        rng = np.random.default_rng(int(kepid))  # seeded: deterministic output
+        profiles = sc.create_profiles(
+            nsamples,
+            teff=rng.normal(*teff, nsamples),
+            logg=rng.normal(*logg, nsamples),
+            metal=rng.normal(*feh, nsamples),
+        )
+        coeffs, _ = profiles.coeffs_qd()
+        ld.loc[kepid] = coeffs[0]
+    print(f"no limb darkening, spectra not cached ({len(uncached)}): {uncached}")
+    return ld
+
+
 def output_catalog(merged):
     """The output catalog (OUTPUT_COLUMNS): PC and A KOIs, sorted by KOI."""
     out = merged[merged["alderaan_disp"] != "FP"].reset_index(names="kepoi_name")
@@ -719,9 +759,10 @@ def output_catalog(merged):
     out["logrho"] = np.log10(rho)
     for s in ["_err1", "_err2"]:
         out["logrho" + s] = np.log10(rho + out["star_rho" + s]) - out["logrho"]
-    out["limbdark_1"] = out["limbdark_2"] = np.nan
+    ld = limbdark(out.drop_duplicates("kepid").set_index("kepid"))
+    out[["limbdark_1", "limbdark_2"]] = ld.loc[out["kepid"]].to_numpy()
     # computed values to 3 decimals; others as in their source tables
-    computed = [c for c in out.columns if c.startswith(("star_", "logrho"))]
+    computed = [c for c in out.columns if c.startswith(("star_", "logrho", "limbdark"))]
     out[computed] = out[computed].round(3)
     out = out[[col for _, col in OUTPUT_COLUMNS]]
     out.columns = [name for name, _ in OUTPUT_COLUMNS]
