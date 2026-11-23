@@ -132,7 +132,10 @@ class TestFits:
         assert (out.mission, out.target) == (lc.mission, lc.target)
         assert (out.t_start, out.t_end) == (lc.t_start, lc.t_end)
         for k in FIELDS:
-            assert_array_equal(getattr(out, k), getattr(lc, k))
+            expected = getattr(lc, k)
+            if k in ("flux", "error"):  # stored as float32
+                expected = expected.astype(np.float32)
+            assert_array_equal(getattr(out, k), expected)
         assert os.listdir(tmp_path) == ["lc.fits"]
 
 

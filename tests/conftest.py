@@ -56,23 +56,24 @@ def make_posteriors():
         for n in range(npl):
             labels += f"C0_{n} C1_{n} ROR_{n} IMPACT_{n} DUR14_{n}".split()
         labels += ["LD_Q1", "LD_Q2"]
-        logwt = rng.normal(-10, 2, nsamp)
+        logl = np.sort(rng.normal(0, 1, nsamp))
+        logvol = -np.arange(1, nsamp + 1) / 100
         args = dict(
             samples=pd.DataFrame(
                 rng.uniform(0.01, 0.99, (nsamp, len(labels))), columns=labels
             ),
             sampler_info={
-                "logwt": logwt,
-                "logl": np.sort(rng.normal(0, 1, nsamp)),
-                "logz": np.logaddexp.accumulate(logwt),
-                "logzerr": np.full(nsamp, 0.1),
-                "logvol": -np.arange(nsamp) / 100,
+                "logl": logl,
+                "logvol": logvol,
+                **Posteriors._integrals(logl, logvol),
                 "samples_n": np.full(nsamp, 100),
                 "ncall": np.full(nsamp, 3),
-                "information": np.linspace(0, 5, nsamp),
+                "samples_id": rng.integers(0, 150, nsamp),
+                "samples_batch": rng.integers(0, 2, nsamp),
                 "niter": nsamp,
                 "eff": 12.5,
                 "batch_nlive": [100, 50],
+                "batch_logl_bounds": np.array([[-np.inf, np.inf], [-1.0, 1.0]]),
             },
             ref_period=np.array([3.5, 7.6])[:npl],
             ref_epoch=np.array([131.1, 133.4])[:npl],

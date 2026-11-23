@@ -81,9 +81,9 @@ class Results:
 
     def to_fits(self, filepath):
         """
-        Write PRIMARY, SAMPLES and EPHEMERIS, and TTIMES_nn HDUs to filepath
+        Write PRIMARY, SAMPLES, EPHEMERIS and BATCHES, and TTIMES_nn HDUs to filepath
 
-        PRIMARY holds MISSION, TARGET, NPL and meta; SAMPLES and EPHEMERIS are
+        PRIMARY holds MISSION, TARGET, NPL and meta; SAMPLES, EPHEMERIS, BATCHES are
         written if posteriors is set, one TTIMES_nn per planet if transit_times is
         set. The litecurve is not written; use LiteCurve.to_fits.
         """
@@ -125,7 +125,7 @@ class Results:
             meta = {k: v for k, v in hdul[0].header.items() if k not in skip}
 
             if "SAMPLES" in hdul:
-                posteriors = Posteriors._from_hdus(hdul["SAMPLES"], hdul["EPHEMERIS"])
+                posteriors = Posteriors._from_hdus(hdul)
             else:
                 posteriors = None
 

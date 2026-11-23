@@ -253,9 +253,7 @@ class TransitTimes:
             chi2 = np.sum((resid / (self.ttime_err[good] * 24 * 60)) ** 2)
             chi2_red = chi2 / (np.sum(good) - self.model_dof)
             annotate_plot(ax, f"reduced χ² = {chi2_red:.2f}", "lower left")
-        if title is not None:
-            ax.set_title(title)
-        label_axes(ax, "Time [BKJD]", "O-C [min]")
+        label_axes(ax, "Time [BKJD]", "O-C [min]", title, label_size=15, title_size=16)
         if new_figure:
             ax.figure.tight_layout()
         save_and_close(ax.figure, fig_path, close=new_figure)
