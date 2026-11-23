@@ -24,7 +24,8 @@ class _GPTrendModel:
     mean (baseline x exponential ramp) plus a celerite2 GP shared by all segments
 
     Parameters form a flat vector of unconstrained values with Normal priors
-    (GP hyperparameters truncated at 4 sd); RotationTerm's mix ~ Uniform(0, 1)
+    (GP hyperparameters truncated at 4 sd; logp is also -inf where the
+    covariance cannot be factorized); RotationTerm's mix ~ Uniform(0, 1)
     is carried as logit(mix).
 
     Quality: q = 1/2 + exp(log_Q0) is the SHOTerm Q (> 1/2) or the
@@ -44,8 +45,6 @@ class _GPTrendModel:
         start time of each segment, from all cadences (ramp origin)
     gp_term : str
         "RotationTerm" or "SHOTerm"
-    correct_ramp : bool
-        fit a per-segment exponential ramp
     nominal_period : float
         nominal stellar oscillation period (days); centers the GP period prior
     min_period : float
@@ -60,7 +59,6 @@ class _GPTrendModel:
         seg_id,
         seg_t0,
         gp_term,
-        correct_ramp,
         nominal_period,
         min_period,
     ):
@@ -71,7 +69,6 @@ class _GPTrendModel:
         self.seg_id, self.seg_t0 = seg_id, seg_t0
         self.gp_term = gp_term
         self.rotation = gp_term == "RotationTerm"
-        self.correct_ramp = correct_ramp
         self.nominal_period = nominal_period
         self.min_period = min_period
         self.n_seg = len(seg_t0)
@@ -87,9 +84,8 @@ class _GPTrendModel:
         if self.rotation:
             self.priors["log_dQ"] = (0.0, 5.0)
         self.priors["flux0"] = (np.array(approx_mean), 1.0)
-        if correct_ramp:
-            self.priors["ramp_amp"] = (np.zeros(self.n_seg), np.std(flux_oot))
-            self.priors["log_tau"] = (np.zeros(self.n_seg), 5.0)
+        self.priors["ramp_amp"] = (np.zeros(self.n_seg), np.std(flux_oot))
+        self.priors["log_tau"] = (np.zeros(self.n_seg), 5.0)
         self.priors["log_var"] = (
             np.log(np.var(flux_oot - median_filter(flux_oot, size=13, mode="mirror"))),
             5.0,
@@ -115,11 +111,7 @@ class _GPTrendModel:
 
     def unpack(self, x):
         """Parameter vector x as a dict of named values"""
-        p = {name: x[i] for name, i in self.ix.items()}
-        if not self.correct_ramp:
-            p["ramp_amp"] = np.zeros(self.n_seg)
-            p["log_tau"] = np.zeros(self.n_seg)
-        return p
+        return {name: x[i] for name, i in self.ix.items()}
 
     def hyperparameters(self, p):
         """GP oscillation period (days), q (SHOTerm Q, RotationTerm Q0), sigma"""
@@ -165,7 +157,11 @@ class _GPTrendModel:
                 if abs(p[name][0] - mu) > 4 * sd:
                     return -np.inf
         resid = self.flux[self.oot] - self._mean(p, self.oot)
-        lp = self._gp(p).log_likelihood(resid)
+        try:
+            gp = self._gp(p)
+        except LinAlgError:  # numerically singular covariance: reject like truncation
+            return -np.inf
+        lp = gp.log_likelihood(resid)
         for name, (mu, sd) in self.priors.items():
             lp += np.sum(-0.5 * ((p[name] - mu) / sd) ** 2 - np.log(sd))
         if self.rotation:
@@ -432,11 +428,8 @@ class DetrendVisits(BaseAlg):
         if model.rotation:
             gp_vars += ["log_dQ", "logit_mix"]
 
-        stages = [["flux0"], ["flux0", "log_var"]]
-        for _ in range(1 + model.correct_ramp):
-            stages.append(gp_vars)
-            if model.correct_ramp:
-                stages.append(["log_var", "flux0", "ramp_amp", "log_tau"])
+        ramp_vars = ["log_var", "flux0", "ramp_amp", "log_tau"]
+        stages = [["flux0"], ["flux0", "log_var"]] + [gp_vars, ramp_vars] * 2
         # final joint stage over every parameter, so correlated blocks (e.g.
         # ramp and GP) are not left at a block-coordinate optimum
         stages.append(list(model.ix))
@@ -446,12 +439,11 @@ class DetrendVisits(BaseAlg):
 
         period, q, sigma = model.hyperparameters(model.unpack(x))
         logger.info(
-            "visit %d: %s GP (%d segments, ramp = %s): P = %.2f d (nominal %.2f d), "
+            "visit %d: %s GP (%d segments): P = %.2f d (nominal %.2f d), "
             "%s = %.2f, sigma = %.2e",
             visit,
             model.gp_term,
             model.n_seg,
-            model.correct_ramp,
             period,
             model.nominal_period,
             "Q0" if model.rotation else "Q",
@@ -510,8 +502,7 @@ class DetrendVisits(BaseAlg):
         Detrend one visit; returns the predicted trend (same length as time)
 
         Segments (split at gaps and flux jumps) each have their own mean and
-        share one GP: RotationTerm if the star is periodic, else SHOTerm, with
-        fallbacks to simpler models on LinAlgError.
+        share one GP: RotationTerm if the star is periodic, else SHOTerm.
         """
         exptime = EXPTIME[obsmode]
         gap_tolerance = np.max(
@@ -525,38 +516,17 @@ class DetrendVisits(BaseAlg):
         # ramp origin per segment, from all cadences, so fit and prediction agree
         seg_t0 = np.array([time[seg_id == i].min() for i in range(seg_id.max() + 1)])
 
-        if periodic:
-            models = [
-                ("RotationTerm", True),
-                ("RotationTerm", False),
-                ("SHOTerm", False),
-            ]
-        else:
-            models = [("SHOTerm", True), ("SHOTerm", False)]
-        for gp_term, correct_ramp in models:
-            model = _GPTrendModel(
-                time,
-                flux,
-                ~mask,
-                seg_id,
-                seg_t0,
-                gp_term,
-                correct_ramp,
-                nominal_period,
-                self._min_period(obsmode),
-            )
-            try:
-                return self._fit(model, visit)
-            except LinAlgError as e:
-                if (gp_term, correct_ramp) == models[-1]:
-                    raise
-                logger.warning(
-                    "visit %d: %s GP (ramp = %s) failed (%s); trying a simpler model",
-                    visit,
-                    gp_term,
-                    correct_ramp,
-                    e,
-                )
+        model = _GPTrendModel(
+            time,
+            flux,
+            ~mask,
+            seg_id,
+            seg_t0,
+            "RotationTerm" if periodic else "SHOTerm",
+            nominal_period,
+            self._min_period(obsmode),
+        )
+        return self._fit(model, visit)
 
     def perform(self, method):
         """
