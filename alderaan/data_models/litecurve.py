@@ -221,6 +221,14 @@ class LiteCurve:
         for k in FIELDS:
             setattr(self, k, getattr(self, k)[mask])
 
+    def visit_rms(self, mask=None):
+        """Flux std of each visit, excluding cadences where mask is True"""
+        use = np.ones(len(self.time), dtype=bool) if mask is None else ~mask
+        return {
+            int(v): float(np.std(self.flux[use & (self.visit == v)]))
+            for v in np.unique(self.visit)
+        }
+
     def _nearest_cadence(self, times):
         """Index of the cadence nearest each time (ties go earlier)"""
         if np.any(np.diff(self.time) < 0):

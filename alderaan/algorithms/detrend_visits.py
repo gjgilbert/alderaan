@@ -536,7 +536,9 @@ class DetrendVisits(BaseAlg):
         -------
         litecurve : LiteCurve
             flux and error divided by the trend; meta DTKERNEL and DTNOMP give
-            the GP kernel and nominal period (days)
+            the GP kernel and nominal period (days); RMSRAW<v> and RMSDET<v> give
+            the flux std of visit v outside the transit mask, before and after
+            detrending
         """
         if method not in ("wide_mask", "tight_mask"):
             raise ValueError(
@@ -567,6 +569,10 @@ class DetrendVisits(BaseAlg):
                     100 * np.mean(masks[v]),
                 )
         periodic, nominal_period = self._nominal_period(lc, masks)
+        mask = np.zeros(len(lc.time), dtype=bool)
+        for v in visits:
+            mask[in_visit[v]] = masks[v]
+        rms_raw = lc.visit_rms(mask)
 
         for v in visits:
             use = in_visit[v]
@@ -585,4 +591,7 @@ class DetrendVisits(BaseAlg):
 
         lc.meta["DTKERNEL"] = "RotationTerm" if periodic else "SHOTerm"
         lc.meta["DTNOMP"] = float(nominal_period)
+        for v, rms in lc.visit_rms(mask).items():
+            lc.meta[f"RMSRAW{v}"] = rms_raw[v]
+            lc.meta[f"RMSDET{v}"] = rms
         return self.planets, lc

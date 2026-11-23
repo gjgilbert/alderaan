@@ -370,3 +370,7 @@ class TestPerform:
         assert np.std(residual) < 0.3 * NOISE
         np.testing.assert_allclose(detrended.error, clean.error, rtol=1e-3)
         assert detrended.meta["DTKERNEL"] in ("RotationTerm", "SHOTerm")
+        # per-visit rms outside the mask: the trend before, the noise after
+        for v in np.unique(detrended.visit):
+            assert detrended.meta[f"RMSDET{v}"] == pytest.approx(NOISE, rel=0.2)
+            assert detrended.meta[f"RMSRAW{v}"] > 2 * detrended.meta[f"RMSDET{v}"]
