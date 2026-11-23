@@ -6,7 +6,7 @@
 #   CATALOG  planet catalog with a kic_id column, e.g.
 #            reference/alderaan/kepler_merged_alderaan.csv
 #   OUTFILE  download script to write, e.g.
-#            ~/data/MAST_Downloads/Kepler_KOI_curl.sh
+#            ~/data/MAST_downloads/Kepler_KOI_curl.sh
 #
 # Run in the alderaan conda env (needs pandas). One curl process gets every
 # listing over one connection (~4000 small requests, a few minutes). Exits 1,
