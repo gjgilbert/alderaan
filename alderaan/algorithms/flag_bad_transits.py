@@ -35,25 +35,45 @@ class FlagBadTransits(BaseAlg):
         """
         lc = self.litecurve
 
-        quality = [None] * self.npl
+        good_coverage = [None] * self.npl
         obsmode = [lc.obsmode_at(p.transit_times.ttime_mod) for p in self.planets]
 
         for n, p in enumerate(self.planets):
             exptime = np.array([EXPTIME[om] for om in obsmode[n]])
             count_expected = np.maximum(1, np.array(p.duration / exptime, dtype=int))
 
-            quality[n] = np.zeros(len(p.transit_times.ttime_mod), dtype="bool")
+            ntot = len(p.transit_times.ttime_mod)
+            good_coverage[n] = np.zeros(ntot, dtype="bool")
+            n_in_gap = 0
 
             for i, tc in enumerate(p.transit_times.ttime_mod):
                 in_transit = np.abs(lc.time - tc) / p.duration < 0.5
                 near_transit = np.abs(lc.time - tc) / p.duration < 1.5
+                n_near = np.sum(near_transit)
+                n_in_gap += n_near == 0
 
                 enough_pts_in = np.sum(in_transit) >= 0.5 * count_expected[i]
-                enough_pts_near = np.sum(near_transit) >= 1.5 * count_expected[i]
+                enough_pts_near = n_near >= 1.5 * count_expected[i]
 
-                quality[n][i] = enough_pts_in and enough_pts_near
+                good_coverage[n][i] = enough_pts_in and enough_pts_near
 
-        return quality
+            n_poor = np.sum(~good_coverage[n])
+            n_partial = n_poor - n_in_gap
+            # a transit in a data gap (e.g. a missing quarter) reflects the data;
+            # partial coverage within observed data can come from the pipeline
+            # (e.g. clipping in the transit window), so only it warns
+            logger.log(
+                logging.WARNING if n_partial > 0.2 * ntot else logging.INFO,
+                "planet %d: %d of %d transits lack coverage "
+                "(%d in data gaps, %d partially covered)",
+                n,
+                n_poor,
+                ntot,
+                n_in_gap,
+                n_partial,
+            )
+
+        return good_coverage
 
     def _check_rms(self, rel_size=0.0, abs_size=0.0, sigma_cut=5.0):
         if rel_size == 0 and abs_size == 0:
@@ -61,7 +81,7 @@ class FlagBadTransits(BaseAlg):
 
         lc = self.litecurve
 
-        quality = [None] * self.npl
+        good_noise = [None] * self.npl
         overlap = self.identify_overlapping_transits(
             rel_size=rel_size, abs_size=abs_size
         )
@@ -77,7 +97,7 @@ class FlagBadTransits(BaseAlg):
                 if len(flux) > 0:
                     rms[i] = mad_std(flux)
 
-            quality[n] = np.ones(len(p.transit_times.ttime_mod), dtype="bool")
+            good_noise[n] = np.ones(len(p.transit_times.ttime_mod), dtype="bool")
 
             for om in np.unique(np.array(obsmode[n])):
                 use = (obsmode[n] == om) & ~overlap[n]
@@ -106,9 +126,9 @@ class FlagBadTransits(BaseAlg):
                     sigma_cut,
                     np.sum((obsmode[n] == om) & overlap[n]),
                 )
-                quality[n][use] &= np.abs(rms[use] - rms_mu) / rms_sd < sigma_cut
+                good_noise[n][use] &= np.abs(rms[use] - rms_mu) / rms_sd < sigma_cut
 
-        return quality
+        return good_noise
 
     def _drop_planets_with_few_transits(self):
         """
@@ -151,34 +171,32 @@ class FlagBadTransits(BaseAlg):
         """
         planets = self.planets
 
-        coverage = self._check_coverage()
+        good_coverage = self._check_coverage()
 
-        good_rms = self._check_rms(rel_size=3.0, abs_size=2 / 24, sigma_cut=5.0)
+        good_noise = self._check_rms(rel_size=3.0, abs_size=2 / 24, sigma_cut=5.0)
 
         for n, p in enumerate(planets):
-            assert len(coverage[n]) == len(p.transit_times.ttime_mod)
-            assert len(good_rms[n]) == len(p.transit_times.ttime_mod)
+            assert len(good_coverage[n]) == len(p.transit_times.ttime_mod)
+            assert len(good_noise[n]) == len(p.transit_times.ttime_mod)
 
-            ntot = len(p.transit_times.ttime_mod)
-            n_coverage = np.sum(~coverage[n])
-
-            logger.log(
-                logging.WARNING if n_coverage > 0.2 * ntot else logging.INFO,
+            n_poor_coverage = np.sum(~good_coverage[n])
+            n_high_noise = np.sum(~good_noise[n] & good_coverage[n])
+            logger.info(
                 "planet %d: %d of %d transits flagged low quality "
-                "(%d insufficient coverage, %d high noise)",
+                "(%d poor coverage, %d high noise)",
                 n,
-                n_coverage + np.sum(~good_rms[n] & coverage[n]),
-                ntot,
-                n_coverage,
-                np.sum(~good_rms[n] & coverage[n]),
+                n_poor_coverage + n_high_noise,
+                len(p.transit_times.ttime_mod),
+                n_poor_coverage,
+                n_high_noise,
             )
 
             # flag rather than drop: rejected transits stay in transit masks,
             # overlap checks, and the transit model, but are not fit or measured
             tt = p.transit_times
             fields = {k: getattr(tt, k) for k in FIELDS}
-            fields["phot_coverage"] = coverage[n]
-            fields["phot_noise"] = good_rms[n]
+            fields["phot_coverage"] = good_coverage[n]
+            fields["phot_noise"] = good_noise[n]
             p.set_transit_times(
                 TransitTimes(
                     tt.mission,

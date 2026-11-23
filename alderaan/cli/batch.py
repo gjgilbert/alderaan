@@ -249,13 +249,13 @@ def run_targets(tasks, jobs, job_timeout=None, launch_interval=0.0):
                 unsupported.add(target)
             else:
                 if rc == 124:
-                    logger.warning(
+                    logger.error(
                         "FAILED: %s (timed out after %ss; process group killed)",
                         target,
                         job_timeout,
                     )
                 else:
-                    logger.warning("FAILED: %s (exit %d)", target, rc)
+                    logger.error("FAILED: %s (exit %d)", target, rc)
                 failures.append((target, rc, stderr))
     except KeyboardInterrupt:
         _interrupted.set()
@@ -266,7 +266,7 @@ def run_targets(tasks, jobs, job_timeout=None, launch_interval=0.0):
             logger.warning("interrupted; terminating running targets")
             pool.shutdown(wait=False, cancel_futures=True)
             _terminate_all_children()
-            logger.warning("all child processes stopped")
+            logger.info("all child processes stopped")
         finally:
             for s, handler in prev.items():
                 signal.signal(s, handler)
