@@ -17,13 +17,15 @@ logger = logging.getLogger(__name__)
 
 # per-cadence arrays carried by every LiteCurve: name -> FITS column format;
 # OBSMODE width is set at write time
+# per-cadence arrays and their FITS formats; float32 flux and error err by
+# < 0.002 x error, but time stays float64 (float32 errs by seconds)
 FIELDS = {
     "time": "D",
-    "flux": "D",
-    "error": "D",
-    "cadno": "K",
-    "visit": "K",
-    "obsmode": None,
+    "flux": "E",
+    "error": "E",
+    "cadno": "J",
+    "visit": "I",
+    "obsmode": "B",
 }
 
 
@@ -90,10 +92,17 @@ class LiteCurve:
         logger.info("reading %s", filepath)
         with fits.open(filepath) as hdul:
             hdu = hdul["LITECURVE"]
+            h = hdu.header
+            arrays = {k: hdu.data[k.upper()] for k in FIELDS}
+            # TEMPORARY: read the 20261123 batch, whose OBSMODE column is strings;
+            # remove after the next batch
+            if "NOBSMODE" in h:
+                names = np.array([h[f"OBSMODE{i}"] for i in range(h["NOBSMODE"])])
+                arrays["obsmode"] = names[arrays["obsmode"]]
             lc = cls(
                 hdu.header["MISSION"],
                 hdu.header["TARGET"],
-                **{k: hdu.data[k.upper()] for k in FIELDS},
+                **arrays,
                 t_start=hdu.header["T_START"],
                 t_end=hdu.header["T_END"],
             )
@@ -256,19 +265,19 @@ class LiteCurve:
         """
         Write PRIMARY (MISSION, TARGET, meta) and a LITECURVE table
 
-        The table has one upper-case column per per-cadence array and header cards
-        MISSION, TARGET, T_START, T_END.
+        The table has one upper-case column per per-cadence array (formats in
+        FIELDS) and header cards MISSION, TARGET, T_START, T_END. OBSMODE is
+        stored as a code: OBSMODEi names code i, for i < NOBSMODE.
         """
         primary_hdu = fits.PrimaryHDU()
         primary_hdu.header["MISSION"] = self.mission
         primary_hdu.header["TARGET"] = self.target
         primary_hdu.header.update(self.meta)
 
-        width = max([1, *map(len, self.obsmode)])
+        names, codes = np.unique(self.obsmode, return_inverse=True)
+        arrays = {k: getattr(self, k) for k in FIELDS} | {"obsmode": codes}
         columns = [
-            fits.Column(
-                name=k.upper(), format=fmt or f"{width}A", array=getattr(self, k)
-            )
+            fits.Column(name=k.upper(), format=fmt, array=arrays[k])
             for k, fmt in FIELDS.items()
         ]
         hdu = fits.BinTableHDU.from_columns(columns, name="LITECURVE")
@@ -276,6 +285,9 @@ class LiteCurve:
         hdu.header["TARGET"] = self.target
         hdu.header["T_START"] = self.t_start
         hdu.header["T_END"] = self.t_end
+        hdu.header["NOBSMODE"] = len(names)
+        for i, name in enumerate(names):
+            hdu.header[f"OBSMODE{i}"] = name
 
         # write then rename, so a crash never leaves a partial file at filepath
         fits.HDUList([primary_hdu, hdu]).writeto(filepath + ".tmp", overwrite=True)

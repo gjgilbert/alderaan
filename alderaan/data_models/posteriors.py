@@ -140,9 +140,12 @@ class Posteriors:
     def _to_hdus(self):
         """SAMPLES and EPHEMERIS BinTableHDUs (used by Results.to_fits)"""
         info = self.sampler_info
-        samples_df = self.samples.assign(
+        # float32 parameters err by < 0.005 posterior sd; the log columns keep
+        # float64 (LN_LIKE can reach ~1e12)
+        samples_df = self.samples.astype(np.float32).assign(
             **{col: info[k] for k, col in SAMPLE_COLUMNS.items()}
         )
+        samples_df = samples_df.astype({"N_LIVE": np.int32, "N_CALL": np.int32})
         samples_hdu = fits.BinTableHDU(
             data=samples_df.to_records(index=False), name="SAMPLES"
         )
