@@ -498,7 +498,7 @@ class RegularizeOMC(BaseAlg):
         -------
         freq : float or None
             peak frequency; None for < 8 transits, a peak at the lowest searched
-            frequency, or a failed search
+            frequency, or a baseline (after the outlier cut) too short to search
         fap : float
             false alarm probability of the peak (1.0 when freq is None)
         """
@@ -509,44 +509,37 @@ class RegularizeOMC(BaseAlg):
         x = xtime[mask]
         y = yobs[mask]
 
-        try:
-            fsamp = 1 / np.min(x[1:] - x[:-1])
+        fsamp = 1 / np.min(x[1:] - x[:-1])
 
-            # Hann window to reduce ringing
-            hann = signal.windows.hann(len(x))
-            hann /= np.sum(hann)
+        # Hann window to reduce ringing
+        hann = signal.windows.hann(len(x))
+        hann /= np.sum(hann)
 
-            # egregious outliers excluded from the search
-            out = np.abs(y - np.median(y)) / mad_std(y - np.median(y)) > 5.0
-            xt = x[~out]
-            yt = y[~out]
+        # egregious outliers excluded from the search
+        out = np.abs(y - np.median(y)) / mad_std(y - np.median(y)) > 5.0
+        xt = x[~out]
+        yt = y[~out]
 
-            # frequency grid, shared by the search and its false alarm probability
-            grid = dict(
-                minimum_frequency=1.5 / (xt.max() - xt.min()),
-                maximum_frequency=0.25 * fsamp,
-                samples_per_peak=10,
-            )
-
-            lombscargle = LombScargle(xt, yt * hann[~out])
-            xf, yf = lombscargle.autopower(**grid)
-
-            peak_freq = xf[np.argmax(yf)]
-            peak_fap = lombscargle.false_alarm_probability(
-                yf.max(),
-                method="bootstrap",
-                method_kwds={"random_seed": SEED},
-                **grid,
-            )
-
-        except Exception:
-            logger.warning(
-                "Lomb-Scargle TTV search failed (%d transits); "
-                "assuming no periodic signal",
-                npts,
-                exc_info=True,
-            )
+        # frequency grid, shared by the search and its false alarm probability
+        grid = dict(
+            minimum_frequency=1.5 / (xt.max() - xt.min()),
+            maximum_frequency=0.25 * fsamp,
+            samples_per_peak=10,
+        )
+        # outliers cut from the ends can leave too short a baseline for any period
+        if grid["minimum_frequency"] >= grid["maximum_frequency"]:
             return None, 1.0
+
+        lombscargle = LombScargle(xt, yt * hann[~out])
+        xf, yf = lombscargle.autopower(**grid)
+
+        peak_freq = xf[np.argmax(yf)]
+        peak_fap = lombscargle.false_alarm_probability(
+            yf.max(),
+            method="bootstrap",
+            method_kwds={"random_seed": SEED},
+            **grid,
+        )
 
         # a peak at the lowest searched frequency is a rising edge, not a period
         if peak_freq <= xf.min():

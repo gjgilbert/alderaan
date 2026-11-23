@@ -318,6 +318,18 @@ class TestSinModel:
         assert _rms(fit["pred"] - truth) < 0.25 * TIME_ERR
 
 
+class TestLombScarglePeak:
+    def test_short_baseline_after_outlier_cut_is_no_signal(self):
+        # 8 transits; outliers at both ends leave a 5-period baseline, too short
+        # for any searched period
+        rng = np.random.default_rng(12)
+        xtime = np.arange(8) * PERIOD
+        yobs = rng.normal(0, TIME_ERR, 8)
+        yobs[[0, 7]] += 100 * TIME_ERR
+        mask = np.ones(8, dtype=bool)
+        assert RegularizeOMC._lomb_scargle_peak(xtime, yobs, mask) == (None, 1.0)
+
+
 def _mixed_error_omc():
     """
     White-noise OMC alternating precise (1 min) and noisy (4 min) errors; points
