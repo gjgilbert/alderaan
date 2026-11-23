@@ -36,7 +36,12 @@ def main(
     visits=None,
     log_level="INFO",
 ):
-    """Run the ALDERAAN pipeline on one target (see `alderaan run --help`)"""
+    """
+    Run the ALDERAAN pipeline on one target (see `alderaan run --help`)
+
+    Always logs a run summary. Every exception is re-raised, including
+    UnsupportedTargetError for a known limit (logged as one line, no traceback).
+    """
     pipeline_start_time = time.perf_counter()
 
     # fail before creating any output directories
@@ -110,9 +115,11 @@ def main(
 
 def run_summary(target, run_id, status, elapsed_s, results=None, results_path=None):
     """
-    End-of-run verdict block: status, data, sampler, posterior medians per planet,
-    outputs, elapsed. Data lines only if results is given (status ok). The
-    surrounding blank lines make the block stand out in the log.
+    End-of-run verdict block for the log
+
+    Lists status, data, sampler, posterior medians per planet, results path, and
+    elapsed time. Data lines appear only if results is given (status ok).
+    Surrounding blank lines make the block stand out in the log.
     """
     lines = [
         f"===== run summary: {target} (run_id {run_id}) =====",
@@ -146,6 +153,7 @@ def run_summary(target, run_id, status, elapsed_s, results=None, results_path=No
 
 
 def _run(target, run_id, input_dir, output_dir, catalog, visits):
+    """Run every stage, write results and plots; return (results, results_path)"""
     results_dir = os.path.join(output_dir, run_id, "results", target)
     plots_dir = os.path.join(output_dir, run_id, "plots", target)
 

@@ -28,8 +28,8 @@ def parse_koi_catalog(filepath, koi_id):
     """
     Read and validate the KOI catalog rows for one target
 
-    Expected columns include kic_id, koi_id, npl, period, epoch, depth (ppm),
-    duration (hrs), limbdark_1, limbdark_2
+    Expected columns include kic_id, koi_id, planet_name, npl, period, epoch,
+    depth (ppm), duration (hrs), limbdark_1, limbdark_2.
 
     Parameters
     ----------
@@ -43,6 +43,11 @@ def parse_koi_catalog(filepath, koi_id):
     catalog : pd.DataFrame
         target star/planet properties sorted by ascending period
         (depth as fraction, duration in days)
+
+    Raises
+    ------
+    ValueError
+        if koi_id is missing, or its rows are inconsistent or incomplete
     """
     catalog = pd.read_csv(filepath, index_col=0)
     catalog = catalog.loc[catalog.koi_id == koi_id]
@@ -97,9 +102,9 @@ def parse_holczer16_catalog(filepath, koi_id):
 
     Returns
     -------
-    transit_times : list of (index, ttime, error) tuples
+    transit_times : list of (index, ttime, error) tuples of ndarray
         one tuple per planet of this KOI found in the table, in planet-number
-        order (e.g. 1234.01, 1234.02, ...)
+        order (e.g. 1234.01, 1234.02, ...); ttime [BKJD] and error [days]
     """
     with open(filepath) as f:
         text = f.read()
@@ -138,7 +143,7 @@ def match_holczer16_transit_times(planets, transit_times, t_min, t_max):
     Assign Holczer+2016 transit times to planets by matching periods
 
     A table matches a planet if its linear-fit period is within
-    rtol=0.01, atol=(planet duration) of the planet's catalog period
+    rtol=0.01, atol=(planet duration) of the planet's catalog period.
 
     Parameters
     ----------
@@ -153,8 +158,8 @@ def match_holczer16_transit_times(planets, transit_times, t_min, t_max):
     planets : list of Planet
         matched planets carry every transit of the Holczer+2016 linear
         ephemeris within [t_min, t_max), with Holczer+2016 times as ttime_obs
-        (interpolated in OMC where Holczer+2016 has no measurement; ttime_err
-        NaN there)
+        and ttime_mod (interpolated in OMC where Holczer+2016 has no
+        measurement; ttime_err NaN there); unmatched planets are unchanged
 
     Raises
     ------
@@ -225,10 +230,10 @@ def match_holczer16_transit_times(planets, transit_times, t_min, t_max):
 
 def drop_few_transit_planets(catalog, litecurve):
     """
-    Drop catalog planets with < 3 transits in the litecurve span and remove
-    cadences within 1.5 T14 of their transits from the litecurve (in place)
+    Drop catalog planets with < 3 transits in the litecurve span
 
-    Raises ValueError for a single-planet system or if no planet would remain.
+    Cadences within 1.5 T14 of a dropped planet's transits are removed from the
+    litecurve, in place.
 
     Parameters
     ----------
@@ -240,6 +245,11 @@ def drop_few_transit_planets(catalog, litecurve):
     -------
     catalog : pd.DataFrame
         rows of the planets kept, npl updated
+
+    Raises
+    ------
+    UnsupportedTargetError
+        if no planet has >= 3 transits
     """
     keep_planet = np.ones(len(catalog), dtype=bool)
     keep_cadence = np.ones(len(litecurve.time), dtype=bool)
@@ -295,9 +305,17 @@ def load_kepler_data(target, input_dir, catalog_path, visits=None):
     -------
     star : Star
     planets : list of Planet
-        ephemerides initialized from the KOI catalog and Holczer+2016
+        ephemerides initialized from the KOI catalog and Holczer+2016; planets
+        with < 3 transits dropped (see drop_few_transit_planets)
     litecurve : LiteCurve
-        raw litecurve, all visits concatenated
+        raw litecurve, all loaded visits concatenated
+
+    Raises
+    ------
+    FileNotFoundError
+        if a requested quarter is not in input_dir
+    UnsupportedTargetError
+        if no planet has >= 3 transits
     """
     ttv_filepath = os.path.join(
         os.path.dirname(__file__),

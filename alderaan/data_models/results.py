@@ -34,7 +34,10 @@ class Results:
     litecurve : LiteCurve, optional
         final detrended photometry (the data fit by the sampler)
 
-    mission and target are taken from the supplied objects, which must agree
+    Notes
+    -----
+    mission and target are taken from the supplied objects, which must agree.
+    Plot methods return the Figure.
     """
 
     def __init__(self, posteriors=None, transit_times=None, litecurve=None):
@@ -69,6 +72,7 @@ class Results:
 
     @property
     def npl(self):
+        """Number of planets, from transit_times or posteriors; None if neither"""
         if self.transit_times is not None:
             return len(self.transit_times)
         if self.posteriors is not None:
@@ -77,9 +81,11 @@ class Results:
 
     def to_fits(self, filepath):
         """
-        Write PRIMARY (MISSION, TARGET, NPL, meta), SAMPLES + EPHEMERIS (if
-        posteriors), and TTIMES_nn (if transit_times); the detrended litecurve
-        is written by LiteCurve.to_fits
+        Write PRIMARY, SAMPLES and EPHEMERIS, and TTIMES_nn HDUs to filepath
+
+        PRIMARY holds MISSION, TARGET, NPL and meta; SAMPLES and EPHEMERIS are
+        written if posteriors is set, one TTIMES_nn per planet if transit_times is
+        set. The litecurve is not written; use LiteCurve.to_fits.
         """
         primary_hdu = fits.PrimaryHDU()
         primary_hdu.header["MISSION"] = self.mission
@@ -103,8 +109,7 @@ class Results:
     @classmethod
     def from_fits(cls, results_filepath, detrended_filepath=None):
         """
-        Load a file written by Results.to_fits and, optionally, a detrended
-        litecurve written by LiteCurve.to_fits
+        Load a Results.to_fits file and, optionally, a LiteCurve.to_fits file
 
         Parameters
         ----------
@@ -143,26 +148,25 @@ class Results:
         return results
 
     def summary(self):
+        """Posterior summary statistics (see Posteriors.summary)"""
         return self.posteriors.summary()
 
     def planet_samples(self, n):
+        """Physical posterior samples for planet n (see Posteriors.planet_samples)"""
         return self.posteriors.planet_samples(n)
 
     # plot methods: fig_path saves the figure there and closes it (unless ax was
     # given); default leaves it open
 
     def plot_lightcurve(self, visit=None, ax=None, fig_path=None):
-        """
-        Plot detrended photometry with transit times marked; returns the Figure
-        (see LiteCurve.plot)
-        """
+        """Plot detrended photometry with ttime_mod marked (see LiteCurve.plot)"""
         mark_times = [tt.ttime_mod for tt in self.transit_times]
         return self.litecurve.plot(
             visit=visit, mark_times=mark_times, ax=ax, fig_path=fig_path
         )
 
     def plot_omc(self, n, show_outliers=False, fig_path=None):
-        """Plot O-C for planet n; returns the Figure (see TransitTimes.plot_omc)"""
+        """Plot O-C for planet n (see TransitTimes.plot_omc)"""
         tt = self.transit_times[n]
         return tt.plot_omc(
             show_outliers=show_outliers,
@@ -173,8 +177,10 @@ class Results:
 
     def median_transit_params(self, n):
         """
-        (t0, period, ror, b, T14, u1, u2) at the posterior median, with t0 = 0;
-        argument order of transit_flux
+        Posterior median (t0, period, ror, b, T14, u1, u2) of planet n, with t0 = 0
+
+        In transit_flux argument order. period is the weighted median of
+        planet_samples PERIOD; u1, u2 are converted from the median q1, q2.
         """
         median = self.summary()["median"]
         period = weighted_percentile(
@@ -194,8 +200,9 @@ class Results:
 
     def median_transit_times(self, n):
         """
-        Transit times of planet n at the posterior median: ttime_mod shifted by
-        C0 + C1 * legx (see Posteriors.planet_samples)
+        Transit times of planet n at the posterior median of C0 and C1
+
+        ttime_mod + C0 + C1 * legx (see Posteriors).
         """
         tt = self.transit_times[n]
         post = self.posteriors
@@ -209,7 +216,9 @@ class Results:
     def plot_transit(self, n, index, ax=None, fig_path=None):
         """
         Plot photometry and median posterior model around one transit of planet n
-        (transit index `index`); returns the Figure
+
+        index is the transit index (TransitTimes.index). Flux is in ppt; the model
+        is integrated over the exposure as sampled.
         """
         tt = self.transit_times[n]
         if not np.any(tt.index == index):
@@ -254,9 +263,13 @@ class Results:
 
     def plot_folded_transit(self, n, max_pts=1000, fig_path=None):
         """
-        Plot photometry of planet n folded on median_transit_times, with the
-        median posterior model and residuals; returns the Figure
+        Plot folded photometry of planet n with the median model and residuals
 
+        Folded on median_transit_times. The model is drawn unbinned (solid) and
+        integrated over each supersampled obsmode's exposure (dashed).
+
+        Parameters
+        ----------
         max_pts : int
             maximum number of unbinned points drawn (deterministic subset)
         """

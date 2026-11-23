@@ -15,23 +15,20 @@ logger = logging.getLogger(__name__)
 
 class FlagBadTransits(BaseAlg):
     """
-    Set photometry flags (TransitTimes.phot_coverage, phot_noise) for transits
-    with poor photometric coverage or high noise; every transit is kept. Judged
+    Flag transits with poor photometric coverage or high noise
+
+    Sets TransitTimes.phot_coverage and phot_noise; every transit is kept. Judged
     at ttime_mod on the current litecurve: run once after each detrend. A planet
     left with < 3 good transits is dropped and its transit windows removed from
-    the litecurve (error if no planet would remain)
-
-    Parameters
-    ----------
-    star : Star
-    planets : list of Planet
-    litecurve : LiteCurve
+    the litecurve (UnsupportedTargetError if no planet would remain).
     """
 
     def _check_coverage(self):
         """
-        Per transit, True if >= 50% of expected cadences are present both in
-        transit (tc +/- 0.5 T14) and near transit (tc +/- 1.5 T14)
+        Per planet, a bool array over transits: True for good coverage
+
+        Good coverage: >= 50% of expected cadences are present both in transit
+        (tc +/- 0.5 T14) and near transit (tc +/- 1.5 T14).
         """
         lc = self.litecurve
 
@@ -76,6 +73,15 @@ class FlagBadTransits(BaseAlg):
         return good_coverage
 
     def _check_rms(self, rel_size=0.0, abs_size=0.0, sigma_cut=5.0):
+        """
+        Per planet, a bool array over transits: True for normal in-window noise
+
+        A transit fails if its flux rms (MAD) in a window of full width
+        max(rel_size * T14, abs_size) is > sigma_cut from the median over transits
+        of the same obsmode, or if the window has no cadences. Transits that
+        overlap another planet (same tolerances) and obsmodes with < 8 measured
+        transits are not checked.
+        """
         if rel_size == 0 and abs_size == 0:
             raise ValueError("either rel_size or abs_size must be nonzero")
 
@@ -132,9 +138,11 @@ class FlagBadTransits(BaseAlg):
 
     def _drop_planets_with_few_transits(self):
         """
-        Drop planets with < 3 good transits (too few for an ephemeris) and remove
-        cadences within 3 T14 windows around their transits, so they cannot bias the
-        detrending or the other planets; error if no planet would remain
+        Drop planets with < 3 good transits (too few for an ephemeris)
+
+        Also remove cadences within 1.5 T14 of their transits, so they cannot bias
+        the detrending or the other planets. Returns (planets, litecurve); raises
+        UnsupportedTargetError if no planet would remain.
         """
         lc = self.litecurve
         keep_planet = np.ones(self.npl, dtype=bool)
@@ -163,12 +171,7 @@ class FlagBadTransits(BaseAlg):
         return [p for p, k in zip(self.planets, keep_planet) if k], lc
 
     def perform(self):
-        """
-        Returns
-        -------
-        planets : list of Planet
-        litecurve : LiteCurve
-        """
+        """Set the photometry flags, then drop planets with < 3 good transits"""
         planets = self.planets
 
         good_coverage = self._check_coverage()

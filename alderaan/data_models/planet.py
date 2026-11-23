@@ -12,16 +12,8 @@ class Planet:
     Parameters
     ----------
     mission, target : str
-    period : float
-        initial orbital period (days), e.g. from a catalog
-    epoch : float
-        initial transit epoch
-    ror : float
-        planet-to-star radius ratio Rp/Rs
-    impact : float
-        impact parameter
-    duration : float
-        transit duration T14 (days)
+    period, epoch, ror, impact, duration : float
+        initial transit basis (see alderaan.transit_model), e.g. from a catalog
 
     Notes
     -----
@@ -46,12 +38,14 @@ class Planet:
 
     @property
     def period(self):
+        """Period of the attached transit times, else the initial period"""
         if self.transit_times is None:
             return self._period
         return self.transit_times.period
 
     @property
     def epoch(self):
+        """Epoch of the attached transit times, else the initial epoch"""
         if self.transit_times is None:
             return self._epoch
         return self.transit_times.epoch
@@ -77,14 +71,19 @@ class Planet:
         self.transit_times = transit_times
 
     def set_static_period_and_epoch(self):
-        """Freeze current period and epoch as the reference for O-C and time warping"""
+        """
+        Freeze the current period and epoch as static_period, static_epoch (once)
+
+        TransitModel requires both and uses static_period as the orbital period of
+        its transit shape.
+        """
         if self.static_period is not None:
             raise ValueError("static period/epoch already set")
         self.static_period = self.period
         self.static_epoch = self.epoch
 
     def set_transit_shape(self, ror, impact, duration):
-        """Set transit shape parameters (see class docstring for units)"""
+        """Set ror, impact and duration (transit basis; see alderaan.transit_model)"""
         self.ror = ror
         self.impact = impact
         self.duration = duration

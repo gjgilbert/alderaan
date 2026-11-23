@@ -16,24 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 class ClipOutliers(BaseAlg):
-    """
-    Remove outlier cadences from a litecurve visit-by-visit
-
-    Parameters
-    ----------
-    star : Star
-    planets : list of Planet
-    litecurve : LiteCurve
-    """
+    """Remove outlier cadences from a litecurve visit-by-visit"""
 
     @staticmethod
     def _clip_outliers(flux, sigma_upper, sigma_lower, kernel_size, mask=None):
         """
-        Sigma-clip flux about a median-filter trend, iterating up to 3 times.
+        Sigma-clip flux about a median-filter trend, iterating up to 3 times
+
         If > 1% of cadences are flagged, retry with a savgol trend; if still
         > 1%, reject nothing that iteration.
-
-        Returns a boolean mask over flux; True for cadences to keep
 
         Parameters
         ----------
@@ -47,6 +38,11 @@ class ClipOutliers(BaseAlg):
             size of the smoothing filter kernel
         mask : array-like, bool, optional
             never reject masked cadences (e.g. to protect transits)
+
+        Returns
+        -------
+        keep : ndarray, bool
+            True for cadences to keep
         """
         if mask is None:
             mask = np.zeros(len(flux), dtype=bool)
@@ -107,6 +103,8 @@ class ClipOutliers(BaseAlg):
 
     def perform(self, method):
         """
+        Remove outlier cadences from each visit; flux is unchanged
+
         Parameters
         ----------
         method : str
@@ -114,13 +112,8 @@ class ClipOutliers(BaseAlg):
                 (the larger of 3 x T14 or 2 x (exptime + 1 hour); 2 x T14 +
                 exptime for ultra-short-period planets, P < 3 d and ror < 0.05);
                 a second pass clips upper outliers everywhere, in transit too
-            'transit_model' : clip (detrended) flux about the transit model
-
-        Returns
-        -------
-        planets : list of Planet
-        litecurve : LiteCurve
-            outlier cadences removed; flux unchanged
+            'transit_model' : clip (detrended) flux about the transit model, at
+                the sigma beyond which one outlier is expected per visit (>= 5)
         """
         if method not in ("local_trend", "transit_model"):
             raise ValueError(
@@ -141,8 +134,7 @@ class ClipOutliers(BaseAlg):
 
             if method == "local_trend":
                 logger.info("visit %d: clip about local trend", v)
-                # full width = max(3 x T14, 2 x (exptime + 1 hour)); USPs as in
-                # the DetrendVisits wide mask
+                # same mask as the DetrendVisits wide mask
                 exptime = EXPTIME[lc.obsmode[use][0]]
                 usp = np.array([p.period < 3 and p.ror < 0.05 for p in self.planets])
                 transit_mask = self.make_transit_mask(

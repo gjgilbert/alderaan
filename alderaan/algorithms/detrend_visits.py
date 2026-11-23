@@ -20,13 +20,15 @@ logger = logging.getLogger(__name__)
 
 class _GPTrendModel:
     """
-    GP trend model for one visit, fit to out-of-transit cadences: a per-segment
-    mean (baseline x exponential ramp) plus a celerite2 GP shared by all segments
+    GP trend model for one visit, fit to out-of-transit cadences
+
+    The trend is a per-segment mean (baseline x exponential ramp) plus a
+    celerite2 GP shared by all segments.
 
     Parameters form a flat vector of unconstrained values with Normal priors
-    (GP hyperparameters truncated at 4 sd; logp is also -inf where the
+    (log-scale parameters truncated at 4 sd; logp is also -inf where the
     covariance cannot be factorized); RotationTerm's mix ~ Uniform(0, 1)
-    is carried as logit(mix).
+    is carried as logit(mix), truncated at |logit(mix)| <= 20.
 
     Quality: q = 1/2 + exp(log_Q0) is the SHOTerm Q (> 1/2) or the
     RotationTerm Q0 (> 1/2, so both of its terms have Q = 1/2 + Q0 (+ dQ) > 1).
@@ -46,7 +48,7 @@ class _GPTrendModel:
     gp_term : str
         "RotationTerm" or "SHOTerm"
     nominal_period : float
-        nominal stellar oscillation period (days); centers the GP period prior
+        nominal stellar oscillation period (days); sets the GP period prior
     min_period : float
         floor on the GP (stellar oscillation) period (days)
     """
@@ -98,7 +100,7 @@ class _GPTrendModel:
             self.ix[name] = np.arange(start, start + size)
             start += size
 
-        # starting point: prior means, except as noted
+        # starting point: prior means, except log_Q0, log_dQ and logit_mix
         self.x0 = np.zeros(start)
         for name, (mu, _) in self.priors.items():
             self.x0[self.ix[name]] = mu
@@ -118,9 +120,11 @@ class _GPTrendModel:
 
     def _mean(self, p, mask=slice(None)):
         """
-        GP mean at the cadences selected by mask (default all): per-segment
-        baseline flux0 x (1 + exponential ramp), the ramp starting at seg_t0
-        (segment start from all cadences, so the mean does not depend on mask)
+        GP mean at the cadences selected by mask (default all)
+
+        Per-segment baseline flux0 x (1 + exponential ramp), the ramp starting at
+        seg_t0 (segment start from all cadences, so the mean does not depend on
+        mask).
         """
         seg_id = self.seg_id[mask]
         ramp = np.exp(
@@ -129,6 +133,7 @@ class _GPTrendModel:
         return p["flux0"][seg_id] * (1 + p["ramp_amp"][seg_id] * ramp)
 
     def _gp(self, p):
+        """celerite2 GP for named parameters p, computed at out-of-transit cadences"""
         period, q, sigma = self.hyperparameters(p)
         if self.rotation:
             kernel = GPterms.RotationTerm(
@@ -180,15 +185,7 @@ class _GPTrendModel:
 
 
 class DetrendVisits(BaseAlg):
-    """
-    Detrend a litecurve visit-by-visit
-
-    Parameters
-    ----------
-    star : Star
-    planets : list of Planet
-    litecurve : LiteCurve
-    """
+    """Detrend a litecurve visit-by-visit"""
 
     # minimum gap tolerance and oscillation period, in cadences
     CADENCE_FLOOR = {"short cadence": 91, "long cadence": 13}
@@ -200,8 +197,9 @@ class DetrendVisits(BaseAlg):
 
     def _min_period(self, obsmode):
         """
-        Floor on the GP oscillation period (days): the larger of 3 x the longest
-        transit duration and CADENCE_FLOOR cadences
+        Floor on the GP oscillation period (days)
+
+        The larger of 3 x the longest T14 and CADENCE_FLOOR cadences.
         """
         return np.max(
             [3 * np.max(self.durations), self.CADENCE_FLOOR[obsmode] * EXPTIME[obsmode]]
@@ -210,13 +208,13 @@ class DetrendVisits(BaseAlg):
     @staticmethod
     def _identify_breaks(cadno, flux, mask, gap_tolerance, jump_tolerance):
         """
-        Segment ID (0..n_seg-1) per cadence, splitting a visit at time gaps of
-        more than gap_tolerance cadences and at flux jumps (> jump_tolerance
-        sigma, outside the mask)
+        Segment ID (0..n_seg-1) per cadence of one visit
 
-        Breaks within gap_tolerance cadences of the previous break or the end
-        are dropped. A segment with no unmasked cadences is merged into a
-        neighbor. mask is True near transit.
+        The visit splits at time gaps of more than gap_tolerance cadences and at
+        flux jumps (> jump_tolerance sigma, outside the mask; mask is True near
+        transit). Breaks within gap_tolerance cadences of the previous candidate
+        break, the visit start, or the end are dropped. A segment with no
+        unmasked cadences is merged into a neighbor.
         """
         # first cadence after each gap in time
         gap_locs = np.where(np.diff(cadno) > gap_tolerance)[0] + 1
@@ -367,7 +365,8 @@ class DetrendVisits(BaseAlg):
         The star is periodic (RotationTerm) if >= half of its visits pass the ACF
         test, else aperiodic (SHOTerm). The nominal period is the 3-sigma (MAD)
         clipped geometric mean of period_acf over periodic visits, or of
-        period_half over all visits for an aperiodic star.
+        period_half over all visits for an aperiodic star, floored just above the
+        largest _min_period over obsmodes.
 
         Parameters
         ----------
@@ -419,8 +418,9 @@ class DetrendVisits(BaseAlg):
     @staticmethod
     def _fit(model):
         """
-        Optimize a _GPTrendModel in stages, ending with all parameters jointly;
-        returns the predicted trend (same length as model.time)
+        Optimize a _GPTrendModel in stages, ending with all parameters jointly
+
+        Returns the predicted trend (same length as model.time).
         """
         gp_vars = ["log_var", "flux0", "log_sigma", "log_P", "log_Q0"]
         if model.rotation:
@@ -524,9 +524,9 @@ class DetrendVisits(BaseAlg):
 
         Returns
         -------
-        planets : list of Planet
         litecurve : LiteCurve
-            detrended litecurve
+            flux and error divided by the trend; meta DTKERNEL and DTNOMP give
+            the GP kernel and nominal period (days)
         """
         if method not in ("wide_mask", "tight_mask"):
             raise ValueError(

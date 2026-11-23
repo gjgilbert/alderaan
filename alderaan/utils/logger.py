@@ -55,6 +55,7 @@ def setup_logging(log_dir, target, run_id, level="INFO"):
     Returns
     -------
     log_path : str
+        absolute path of the log file
     """
     teardown_logging()
 
@@ -104,5 +105,6 @@ def teardown_logging():
 
 
 def _open_file_handler(path):
+    """Open a new UTF-8 log file; FileExistsError if path exists"""
     # exclusive create: fail loudly rather than share or overwrite a log file
     return logging.FileHandler(path, mode="x", encoding="utf-8")

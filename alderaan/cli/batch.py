@@ -1,14 +1,19 @@
-"""`alderaan batch`: run the pipeline on every target in a catalog, in parallel
+"""
+`alderaan batch`: run the pipeline on every target in a catalog, in parallel
 
 Each target runs as a separate `python -m alderaan.cli run` subprocess, so every
 target gets its own log file, clean process state, and exit code. A bounded pool
 runs up to --jobs targets at once; launches are spaced --launch_interval apart so
 the pool does not start in lockstep. BLAS/OpenMP pools are pinned to one thread
 per process, so jobs do not oversubscribe the CPUs. The run is fail-soft: every
-target is attempted, failures are reported, and the exit code is 1 if any failed.
-A target that exits 3 is unsupported by design (a known limit, e.g. < 3 transits);
-it is counted apart and does not fail the batch.
+target is attempted and failures are reported. A target that exits 3 is
+unsupported by design (a known limit, e.g. < 3 transits); it is counted apart and
+does not fail the batch. A target over --job_timeout has its process group killed
+and is counted as failed (reported as exit 124).
 Adapted from the KPF pipeline (scripts/_dispatch.py).
+
+Exit codes: 0 no target failed; 1 any target failed; 130 interrupted
+(SIGINT/SIGTERM/SIGHUP; running targets are terminated).
 
 Example::
 
@@ -22,7 +27,7 @@ Example::
 Every target writes the same files as `alderaan run`, all under one run
 directory ``{output_dir}/{run_id}/``::
 
-    alderaan_batch_{run_id}.csv              # copy of the input catalog
+    alderaan_batch_{run_id}.csv              # copy of the input catalog (same suffix)
     logs/
         alderaan_batch_{run_id}.log          # batch progress and failure report
         alderaan_K00001_{run_id}.log         # one run log per target
@@ -62,12 +67,13 @@ _last_launch = [0.0]
 
 
 def _default_jobs():
-    """At most 25% of the CPUs, but up to 16 (never more than the CPU count)"""
+    """25% of the CPUs, but at least 16 (never more than the CPU count)"""
     n = os.cpu_count() or 1
     return min(n, max(16, n // 4))
 
 
 def build_parser():
+    """Argument parser for `alderaan batch`"""
     parser = argparse.ArgumentParser(
         prog="alderaan batch",
         description="Run the ALDERAAN pipeline on every target in a catalog",
@@ -96,7 +102,8 @@ def build_parser():
         "--jobs",
         type=int,
         default=_default_jobs(),
-        help="max concurrent targets (default: ~25%% of CPUs, but up to 16)",
+        help="max concurrent targets (default: ~25%% of CPUs, at least 16, "
+        "at most the CPU count)",
     )
     parser.add_argument(
         "--job_timeout",
@@ -125,7 +132,8 @@ def _handle_termination_signal(signum, frame):
 
 
 def configure_runtime():
-    """Route SIGTERM/SIGHUP to KeyboardInterrupt; pin BLAS/OpenMP to one thread
+    """
+    Route SIGTERM/SIGHUP to KeyboardInterrupt; pin BLAS/OpenMP to one thread
 
     One process per job already, so an inner thread pool per job would give
     jobs x cores threads. setdefault, so an explicit caller value wins. Also
@@ -173,7 +181,8 @@ def _terminate_all_children(grace=5.0):
 
 
 def _run_one(argv, timeout=None, launch_interval=0.0):
-    """Run one subprocess; return (returncode, stderr)
+    """
+    Run one subprocess; return (returncode, stderr)
 
     Returns (124, stderr) after killing the process group on timeout, and
     (130, "") without launching once teardown has begun.
@@ -219,10 +228,12 @@ def _run_one(argv, timeout=None, launch_interval=0.0):
 
 
 def run_targets(tasks, jobs, job_timeout=None, launch_interval=0.0):
-    """Run `tasks` (a list of (target, argv)) in a pool of `jobs`
+    """
+    Run `tasks` (a list of (target, argv)) in a pool of `jobs`
 
     Returns (failed, unsupported), two dicts of target -> reason; unsupported
-    targets exit 3, with the reason from their stderr.
+    targets exit 3, with the reason from their stderr. Logs the last 20 stderr
+    lines of each failed target.
 
     On SIGINT/SIGTERM/SIGHUP, cancel the queue, terminate every running child, and
     exit 130.
@@ -293,6 +304,7 @@ def read_targets(catalog):
 
 
 def main(argv=None):
+    """Run every catalog target; return exit code 1 if any failed, else 0"""
     start = time.monotonic()
     configure_runtime()
     args = build_parser().parse_args(argv)
@@ -374,9 +386,11 @@ def main(argv=None):
 
 def batch_summary(run_id, ntargets, failed, unsupported, log_dir, elapsed_s):
     """
-    End-of-batch verdict block: counts, each unsupported and failed target with
-    its reason, logs, elapsed. The surrounding blank lines make the block stand out
-    in the log.
+    End-of-batch verdict block for the log
+
+    Lists counts, each unsupported and failed target with its reason, the log
+    path pattern, and elapsed time. Surrounding blank lines make the block stand
+    out in the log.
     """
     nok = ntargets - len(failed) - len(unsupported)
     lines = [

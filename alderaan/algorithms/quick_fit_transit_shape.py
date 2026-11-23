@@ -17,18 +17,12 @@ logger = logging.getLogger(__name__)
 
 class QuickFitTransitShape(BaseAlg):
     """
-    Fit radius ratio, impact parameter, and duration; limb darkening is fixed
-    at the star's values
+    Fit ror, b, and T14 of every planet, with limb darkening fixed at the star's
 
-    The fit starts from b = 0.38, 0.71, 0.84 (all planets at once), with ror
-    scaled to preserve each planet's limb-darkened depth, and keeps the maximum
-    likelihood result
-
-    Parameters
-    ----------
-    star : Star
-    planets : list of Planet
-    litecurve : LiteCurve
+    The ephemeris perturbation (C0, C1) is fit alternately with the shape and then
+    discarded. The fit starts from b = 0.38, 0.71, 0.87 (all planets at once),
+    with ror scaled to preserve each planet's limb-darkened depth, and keeps the
+    maximum likelihood result.
     """
 
     def _theta_start(self, tm, b):
@@ -67,9 +61,11 @@ class QuickFitTransitShape(BaseAlg):
         return np.array(bounds)
 
     def _optimize(self, tm, theta, niter=3):
+        """Least squares on [C0, C1], then [ror, b, T14], niter times; LD fixed"""
         bounds = self._theta_bounds()
 
         def _fxn(x, x0, fix, tm):
+            """Residuals of x0 with its free entries (~fix) set to x"""
             _x = x0.copy()
             _x[~fix] = x
             return tm.residuals(_x)
@@ -77,12 +73,10 @@ class QuickFitTransitShape(BaseAlg):
         i_fix = np.arange(len(theta), dtype=int)
         var_names = np.array(TRANSIT_PARAMETER_LABELS)
 
-        # fix ephemeris, vary [ror, b, T14]
         fix_C0_C1 = np.zeros(len(i_fix), dtype=bool)
         fix_C0_C1[i_fix % 5 == 0] = True
         fix_C0_C1[i_fix % 5 == 1] = True
 
-        # fix [ror, b, T14], vary ephemeris
         fix_r_b_T14 = np.zeros(len(i_fix), dtype=bool)
         fix_r_b_T14[i_fix % 5 == 2] = True
         fix_r_b_T14[i_fix % 5 == 3] = True
@@ -136,6 +130,7 @@ class QuickFitTransitShape(BaseAlg):
         return theta
 
     def _update_planets(self, theta):
+        """Set each planet's ror, b, and T14 from theta"""
         for n, p in enumerate(self.planets):
             p.set_transit_shape(*theta[2 + n * 5 : 5 + n * 5])
             logger.info(
@@ -148,17 +143,17 @@ class QuickFitTransitShape(BaseAlg):
 
     def perform(self):
         """
-        Returns
-        -------
-        planets : list of Planet
-        litecurve : LiteCurve
+        Fit the shape to good-photometry transits; set each planet's ror, b, T14
+
+        Uses cadences within max(3 x T14, 2 hours) of transits with phot_coverage
+        and phot_noise. Raises ValueError if no start reaches a finite likelihood.
         """
         tm = TransitModel(self.star, self.planets, self.litecurve)
-        # full width = max(3 x T14, 2 hours)
         tm.trim(self.make_transit_mask(rel_size=3.0, abs_size=2 / 24, phot_only=True))
 
         best_logp, best_theta = -np.inf, None
-        for b in (0.38, 0.71, 0.84):
+        # b = sin(22.5 deg), sin(45 deg), sin(60 deg)
+        for b in (0.38, 0.71, 0.87):
             logger.info("shape fit from b = %.2f", b)
             theta = self._optimize(tm, self._theta_start(tm, b))
             logp = tm.ln_likelihood(theta)

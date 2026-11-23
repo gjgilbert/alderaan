@@ -1,4 +1,5 @@
-"""`alderaan run`: parse arguments and run the pipeline on one target
+"""
+`alderaan run`: parse arguments and run the pipeline on one target
 
 Example::
 
@@ -11,13 +12,16 @@ Example::
 Add ``--visits 4 5 6`` to load only some Kepler quarters. A rerun into a
 non-empty results or plots directory fails; use a new run_id.
 
+Exit codes: 0 ok; 3 unsupported target (a known limit, e.g. < 3 transits);
+2 bad arguments; 1 any other error (traceback in the log).
+
 Outputs, under ``{output_dir}/{run_id}/`` (NN is the planet index)::
 
     logs/
         alderaan_K00137_{run_id}.log         # DEBUG-level run log
     results/K00137/
         K00137_detrended.fits                # detrended photometry
-        K00137_results.fits                  # posteriors, transit times, photometry
+        K00137_results.fits                  # posteriors, transit times
     plots/K00137/
         K00137_litecurve_raw.png
         K00137_litecurve_detrended.png
@@ -34,6 +38,7 @@ from pathlib import Path
 
 
 def build_parser():
+    """Argument parser for `alderaan run`"""
     parser = argparse.ArgumentParser(
         prog="alderaan run", description="Run the ALDERAAN pipeline on one target"
     )
@@ -84,6 +89,7 @@ def build_parser():
 
 
 def main(argv=None):
+    """Run one target; return exit code 0, or 3 for an unsupported target"""
     args = build_parser().parse_args(argv)
     args.run_id = args.run_id or time.strftime("%Y%m%dT%H%M%S", time.gmtime())
 

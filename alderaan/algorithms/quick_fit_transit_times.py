@@ -16,21 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 class QuickFitTransitTimes(BaseAlg):
-    """
-    Measure individual transit times for each planet
-
-    Parameters
-    ----------
-    star : Star
-    planets : list of Planet
-    litecurve : LiteCurve
-    """
+    """Measure individual transit times for each planet"""
 
     @staticmethod
     def _construct_template(tm, planet_no, obsmode, transit_window_size):
         """
-        Model transit template for one planet, from its orbital period, ror,
-        impact, and duration
+        Model transit template for one planet, centered on t = 0
+
+        From the planet's transit shape and the star's limb darkening, sampled at
+        half the supersampled cadence and not exposure-integrated.
 
         Parameters
         ----------
@@ -40,6 +34,10 @@ class QuickFitTransitTimes(BaseAlg):
         obsmode : str
         transit_window_size : float
             full width of the template (days)
+
+        Returns
+        -------
+        time_template, flux_template : ndarray
         """
         p = tm.planets[planet_no]
 
@@ -67,9 +65,10 @@ class QuickFitTransitTimes(BaseAlg):
     @staticmethod
     def _predicted_tc_error(tm, planet_no):
         """
-        Predicted transit time uncertainty at each transit of one planet, from
-        its transit shape and the median photometric error of the transit's
-        visit and obsmode (Price & Rogers 2014)
+        Predicted transit time uncertainty (days) at each transit of one planet
+
+        From the transit shape and the median photometric error of the transit's
+        visit and obsmode (Price & Rogers 2014).
         """
         p = tm.planets[planet_no]
         lc = tm.litecurve
@@ -100,8 +99,9 @@ class QuickFitTransitTimes(BaseAlg):
         """
         Cross-correlation fit of a single transit time
 
-        Slides the template across a grid of trial transit times, then fits a
-        parabola to chi-square near its minimum
+        Divides out a linear out-of-transit trend, slides the template across a
+        grid of trial transit times, then fits a parabola to chi-square near its
+        minimum.
 
         Parameters
         ----------
@@ -109,7 +109,7 @@ class QuickFitTransitTimes(BaseAlg):
         obsmode : str
             observing mode of this transit
         tc : float
-            current transit time estimate
+            current transit time estimate (days)
         duration : float
             planet transit duration (days)
         tc_error_pred : float
@@ -122,7 +122,7 @@ class QuickFitTransitTimes(BaseAlg):
         Returns
         -------
         ttime, ttime_err : float
-            fitted transit time and its uncertainty; NaN if the fit was skipped
+            fitted transit time and its uncertainty (days); NaN if not fit
         """
         lc = tm.litecurve
         exptime = EXPTIME[obsmode]
@@ -168,7 +168,8 @@ class QuickFitTransitTimes(BaseAlg):
             logger.debug("transit at %.3f not fit: no detection", tc)
             return np.nan, np.nan
 
-        # STEP 2: widen delta_chisq until enough points near the minimum
+        # STEP 2: widen delta_chisq until enough points near the minimum;
+        # schedule (2 to 16, x sqrt(2)) tuned by trial and error
         delta_chisq = 2.0
 
         loop = True
@@ -209,7 +210,8 @@ class QuickFitTransitTimes(BaseAlg):
             logger.debug("transit at %.3f not fit: ill-conditioned", tc)
             return np.nan, np.nan
 
-        # scaled error; sqrt is real only for a convex fit
+        # 1-sigma from the parabola curvature (delta chi2 = 1), inflated by the chi2
+        # scatter about the parabola: a heuristic, tuned by trial and error
         qtc_err = np.sqrt(1 / quad_coeffs[0])
         return _tti, qtc_err * (1 + np.std(x2_fit - quad_model))
 
@@ -223,9 +225,9 @@ class QuickFitTransitTimes(BaseAlg):
         """
         Fit transit times using the Mazeh+13 / Holczer+16 cross-correlation method
 
-        The data window around each transit is rel_window_size * duration +
+        The data window around each transit is rel_window_size * T14 +
         abs_window_size_buffer (days) wide; transits with a sibling transit
-        inside the window are skipped
+        inside the window are skipped.
 
         Returns
         -------
@@ -251,7 +253,6 @@ class QuickFitTransitTimes(BaseAlg):
                     dt < transit_window_size / 2 + pj.duration / 2, axis=1
                 )
 
-        # one template per observing mode
         templates = {
             obsmode: self._construct_template(
                 tm, planet_no, obsmode, transit_window_size
@@ -293,6 +294,7 @@ class QuickFitTransitTimes(BaseAlg):
 
     @staticmethod
     def _window_flux(theta, tm, obsmode, t_obs):
+        """Model flux at t_obs with planet n transiting at theta[n]; shapes fixed"""
         f_mod = np.ones_like(t_obs)
 
         for n, p in enumerate(tm.planets):
@@ -313,10 +315,12 @@ class QuickFitTransitTimes(BaseAlg):
         return f_mod
 
     def _window_residuals(self, theta, tm, obsmode, t_obs, f_obs, f_err):
+        """Normalized residuals (f_obs - model) / f_err"""
         f_mod = self._window_flux(theta, tm, obsmode, t_obs)
         return (f_obs - f_mod) / f_err
 
     def _window_ln_likelihood(self, theta, tm, obsmode, t_obs, f_obs, f_err):
+        """Gaussian log-likelihood in the window; -1e300 if not finite"""
         res = self._window_residuals(theta, tm, obsmode, t_obs, f_obs, f_err)
         lnlike = -0.5 * np.sum(res**2)
 
@@ -327,11 +331,14 @@ class QuickFitTransitTimes(BaseAlg):
 
     def _optimize_times(self, tm, planet_no, overlap, fit, relative_window_size=3.0):
         """
-        Fit each transit time independently using least squares optimization
+        Fit the transit times of one planet by least squares, one window at a time
 
-        Fits transits where fit is True, with a Normal(start, T14/3) prior bounded
-        to the fit window. Returns times and errors (from the Jacobian); NaN where
-        not fit, failed, or likelihood did not improve
+        For each transit where fit is True, the window is relative_window_size x
+        T14 wide (if the transit overlaps another planet, per overlap:
+        relative_window_size x (T14 + the longest T14), at most P/2). The nearest
+        transit of every planet inside the window varies, with a Normal(start,
+        T14/3) prior bounded to the window. Returns times and errors (days, from
+        the Jacobian); NaN where not fit, failed, or likelihood did not improve.
         """
         lc = tm.litecurve
         overlap = overlap[planet_no]
@@ -381,6 +388,7 @@ class QuickFitTransitTimes(BaseAlg):
             )
 
             def _fxn(x, x0, fix, tm, obsmode, t_obs, f_obs, f_err):
+                """Window residuals and prior terms, free entries (~fix) set to x"""
                 _x = x0.copy()
                 _x[~fix] = x
                 resid = self._window_residuals(_x, tm, obsmode, t_obs, f_obs, f_err)
@@ -441,13 +449,13 @@ class QuickFitTransitTimes(BaseAlg):
 
     def perform(self):
         """
-        Measure transit times by cross-correlation, then by least squares
-        where a sibling transit blocked cross-correlation
+        Measure transit times by cross-correlation, or by least squares if blocked
 
-        Returns
-        -------
-        planets : list of Planet
-        litecurve : LiteCurve
+        Least squares fits the transits where a sibling transit blocked
+        cross-correlation. Only transits with phot_coverage and phot_noise are
+        measured. Each planet's TransitTimes is replaced: ttime_obs and ttime_err
+        (floored at the predicted error) are NaN where unmeasured, and ttime_mod
+        is ttime_obs where measured, else unchanged.
         """
         star = self.star
         planets = self.planets
@@ -473,9 +481,9 @@ class QuickFitTransitTimes(BaseAlg):
             ttime_cc[n][~phot] = np.nan
             error_cc[n][~phot] = np.nan
 
-            # discard fits with outsized errors
             if np.all(np.isnan(error_cc[n])):
                 continue
+            # 8 x median tuned by trial and error
             large = error_cc[n] > 8 * np.nanmedian(error_cc[n])
             if np.any(large):
                 logger.info(

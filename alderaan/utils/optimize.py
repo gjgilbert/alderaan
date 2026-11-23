@@ -11,11 +11,11 @@ logger = logging.getLogger(__name__)
 
 def optimize(logp, x0, stages):
     """
-    Maximize logp with scipy BFGS, in stages: each stage optimizes the entries
-    of x listed by its index array, holding all others at the current point
+    Maximize logp with scipy BFGS, in stages over subsets of the parameters
 
-    Gradients are finite differences. A stage's result is kept only if the log
-    probability is finite and improved
+    Each stage optimizes the entries of x listed by its index array, holding all
+    others at the current point. Gradients are finite differences. A stage's
+    result is kept only if the log probability is finite and improved.
 
     Parameters
     ----------
@@ -39,6 +39,7 @@ def optimize(logp, x0, stages):
     for i, idx in enumerate(stages):
 
         def objective(xs, idx=idx):
+            """-logp with x[idx] set to xs"""
             trial = x.copy()
             trial[idx] = xs
             return -logp(trial)

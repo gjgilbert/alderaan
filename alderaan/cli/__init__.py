@@ -17,6 +17,7 @@ commands:
 
 
 def main(argv=None):
+    """Dispatch argv to a subcommand; return its exit code (2 on a usage error)"""
     argv = sys.argv[1:] if argv is None else argv
 
     if not argv or argv[0] in ("-h", "--help"):

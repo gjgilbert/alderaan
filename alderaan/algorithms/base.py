@@ -11,6 +11,7 @@ from alderaan.data_models import LiteCurve, Planet, Star
 
 
 def _log_perform(perform):
+    """Wrap perform() to log its start, arguments and runtime"""
     # perform is defined in the class body: its module and qualname give the
     # subclass module's logger and the class name
     logger = logging.getLogger(perform.__module__)
@@ -18,6 +19,7 @@ def _log_perform(perform):
 
     @functools.wraps(perform)
     def wrapper(self, *args, **kwargs):
+        """Logged call of perform (functools.wraps replaces this docstring)"""
         params = [repr(a) for a in args] + [f"{k}={v!r}" for k, v in kwargs.items()]
         logger.info("start %s(%s)", name, ", ".join(params))
         t0 = time.perf_counter()
@@ -40,12 +42,15 @@ class BaseAlg:
 
     Notes
     -----
-    Each subclass's perform() is wrapped to log its start (with arguments) and
-    runtime to the subclass module's logger; failures propagate to pipeline.py,
-    which logs them.
+    Subclasses take these same parameters (not repeated in their docstrings).
+    perform() returns the updated (planets, litecurve) unless its docstring says
+    otherwise. Each subclass's perform() is wrapped to log its start (with
+    arguments) and runtime to the subclass module's logger; failures propagate to
+    pipeline.py, which logs them.
     """
 
     def __init_subclass__(cls, **kwargs):
+        """Wrap the subclass's own perform() with _log_perform"""
         super().__init_subclass__(**kwargs)
         if "perform" in cls.__dict__:
             cls.perform = _log_perform(cls.perform)
@@ -122,14 +127,17 @@ class BaseAlg:
 
     def identify_overlapping_transits(self, rel_size=None, abs_size=None):
         """
-        Identify where transits overlap based on separation of transit midpoints
+        Flag transits whose midpoint is near a transit midpoint of another planet
+
+        A transit overlaps if either tolerance (when given) is met.
 
         Parameters
         ----------
         rel_size : float
-            tolerance in units of the mean transit duration of the two planets
+            tolerance on midpoint separation in units of the mean T14 of the two
+            planets
         abs_size : float
-            tolerance in days
+            tolerance on midpoint separation in days
 
         Returns
         -------
