@@ -35,6 +35,7 @@ class LiteCurve:
     ----------
     mission, target : str
     time, flux, error : ndarray
+        time (days), flux and flux uncertainty; flux and error must be finite
     cadno : ndarray
         cadence number
     visit : ndarray
@@ -44,6 +45,8 @@ class LiteCurve:
     t_start, t_end : float, optional
         photometry span; default time.min(), time.max()
 
+    Notes
+    -----
     Bad cadences are removed (select), not flagged. The span (t_start, t_end) is
     fixed at construction; select() and reset() do not change it
     """
@@ -103,8 +106,8 @@ class LiteCurve:
         """
         Load Kepler PDCSAP lightcurves from pre-downloaded MAST fits files
 
-        Removes NaNs and cadences flagged by the Kepler pipeline (default
-        bitmask), and normalizes each quarter.
+        Removes NaNs, cadences flagged by the Kepler pipeline (default bitmask)
+        and files whose TARGETID is not kic_id, and normalizes each quarter.
 
         Parameters
         ----------
@@ -116,12 +119,17 @@ class LiteCurve:
             KIC number
         obsmode : str
             'short cadence' or 'long cadence'
-        visits : list, optional
+        visits : int or list, optional
             visits (Kepler quarters) to load; default all
 
         Returns
         -------
         litecurve : LiteCurve
+
+        Raises
+        ------
+        FileNotFoundError
+            if no file matches kic_id, obsmode and visits
         """
         if visits is None:
             visits = np.arange(18, dtype=int)
@@ -134,6 +142,7 @@ class LiteCurve:
         logger.info("found %d MAST files for KIC %d", len(mast_files), kic_id)
 
         raw = []
+        n_skipped = 0
         for mf in mast_files:
             header = fits.getheader(mf)
             if header["OBSMODE"] == obsmode and np.isin(header["QUARTER"], visits):
@@ -150,12 +159,10 @@ class LiteCurve:
                     )
                 raw.append(lkc)
             else:
-                logger.debug(
-                    "skipped %s (OBSMODE = %s, QUARTER = %d not requested)",
-                    mf,
-                    header["OBSMODE"],
-                    header["QUARTER"],
-                )
+                n_skipped += 1
+        logger.debug(
+            "skipped %d file(s) not %s in quarters %s", n_skipped, obsmode, list(visits)
+        )
 
         if len(raw) == 0:
             raise FileNotFoundError(
@@ -225,8 +232,9 @@ class LiteCurve:
 
     def reset(self, raw):
         """
-        Restore raw flux and error for the current cadences, matched by cadence
-        number (in place); removed cadences stay removed
+        Restore raw flux and error for the current cadences (in place)
+
+        Matched by cadence number; removed cadences stay removed.
 
         Parameters
         ----------
@@ -246,8 +254,10 @@ class LiteCurve:
 
     def to_fits(self, filepath):
         """
-        Save as fits: PRIMARY (MISSION, TARGET, meta) + LITECURVE table (T_START,
-        T_END)
+        Write PRIMARY (MISSION, TARGET, meta) and a LITECURVE table
+
+        The table has one upper-case column per per-cadence array and header cards
+        MISSION, TARGET, T_START, T_END.
         """
         primary_hdu = fits.PrimaryHDU()
         primary_hdu.header["MISSION"] = self.mission

@@ -31,21 +31,22 @@ def linear_ephemeris_times(period, epoch, t_min, t_max):
 
 class TransitTimes:
     """
-    Observed and modeled transit times for one planet (immutable; transforms
-    return new objects)
+    Observed and modeled transit times (days) for one planet
+
+    Treated as immutable; transforms (clip) return new objects.
 
     Parameters
     ----------
     mission, target : str
     index : ndarray
-        transit index
+        transit index; starts at 0 and strictly increases
     ttime_obs : ndarray
         observed (measured) transit times; NaN where no measurement exists
     ttime_err : ndarray, optional
         measured transit time uncertainties; NaN where no measurement exists
         (default all NaN)
     ttime_mod : ndarray, optional
-        modeled transit times; set equal to ttime_obs if not given
+        modeled transit times, must be finite; default a copy of ttime_obs
     phot_coverage, phot_noise : ndarray, optional
         False for transits with poor photometric coverage or high noise
         (FlagBadTransits); flagged transits stay in masks and models but their
@@ -129,19 +130,24 @@ class TransitTimes:
     @classmethod
     def from_linear_ephemeris(cls, mission, target, period, epoch, t_min, t_max):
         """
-        Linear ephemeris transit times within [t_min, t_max), indexed from 0;
-        ttime_obs = ttime_mod = prediction
+        Linear ephemeris transit times within [t_min, t_max), indexed from 0
+
+        ttime_obs and ttime_mod are both the prediction.
         """
         ttime = linear_ephemeris_times(period, epoch, t_min, t_max)
         return cls(mission, target, np.arange(len(ttime)), ttime)
 
     def linear_ephemeris(self):
+        """Transit times of the (period, epoch) ephemeris at each index"""
         return self.epoch + self.period * self.index
 
     def ttv_buffer(self):
         """
-        ttv_scatter scaled so not even one normal outlier is expected among the
-        kept observed times; the scatter already includes the timing errors
+        Timing tolerance (days): ttv_scatter times sigma_cutoff(n kept times)
+
+        The cutoff is set so not even one normal outlier is expected among the
+        kept observed times; the scatter already includes the timing errors.
+        Raises ValueError if ttv_scatter is not set.
         """
         if self.ttv_scatter is None:
             raise ValueError("ttv_scatter not set; regularize the transit times first")
@@ -171,15 +177,15 @@ class TransitTimes:
         self, show_outliers=False, color="C0", title=None, ax=None, fig_path=None
     ):
         """
-        Plot observed and modeled O-C (minutes) relative to linear_ephemeris();
-        returns the Figure
+        Plot observed and modeled O-C (minutes) about linear_ephemeris()
+
+        Returns the Figure.
 
         Parameters
         ----------
         show_outliers : bool
-            plot every observed time and mark flagged times with a red x
-            (off-scale ones as red triangles at the edge); default plots only
-            unflagged observed times
+            also plot observed times rejected by kept_ttv, as red x (off-scale
+            ones as red triangles at the edge); default plots only kept times
         color : str
             model line color
         title : str, optional

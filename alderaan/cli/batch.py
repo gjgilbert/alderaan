@@ -1,12 +1,19 @@
-"""`alderaan batch`: run the pipeline on every target in a catalog, in parallel
+"""
+`alderaan batch`: run the pipeline on every target in a catalog, in parallel
 
 Each target runs as a separate `python -m alderaan.cli run` subprocess, so every
 target gets its own log file, clean process state, and exit code. A bounded pool
 runs up to --jobs targets at once; launches are spaced --launch_interval apart so
 the pool does not start in lockstep. BLAS/OpenMP pools are pinned to one thread
 per process, so jobs do not oversubscribe the CPUs. The run is fail-soft: every
-target is attempted, failures are reported, and the exit code is 1 if any failed.
+target is attempted and failures are reported. A target that exits 3 is
+unsupported by design (a known limit, e.g. < 3 transits); it is counted apart and
+does not fail the batch. A target over --job_timeout has its process group killed
+and is counted as failed (reported as exit 124).
 Adapted from the KPF pipeline (scripts/_dispatch.py).
+
+Exit codes: 0 no target failed; 1 any target failed; 130 interrupted
+(SIGINT/SIGTERM/SIGHUP; running targets are terminated).
 
 Example::
 
@@ -15,15 +22,16 @@ Example::
         --output_dir /path/to/outputs \\
         --catalog reference/alderaan/kepler_merged_alderaan.csv \\
         --jobs 64 \\
-        --run_id my_run  # optional; default batch_{UT launch stamp}
+        --run_id my_run  # optional; default UT launch stamp
 
 Every target writes the same files as `alderaan run`, all under one run
 directory ``{output_dir}/{run_id}/``::
 
+    alderaan_batch_{run_id}.csv              # copy of the input catalog (same suffix)
     logs/
-        alderaan_batch_{UTstamp}.log         # batch progress and failure report
-        alderaan_K00001_{UTstamp}.log        # one run log per target
-        alderaan_K00002_{UTstamp}.log
+        alderaan_batch_{run_id}.log          # batch progress and failure report
+        alderaan_K00001_{run_id}.log         # one run log per target
+        alderaan_K00002_{run_id}.log
         ...
     results/K00001/                          # see `alderaan run` for file names
     results/K00002/
@@ -37,6 +45,7 @@ import argparse
 import concurrent.futures
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -58,12 +67,13 @@ _last_launch = [0.0]
 
 
 def _default_jobs():
-    """At most 25% of the CPUs, but up to 16 (never more than the CPU count)"""
+    """25% of the CPUs, but at least 16 (never more than the CPU count)"""
     n = os.cpu_count() or 1
     return min(n, max(16, n // 4))
 
 
 def build_parser():
+    """Argument parser for `alderaan batch`"""
     parser = argparse.ArgumentParser(
         prog="alderaan batch",
         description="Run the ALDERAAN pipeline on every target in a catalog",
@@ -73,7 +83,7 @@ def build_parser():
     )
     parser.add_argument(
         "--run_id",
-        help="run identifier (default: batch_{UT launch stamp})",
+        help="run identifier (default: UT launch stamp, %%Y%%m%%dT%%H%%M%%S)",
     )
     parser.add_argument(
         "--input_dir", type=Path, required=True, help="photometry directory"
@@ -92,7 +102,8 @@ def build_parser():
         "--jobs",
         type=int,
         default=_default_jobs(),
-        help="max concurrent targets (default: ~25%% of CPUs, but up to 16)",
+        help="max concurrent targets (default: ~25%% of CPUs, at least 16, "
+        "at most the CPU count)",
     )
     parser.add_argument(
         "--job_timeout",
@@ -121,7 +132,8 @@ def _handle_termination_signal(signum, frame):
 
 
 def configure_runtime():
-    """Route SIGTERM/SIGHUP to KeyboardInterrupt; pin BLAS/OpenMP to one thread
+    """
+    Route SIGTERM/SIGHUP to KeyboardInterrupt; pin BLAS/OpenMP to one thread
 
     One process per job already, so an inner thread pool per job would give
     jobs x cores threads. setdefault, so an explicit caller value wins. Also
@@ -169,10 +181,11 @@ def _terminate_all_children(grace=5.0):
 
 
 def _run_one(argv, timeout=None, launch_interval=0.0):
-    """Run one subprocess; return (returncode, stderr)
+    """
+    Run one subprocess; return (returncode, stderr)
 
-    Returns (124, note) after killing the process group on timeout, and (130, "")
-    without launching once teardown has begun.
+    Returns (124, stderr) after killing the process group on timeout, and
+    (130, "") without launching once teardown has begun.
     """
     if _interrupted.is_set():
         return 130, ""
@@ -207,15 +220,20 @@ def _run_one(argv, timeout=None, launch_interval=0.0):
             return proc.returncode, stderr
         except subprocess.TimeoutExpired:
             _kill_group(proc)
-            proc.communicate()
-            return 124, f"timed out after {timeout}s; child process group killed"
+            _out, stderr = proc.communicate()
+            return 124, stderr
     finally:
         with _live_lock:
             _live_procs.discard(proc)
 
 
-def run_targets(tasks, jobs, log_dir, job_timeout=None, launch_interval=0.0):
-    """Run `tasks` (a list of (target, argv)) in a pool of `jobs`; return failed targets
+def run_targets(tasks, jobs, job_timeout=None, launch_interval=0.0):
+    """
+    Run `tasks` (a list of (target, argv)) in a pool of `jobs`
+
+    Returns (failed, unsupported), two dicts of target -> reason; unsupported
+    targets exit 3, with the reason from their stderr. Logs the last 20 stderr
+    lines of each failed target.
 
     On SIGINT/SIGTERM/SIGHUP, cancel the queue, terminate every running child, and
     exit 130.
@@ -226,6 +244,7 @@ def run_targets(tasks, jobs, log_dir, job_timeout=None, launch_interval=0.0):
     _last_launch[0] = 0.0
 
     failures = []
+    unsupported = {}
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
     try:
         futures = {
@@ -237,9 +256,20 @@ def run_targets(tasks, jobs, log_dir, job_timeout=None, launch_interval=0.0):
             rc, stderr = future.result()
             if rc == 0:
                 logger.info("ok: %s", target)
+            elif rc == 3:
+                # pipeline.main writes "... (unsupported): <reason>" to stderr
+                marker = "(unsupported): "
+                lines = [s for s in (stderr or "").splitlines() if marker in s]
+                reason = lines[-1].split(marker, 1)[1] if lines else "see log"
+                logger.warning("UNSUPPORTED: %s (known limit: %s)", target, reason)
+                unsupported[target] = reason
             else:
-                logger.warning("FAILED: %s (exit %d)", target, rc)
-                failures.append((target, rc, stderr))
+                if rc == 124:
+                    reason = f"timed out after {job_timeout}s; process group killed"
+                else:
+                    reason = f"exit {rc}"
+                logger.error("FAILED: %s (%s)", target, reason)
+                failures.append((target, reason, stderr))
     except KeyboardInterrupt:
         _interrupted.set()
         # ignore repeat signals so the teardown completes
@@ -249,7 +279,7 @@ def run_targets(tasks, jobs, log_dir, job_timeout=None, launch_interval=0.0):
             logger.warning("interrupted; terminating running targets")
             pool.shutdown(wait=False, cancel_futures=True)
             _terminate_all_children()
-            logger.warning("all child processes stopped")
+            logger.info("all child processes stopped")
         finally:
             for s, handler in prev.items():
                 signal.signal(s, handler)
@@ -257,17 +287,13 @@ def run_targets(tasks, jobs, log_dir, job_timeout=None, launch_interval=0.0):
     finally:
         pool.shutdown(wait=True)
 
-    for target, rc, stderr in failures:
-        lines = [
-            f"FAILED {target} (exit {rc})",
-            f"  inspect log: {os.path.join(log_dir, f'alderaan_{target}_*.log')}",
-        ]
+    for target, reason, stderr in failures:
         tail = (stderr or "").strip().splitlines()[-20:]
         if tail:
-            lines.append("  --- last stderr lines ---")
+            lines = [f"{target} ({reason}): last stderr lines"]
             lines.extend(f"  {line}" for line in tail)
-        logger.error("\n".join(lines))
-    return {target for target, _, _ in failures}
+            logger.error("\n".join(lines))
+    return {target: reason for target, reason, _ in failures}, unsupported
 
 
 def read_targets(catalog):
@@ -278,9 +304,11 @@ def read_targets(catalog):
 
 
 def main(argv=None):
+    """Run every catalog target; return exit code 1 if any failed, else 0"""
+    start = time.monotonic()
     configure_runtime()
     args = build_parser().parse_args(argv)
-    args.run_id = args.run_id or time.strftime("batch_%Y%m%dT%H%M%S", time.gmtime())
+    args.run_id = args.run_id or time.strftime("%Y%m%dT%H%M%S", time.gmtime())
 
     import alderaan
     from alderaan.utils.logger import setup_logging, teardown_logging
@@ -289,7 +317,7 @@ def main(argv=None):
     output_dir = str(args.output_dir.resolve())
     catalog = str(args.catalog.resolve())
     log_dir = os.path.join(output_dir, args.run_id, "logs")
-    log_path = setup_logging(log_dir, "batch", "INFO")
+    log_path = setup_logging(log_dir, "batch", args.run_id, "INFO")
 
     try:
         targets = read_targets(catalog)
@@ -304,6 +332,13 @@ def main(argv=None):
             args.launch_interval,
         )
         logger.info("batch log: %s", log_path)
+        catalog_copy = os.path.join(
+            output_dir,
+            args.run_id,
+            f"alderaan_batch_{args.run_id}{args.catalog.suffix}",
+        )
+        shutil.copyfile(catalog, catalog_copy)
+        logger.info("catalog copy: %s", catalog_copy)
 
         tasks = [
             (
@@ -331,13 +366,47 @@ def main(argv=None):
             )
             for t in targets
         ]
-        failed = run_targets(
-            tasks, args.jobs, log_dir, args.job_timeout, args.launch_interval
+        failed, unsupported = run_targets(
+            tasks, args.jobs, args.job_timeout, args.launch_interval
         )
-        logger.info(
-            "done: %d/%d target(s) ok", len(targets) - len(failed), len(targets)
+        summary = batch_summary(
+            args.run_id,
+            len(targets),
+            failed,
+            unsupported,
+            log_dir,
+            time.monotonic() - start,
         )
+        logger.info("%s", summary)
     finally:
         teardown_logging()
 
     return 1 if failed else 0
+
+
+def batch_summary(run_id, ntargets, failed, unsupported, log_dir, elapsed_s):
+    """
+    End-of-batch verdict block for the log
+
+    Lists counts, each unsupported and failed target with its reason, the log
+    path pattern, and elapsed time. Surrounding blank lines make the block stand
+    out in the log.
+    """
+    nok = ntargets - len(failed) - len(unsupported)
+    lines = [
+        f"===== batch summary: run_id {run_id} =====",
+        f"  targets:  {ntargets} ({nok} ok, {len(unsupported)} unsupported, "
+        f"{len(failed)} failed)",
+    ]
+    for label, group in (
+        ("unsupported (known limits)", unsupported),
+        ("!!!!! FAILED !!!!!", failed),
+    ):
+        if group:
+            lines.append(f"  {label}:")
+            lines.extend(f"    {t:<10s}{reason}" for t, reason in sorted(group.items()))
+    lines += [
+        f"  logs:     {os.path.join(log_dir, f'alderaan_<target>_{run_id}.log')}",
+        f"  elapsed:  {elapsed_s / 3600:.2f} hr",
+    ]
+    return "\n\n" + "\n".join(lines) + "\n"

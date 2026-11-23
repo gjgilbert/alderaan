@@ -1,4 +1,4 @@
-"""Physical and instrumental constants, and the random seed"""
+"""Kepler exposure times and the random seed"""
 
 # Kepler integration time + readout time [days]
 KEPLER_LCIT = 29.4243885 / 60 / 24

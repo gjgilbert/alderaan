@@ -36,8 +36,8 @@ class Posteriors:
     ----------
     mission, target : str
     samples : pd.DataFrame
-        nested samples; columns npl * [C0_n, C1_n, ROR_n, IMPACT_n, DUR14_n]
-        + [LD_Q1, LD_Q2]
+        nested samples of TransitModel theta; columns npl * [C0_n, C1_n, ROR_n,
+        IMPACT_n, DUR14_n] + [LD_Q1, LD_Q2]
     sampler_info : dict
         dynesty run outputs, keyed by their dynesty.results.Results names:
         logwt, logl, logz, logzerr, logvol, samples_n, ncall, information :
@@ -97,6 +97,7 @@ class Posteriors:
 
     @property
     def npl(self):
+        """Number of planets"""
         return len(self.ref_period)
 
     @classmethod
@@ -219,10 +220,6 @@ class Posteriors:
             supersample,
         )
 
-    @property
-    def nsamp(self):
-        return len(self.samples)
-
     def neff(self):
         """Number of effective samples (Kish ESS)"""
         return dynesty.utils.get_neff_from_logwt(self.sampler_info["logwt"])
@@ -233,7 +230,15 @@ class Posteriors:
         return wt / np.sum(wt)
 
     def summary(self):
-        """Weighted posterior summary statistics for each sampled parameter"""
+        """
+        Weighted posterior summary statistics for each sampled parameter
+
+        Returns
+        -------
+        pd.DataFrame
+            indexed by sample column; columns [mean, stdev, median, CI_2.5, CI_16,
+            CI_84, CI_97.5] (CI_16 and CI_84 are the 15.9 and 84.1 percentiles)
+        """
         weights = self.weights()
 
         rows = {}
@@ -256,14 +261,16 @@ class Posteriors:
         """
         Physical posterior samples for planet n
 
-        Sampled transit times are ttime + C0 + C1 * legx, with legx linear in
+        Sampled transit times are ttime_mod + C0 + C1 * legx, with legx linear in
         transit index (see class docstring); adding that line to the reference
-        ephemeris gives the sampled period and epoch
+        ephemeris gives the sampled period and epoch.
 
         Returns
         -------
         pd.DataFrame
-            columns [PERIOD, EPOCH, ROR, IMPACT, DUR14, LD_U1, LD_U2, LN_WT]
+            one row per sample; columns [PERIOD, EPOCH, ROR, IMPACT, DUR14, LD_U1,
+            LD_U2, LN_WT]: the transit basis (see alderaan.transit_model) and
+            the log weight
         """
         s = self.samples
         C0 = s[f"C0_{n}"].to_numpy()
@@ -293,8 +300,10 @@ class Posteriors:
 
     def _dynesty_results(self):
         """
-        dynesty Results for dynesty.plotting; samples_u and samples_id are
-        required by its constructor but unused by these plots
+        dynesty Results for dynesty.plotting
+
+        samples_u and samples_id are required by its constructor but unused by
+        these plots.
         """
         samples = self.samples.to_numpy()
         return dynesty.utils.Results(
@@ -348,6 +357,7 @@ class Posteriors:
         return fig
 
     def _finish_planet_plot(self, fig, n, fig_path):
+        """Title, lay out and save a planet n figure"""
         # leave the top 4% of the figure for the title
         fig.suptitle(f"{self.target} - Planet {n}", fontsize=18, y=0.99, va="top")
         fig.tight_layout(rect=(0, 0, 1, 0.96))

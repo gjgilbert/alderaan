@@ -28,24 +28,24 @@ def ld_u_to_q(u1, u2):
 
 
 def approx_transit_depth(p, b):
-    """Approximate transit depth following Mandel & Agol (2002)
+    """
+    Approximate transit depth following Mandel & Agol (2002)
 
     Parameters
     ----------
-    p : array-like
-        planet-to-star radius ratio Rp/Rs
-    b : array-like
-        impact parameter
+    p, b : array-like
+        ror and impact (transit basis; see alderaan.transit_model)
 
     Returns
     -------
-    depth : array-like
-        transit depth
+    depth : ndarray
+        fractional transit depth, 0 for b >= 1 + p
     """
     p, b = np.asarray(p, dtype=float), np.asarray(b, dtype=float)
 
-    # grazing transit (1-p < b < 1+p); terms are unused outside this regime, and
-    # clipped against roundoff at the contact points
+    # grazing transit (1-p < b < 1+p); terms are clipped against roundoff at the
+    # contact points. Suppress divide/invalid warnings: these terms are NaN or
+    # inf outside the grazing regime (e.g. b = 0), where np.where discards them.
     with np.errstate(divide="ignore", invalid="ignore"):
         k0 = np.arccos(np.clip((p**2 + b**2 - 1) / (2 * p * b), -1, 1))
         k1 = np.arccos(np.clip((1 - p**2 + b**2) / (2 * b), -1, 1))
@@ -58,24 +58,30 @@ def approx_transit_depth(p, b):
 
 
 def approx_ror(depth, b):
-    """Invert approx_transit_depth: radius ratio from transit depth
+    """
+    Invert approx_transit_depth: radius ratio from transit depth
 
     Parameters
     ----------
     depth : array-like
-        transit depth, 0 < depth < 1
+        fractional transit depth, 0 < depth < 1
     b : array-like
         impact parameter, b >= 0
 
     Returns
     -------
-    ror : array-like
-        planet-to-star radius ratio Rp/Rs
+    ror : ndarray
+
+    Raises
+    ------
+    ValueError
+        if any depth is outside (0, 1)
     """
     if np.any(~((np.asarray(depth) > 0) & (np.asarray(depth) < 1))):
         raise ValueError(f"depth = {depth} must be in (0, 1)")
 
     def _ror(d, b):
+        """Scalar inversion: exact p = sqrt(d) if non-grazing, else root-find"""
         p = np.sqrt(d)
         if b <= 1 - p:
             return p
@@ -88,15 +94,22 @@ def approx_ror(depth, b):
 def approx_tc_error(ror, b, T14, exptime, sigma_f):
     """
     Predicted mid-transit time uncertainty, following Price & Rogers 2014
-    (finite integration time; Carter+2008 as exptime -> 0)
+
+    Includes finite integration time; reduces to Carter+2008 as exptime -> 0.
 
     Parameters
     ----------
-    ror : planet-to-star radius ratio
-    b : impact parameter
-    T14 : first-to-fourth contact transit duration
-    exptime : exposure time (in same units as T14)
-    sigma_f : photometric error on flux
+    ror, b, T14 : float
+        transit basis; see alderaan.transit_model
+    exptime : float
+        exposure time, in the units of T14
+    sigma_f : float
+        per-cadence flux uncertainty
+
+    Returns
+    -------
+    sigma_tc : float
+        in the units of T14
     """
     Q = np.sqrt(T14 / exptime) * (ror**2 / sigma_f)
 

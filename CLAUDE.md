@@ -42,6 +42,10 @@ conda run -n alderaan python -m pytest tests/regression/test_transit_model.py::T
 # Formatting and linting (Ruff; config in pyproject.toml [tool.ruff])
 conda run -n alderaan ruff format alderaan/ tests/
 conda run -n alderaan ruff check --fix alderaan/ tests/
+
+# Pipeline CLI (alderaan.cli); --help on each subcommand lists all options
+alderaan run -t K00137 -m Kepler --input_dir <dir> --output_dir <dir> --catalog <csv>
+alderaan batch -m Kepler --input_dir <dir> --output_dir <dir> --catalog <csv> --jobs N
 ```
 
 ## Testing
@@ -57,11 +61,18 @@ checkpoint, not after every edit. Match scope to blast radius:
 - **Wide blast radius only** (shared module, cross-cutting refactor, science-path
   change): `make test` (full).
 - **Chasing a failure**: `make test-debug`.
+- **End-to-end mechanics** (plots, I/O, logging, CLI, batch; not science): a smoke run.
+  A scratch script patches `dynesty.DynamicNestedSampler.run_nested` to `maxiter=300`
+  (as `tests/profiling/_profiling.py` does), then calls
+  `alderaan.cli.main(["run", "-t", "K00137", "-m", "Kepler", "--input_dir",
+  "tests/data/MAST_downloads", "--catalog", "reference/alderaan/kepler_merged_alderaan.csv",
+  "--visits", "4", "5", "6", "--output_dir", <fresh tmp dir>])`. Pass: exit 0, expected
+  files exist, no `Traceback` in the logs. Never run the full sampler for this.
 
 Layout: `tests/regression/test_<module>.py`, one file per module, named for the module
 (`test_litecurve.py`, `test_regularize_omc.py`, `test_base_alg.py`, `test_utils_stats.py`, ...).
 `tests/conftest.py` registers the `slow` marker and provides the `k00137` fixture
-(Kepler-18, quarters 4-6, from `tests/data` and `reference/`) and the
+(Kepler-18, quarters 4-6, from `tests/data/MAST_downloads` and `reference/`) and the
 `make_posteriors` factory. Fast tests use small
 synthetic objects built in the test file; anything loading real photometry or running
 a sampler is `@pytest.mark.slow` (reading a small catalog is fast). A known bug is a
@@ -70,6 +81,10 @@ a sampler is `@pytest.mark.slow` (reading a small catalog is fast). A known bug 
 Tests check behavior required by the design, not edge cases or development history.
 Revise tests when production code changes: code design drives test design, never the
 reverse.
+
+Never brute-force diagnostics or exploration (random fuzzing, parameter sweeps, repeated
+full runs). Read the code first, list the conditions that matter, then make the smallest
+set of targeted calls on the smallest data that still answers the question.
 
 ## Profiling
 
@@ -107,6 +122,8 @@ From the project charter — these guide all implementation decisions:
 6. Prefer clarity over cleverness
 7. Implement everything in the simplest possible way.
 
-Every major change must: preserve deterministic behavior, run on the truth dataset, and document impact on transit posteriors.
+Every major change must: preserve deterministic behavior and document impact on transit posteriors. Perform quick local validation that changes to the pipeline do not produce unexpected or large changes to scientific output: compare the K00137 Q4-6 posteriors with the values in `reference/`. What counts as a large change is context specific. Unless the definition of "large change" is clear from context (e.g. within machine precision), ask the user rather than guessing.
+
+The user will run full verification through end-to-end batch processing on real data on the remote machine.
 
 - Do not modify this file without explicit instructions from the user.

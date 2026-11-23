@@ -1,4 +1,10 @@
-"""House style for data-model plot methods"""
+"""
+House style for data-model plot methods
+
+Convention shared by every plot method: it returns the Figure; ``fig_path``
+saves the figure there as a PNG and closes it (unless the caller passed ``ax``,
+which keeps the caller's figure open); ``fig_path=None`` leaves it open.
+"""
 
 import logging
 
@@ -47,12 +53,11 @@ def annotate_plot(ax, text, loc="upper right"):
 
 def save_and_close(fig, fig_path, compress_level=6, close=True):
     """
-    Write fig to fig_path as an RGB PNG at DPI and close it (close=False keeps
-    it open, for figures the caller owns); no-op if fig_path is None
+    Write fig to fig_path as an RGB PNG at DPI, then close it if close is True
 
-    Writes the Agg buffer's RGB channels with Pillow, skipping the opaque alpha
-    channel savefig would encode (faster, smaller file). dpi is set before
-    drawing because it fixes the buffer's pixel dimensions.
+    No-op if fig_path is None. Writes the Agg buffer's RGB channels with Pillow,
+    skipping the opaque alpha channel savefig would encode (faster, smaller file).
+    dpi is set before drawing because it fixes the buffer's pixel dimensions.
     """
     if fig_path is None:
         return

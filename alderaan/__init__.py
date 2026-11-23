@@ -10,9 +10,10 @@ logger = logging.getLogger(__name__)
 
 
 def git_hash():
-    """Short HEAD hash; '-dirty' if the package source has uncommitted changes"""
+    """Short HEAD hash, '-dirty' if the package source has changes; else 'unknown'"""
 
     def git(*args):
+        """Stdout of a git command run in the package directory"""
         return subprocess.run(
             ["git", *args],
             cwd=os.path.dirname(__file__),

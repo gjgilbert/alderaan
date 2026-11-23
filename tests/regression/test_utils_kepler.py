@@ -14,6 +14,7 @@ import pytest
 
 from alderaan.constants import EXPTIME
 from alderaan.data_models import LiteCurve, Planet, TransitTimes
+from alderaan.errors import UnsupportedTargetError
 from alderaan.utils.kepler import (
     drop_few_transit_planets,
     load_kepler_data,
@@ -159,7 +160,9 @@ class TestDropFewTransitPlanets:
         assert len(lc.time) == len(_litecurve().time)
 
     def test_single_planet_with_two_transits_raises(self):
-        with pytest.raises(ValueError, match="2 transits within litecurve span"):
+        with pytest.raises(
+            UnsupportedTargetError, match="2 transits within litecurve span"
+        ):
             drop_few_transit_planets(_catalog([(37.0, 21.5, 0.2)]), _litecurve())
 
     def test_drops_planet_and_its_transits_in_multiplanet_system(self):
@@ -177,7 +180,9 @@ class TestDropFewTransitPlanets:
 
     def test_all_planets_dropped_raises(self):
         catalog = _catalog([(100.0, 50.0, 0.2), (90.0, 30.0, 0.2)])
-        with pytest.raises(ValueError, match="every planet has < 3 transits"):
+        with pytest.raises(
+            UnsupportedTargetError, match="every planet has < 3 transits"
+        ):
             drop_few_transit_planets(catalog, _litecurve())
 
 

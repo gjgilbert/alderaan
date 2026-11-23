@@ -253,7 +253,7 @@ class TestACFPeriod:
     def test_detects_rotation_period(self, obsmode):
         exptime = EXPTIME[obsmode]
         cadno, flux, mask = _acf_visit(ROTATION, exptime)
-        periodic, period_acf, _, _ = DetrendVisits._acf_period(
+        periodic, period_acf, _ = DetrendVisits._acf_period(
             cadno, flux, mask, exptime, 0.5
         )
         assert periodic
@@ -262,7 +262,7 @@ class TestACFPeriod:
     def test_aperiodic_red_noise_is_not_periodic_and_gives_timescale(self):
         red = GPterms.SHOTerm(sigma=10.0, rho=5.0, Q=1 / np.sqrt(2))
         cadno, flux, mask = _acf_visit(red)
-        periodic, _, period_half, _ = DetrendVisits._acf_period(
+        periodic, _, period_half = DetrendVisits._acf_period(
             cadno, flux, mask, EXPTIME[LC], 0.5
         )
         assert not periodic
@@ -270,9 +270,7 @@ class TestACFPeriod:
 
     def test_white_noise_is_not_periodic(self):
         cadno, flux, mask = _acf_visit(None)
-        periodic, _, _, _ = DetrendVisits._acf_period(
-            cadno, flux, mask, EXPTIME[LC], 0.5
-        )
+        periodic, _, _ = DetrendVisits._acf_period(cadno, flux, mask, EXPTIME[LC], 0.5)
         assert not periodic
 
 
@@ -311,7 +309,7 @@ class TestNominalPeriod:
         monkeypatch.setattr(
             DetrendVisits,
             "_acf_period",
-            staticmethod(lambda *args: (*next(results), 10.0)),
+            staticmethod(lambda *args: next(results)),
         )
         star, planets, litecurve, _ = _synthetic_system()
         alg = DetrendVisits(star, planets, litecurve)
@@ -341,7 +339,7 @@ class TestTransitMask:
         alg = DetrendVisits(star, [planet], litecurve)
         dt = 1e-4
         time = period + np.arange(-0.5, 0.5, dt)
-        return np.sum(alg._transit_mask(time, 1, LC, tight_mask)) * dt
+        return np.sum(alg._transit_mask(time, LC, tight_mask)) * dt
 
     @pytest.mark.parametrize("tight_mask, k", [(False, 2.0), (True, 1.5)])
     @pytest.mark.parametrize("duration", [0.02, 0.1])

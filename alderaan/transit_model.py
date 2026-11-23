@@ -1,4 +1,14 @@
-"""Transit forward model (quadratic limb darkening via batman primitives)"""
+"""
+Transit forward model (quadratic limb darkening via batman primitives)
+
+Transit basis used across the pipeline (other docstrings refer here):
+    period (P), epoch (t0) : linear ephemeris, days
+    ror : planet-to-star radius ratio Rp/Rs
+    impact (b) : impact parameter
+    duration (T14) : first-to-fourth contact duration, days
+    q1, q2 : quadratic limb darkening in the Kipping 2013 basis; u1, u2 are the
+        standard quadratic coefficients (utils.astro.ld_q_to_u)
+"""
 
 __all__ = [
     "TRANSIT_PARAMETER_LABELS",
@@ -30,10 +40,11 @@ def exposure_offsets(exptime, n):
 
 def transit_flux(t, t0, period, ror, impact, duration, u1, u2, exptime_offsets=None):
     """
-    Quadratic limb darkened transit flux for a single planet
+    Quadratic limb darkened transit flux of one planet at times t (days)
 
-    If exptime_offsets is provided, flux is supersampled over each exposure
-    and averaged back to the cadence times t
+    The other arguments are the transit basis (module docstring). If
+    exptime_offsets (days; see exposure_offsets) is given, flux is supersampled
+    over each exposure and averaged back to the times t.
     """
     if exptime_offsets is not None:
         t = (exptime_offsets + t.reshape(t.size, 1)).ravel()
@@ -52,13 +63,22 @@ class TransitModel:
     """
     Transit forward model for a star, planets, and litecurve
 
+    Parameters
+    ----------
+    star : Star
+    planets : list of Planet
+        static period and epoch must be set (Planet.set_static_period_and_epoch)
+    litecurve : LiteCurve
+        shallow-copied, so trim() leaves the caller's litecurve unchanged
+
+    Notes
+    -----
     theta = npl * [C0, C1, ror, b, T14] + [q1, q2]
      * C0 + C1 * legendre_p1(T, (t_start, t_end)) shifts each transit time,
        where T is the transit's time on the planet's linear ephemeris and
        (t_start, t_end) is the photometry span: C0 is the offset (days) at
        mid-span, C1 the additional offset (days) at t_end
-     * shape: ror = Rp/Rs, impact b, duration T14
-     * limb darkening (q1, q2) in the Kipping 2013 basis
+     * ror, b, T14, q1, q2: the transit basis (module docstring)
     """
 
     def __init__(self, star, planets, litecurve):
@@ -75,7 +95,6 @@ class TransitModel:
                     "call Planet.set_static_period_and_epoch() first"
                 )
         self.static_period = np.array([p.static_period for p in self.planets])
-        self.static_epoch = np.array([p.static_epoch for p in self.planets])
 
         # photometry span for the Legendre mapping of C0, C1 (fixed on the
         # litecurve, so outlier clipping and trim() do not change it)
@@ -94,6 +113,7 @@ class TransitModel:
         self._build_warps()
 
     def _init_supersampling(self):
+        """Set the odd supersample factor and sub-exposure offsets per obsmode"""
         lc = self.litecurve
 
         # ingress/egress timescale estimate following Winn 2010
@@ -126,14 +146,13 @@ class TransitModel:
             )
 
     def _set_cadence_masks(self):
+        """Set the boolean cadence mask of each obsmode"""
         self.cadence_mask = {
             om: self.litecurve.obsmode == om for om in self.unique_obsmodes
         }
 
     def trim(self, mask):
-        """
-        Keep only cadences where mask is True; supersampling is not recomputed
-        """
+        """Keep only cadences where mask is True; supersampling is not recomputed"""
         logger.debug("trimmed litecurve to %d of %d cadences", np.sum(mask), len(mask))
         self.litecurve.select(mask)
         self.unique_obsmodes = np.unique(self.litecurve.obsmode)
@@ -173,7 +192,6 @@ class TransitModel:
             ttime_full = self.ref_epoch[n] + period * index_full
             ttime_full[p.transit_times.index] = p.transit_times.ttime_mod
 
-            # bins halfway between transits, plus one end bin on each side
             bin_edges = np.concatenate(
                 [
                     [ttime_full[0] - 0.5 * period],
@@ -203,7 +221,7 @@ class TransitModel:
 
     def theta_initial(self):
         """
-        Starting parameters from the planets' ror, impact, and duration
+        Starting theta: C0 = C1 = 0, planet ror, impact, duration, star q1, q2
 
         Returns
         -------
@@ -223,13 +241,7 @@ class TransitModel:
         return np.array(theta)
 
     def model_flux(self, theta):
-        """
-        Model flux at every litecurve cadence
-
-        theta : array-like
-            npl * [C0, C1, ror, b, T14] + [q1, q2], limb darkening in the
-            Kipping 2013 (q1, q2) basis
-        """
+        """Model flux at every litecurve cadence for theta (see class docstring)"""
         u1, u2 = ld_q_to_u(*np.array(theta[-2:]))
 
         flux_mod = None
@@ -247,6 +259,7 @@ class TransitModel:
         return flux_mod
 
     def _model_flux_obsmode(self, theta, obsmode, u1, u2):
+        """Model flux at the cadences of one obsmode"""
         warped_time = self._warped_time_om[obsmode]
         warped_legx = self._warped_legx_om[obsmode]
 
@@ -290,9 +303,10 @@ class TransitModel:
 
     def ln_likelihood(self, theta):
         """
-        Gaussian log-likelihood of theta, plus (if star.ld_prior) a Gaussian
-        prior of width 0.1 tying limb darkening to the star's (u1, u2); returns
-        -1e300 where the result is not finite
+        Gaussian log-likelihood of theta, up to a constant
+
+        If star.ld_prior, adds Gaussian priors of width 0.1 on u1 and u2, centered
+        on the star's (u1, u2). Returns -1e300 if the result is not finite.
         """
         lnlike = -0.5 * np.sum(self.residuals(theta) ** 2)
 

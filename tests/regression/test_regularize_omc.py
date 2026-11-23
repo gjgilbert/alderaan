@@ -7,6 +7,7 @@ from astropy.stats import mad_std
 from alderaan.algorithms import RegularizeOMC
 from alderaan.constants import EXPTIME
 from alderaan.data_models import LiteCurve, Planet, Star, TransitTimes
+from alderaan.errors import UnsupportedTargetError
 from alderaan.transit_model import exposure_offsets, transit_flux
 
 PERIOD, EPOCH = 10.0, 5.0
@@ -127,9 +128,7 @@ class TestCompare:
     def _results(yobs, yerr, dofs, **preds):
         results = {}
         for k, pred in preds.items():
-            _, _, lnlike = RegularizeOMC._calculate_outlier_probability(
-                yobs, yerr, pred
-            )
+            _, lnlike = RegularizeOMC._calculate_outlier_probability(yobs, yerr, pred)
             inlier = np.ones(len(yobs), dtype=bool)
             results[k] = {
                 "pred": pred,
@@ -320,6 +319,18 @@ class TestSinModel:
         assert _rms(fit["pred"] - truth) < 0.25 * TIME_ERR
 
 
+class TestLombScarglePeak:
+    def test_short_baseline_after_outlier_cut_is_no_signal(self):
+        # 8 transits; outliers at both ends leave a 5-period baseline, too short
+        # for any searched period
+        rng = np.random.default_rng(12)
+        xtime = np.arange(8) * PERIOD
+        yobs = rng.normal(0, TIME_ERR, 8)
+        yobs[[0, 7]] += 100 * TIME_ERR
+        mask = np.ones(8, dtype=bool)
+        assert RegularizeOMC._lomb_scargle_peak(xtime, yobs, mask) == (None, 1.0)
+
+
 def _mixed_error_omc():
     """
     White-noise OMC alternating precise (1 min) and noisy (4 min) errors; points
@@ -356,18 +367,19 @@ class TestOutlierScreen:
 class TestOutlierProbability:
     def test_judged_against_own_errors(self):
         yobs, yerr = _mixed_error_omc()
-        out_prob, out_flag, _ = RegularizeOMC._calculate_outlier_probability(
+        # 8 min is 8 sigma for the precise point, 2 sigma for the noisy one
+        out_flag, _ = RegularizeOMC._calculate_outlier_probability(
             yobs, yerr, np.zeros_like(yobs)
         )
         assert out_flag[50]
-        assert out_prob[50] > out_prob[51]
+        assert not out_flag[51]
 
     def test_clean_residuals_with_excess_scatter_not_flagged(self):
         # Gaussian residuals 1.5x wider than the errors: jitter, not outliers
         rng = np.random.default_rng(4)
         yerr = np.full(400, 1 / 1440)
         yobs = rng.normal(0, 1.5 * yerr)
-        _, out_flag, _ = RegularizeOMC._calculate_outlier_probability(
+        out_flag, _ = RegularizeOMC._calculate_outlier_probability(
             yobs, yerr, np.zeros_like(yobs)
         )
         assert not np.any(out_flag)
@@ -378,7 +390,7 @@ class TestOutlierProbability:
         yobs = rng.normal(0, yerr)
         bad = rng.choice(400, 20, replace=False)
         yobs[bad] += rng.choice([-1, 1], 20) * rng.uniform(8, 20, 20) / 1440
-        _, out_flag, _ = RegularizeOMC._calculate_outlier_probability(
+        out_flag, _ = RegularizeOMC._calculate_outlier_probability(
             yobs, yerr, np.zeros_like(yobs)
         )
         np.testing.assert_array_equal(np.flatnonzero(out_flag), np.sort(bad))
@@ -512,7 +524,7 @@ class TestLassoUpgrade:
         mask = np.ones(len(omc), bool)
         fit = {**RegularizeOMC._poly_model(tlin, omc, err, mask, order), "inlier": mask}
         alg = RegularizeOMC(star, planets, lc)
-        return alg._lasso_upgrade(0, tlin, omc, err, f"poly_{order}", fit)
+        return alg._lasso_upgrade(tlin, omc, err, f"poly_{order}", fit)
 
     def test_misfit_smooth_ttv_upgraded(self):
         # 60 transits, 2 min errors, a 15 min deep quartic OMC: poly_2 fails chi2
@@ -636,7 +648,7 @@ class TestSelectFewTransits:
 
     def test_fewer_than_3_measured_times_raise(self):
         star, planets, lc, _ = _system(ntransit=5, missing=[0, 1, 2])
-        with pytest.raises(ValueError, match="needs at least 3"):
+        with pytest.raises(UnsupportedTargetError, match="needs at least 3"):
             RegularizeOMC(star, planets, lc).perform(method="select")
 
 

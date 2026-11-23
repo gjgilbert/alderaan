@@ -17,6 +17,7 @@ from scipy.signal import savgol_filter
 from alderaan.algorithms.base import BaseAlg
 from alderaan.constants import SEED
 from alderaan.data_models import TransitTimes
+from alderaan.errors import UnsupportedTargetError
 from alderaan.transit_model import TransitModel, transit_flux
 from alderaan.utils.stats import legendre_p1, norm_ppf, uniform_ppf
 
@@ -31,12 +32,6 @@ class RegularizeOMC(BaseAlg):
     tlin is the linear ephemeris; omc and err are NaN where unmeasured. Boolean
     masks select transits: measured (good photometry, finite time), unclipped
     (measured and passing the sigma clip), inlier (kept by the model fit)
-
-    Parameters
-    ----------
-    star : Star
-    planets : list of Planet
-    litecurve : LiteCurve
     """
 
     # --- sigma clip and smoothing -------------------------------------------
@@ -50,9 +45,10 @@ class RegularizeOMC(BaseAlg):
     @staticmethod
     def _sigma_clip(yobs, yerr, sigma_cut=5.0):
         """
-        Robust sigma clip about a smoothed trend of consecutive measured times;
-        True for transits kept. With < 16 transits no trend can be estimated
-        and nothing is clipped (a clip about the median removes real TTVs)
+        Robust sigma clip about a smoothed trend; True for transits kept
+
+        yobs are consecutive measured times. With < 16 transits no trend can be
+        estimated and nothing is clipped (a clip about the median removes real TTVs)
         """
         keep = np.ones(len(yobs), dtype=bool)
         if len(yobs) < 16:
@@ -70,8 +66,7 @@ class RegularizeOMC(BaseAlg):
     @staticmethod
     def _smooth(index, omc, mask):
         """
-        Savitzky-Golay smooth of OMC over consecutive epochs; returns values at
-        every index
+        Savitzky-Golay smooth of OMC over consecutive epochs, evaluated at every index
 
         OMC on mask is first linearly interpolated onto every epoch it spans, so
         the filter window spans a fixed number of epochs
@@ -93,15 +88,10 @@ class RegularizeOMC(BaseAlg):
     @staticmethod
     def _poly_model(xtime, yobs, yerr, mask, polyorder):
         """
-        Fit TTV observed-minus-calculated data with a polynomial
+        Fit OMC data with a polynomial of order polyorder
 
         With Normal(0, 10) priors on the coefficients and a Gaussian likelihood,
         the posterior is Gaussian, so its median is the closed-form MAP
-
-        Parameters
-        ----------
-        polyorder : int
-            polynomial order
 
         Returns
         -------
@@ -126,10 +116,11 @@ class RegularizeOMC(BaseAlg):
     @staticmethod
     def _lasso_poly_model(xtime, yobs, yerr, mask, polyorder):
         """
-        Fit TTV observed-minus-calculated data with a lasso polynomial: an L1
-        penalty on every coefficient on top of _poly_model's Normal(0, 10) prior.
-        The penalty is chosen to minimize BIC, with dof = number of nonzero coefficients
-        (Zou et al. 2007)
+        Fit OMC data with a lasso polynomial of order polyorder
+
+        An L1 penalty on every coefficient adds to _poly_model's Normal(0, 10)
+        prior. The penalty is chosen to minimize BIC, with dof = number of nonzero
+        coefficients (Zou et al. 2007)
 
         Returns
         -------
@@ -167,9 +158,10 @@ class RegularizeOMC(BaseAlg):
     @staticmethod
     def _sin_model(xtime, yobs, yerr, mask, ttv_period):
         """
-        Fit TTV observed-minus-calculated data with a line plus a single-frequency
-        sinusoid; the line absorbs any offset and slope left by the linear
-        ephemeris, which is not independent of a sinusoid over a finite baseline
+        Fit OMC data with a line plus a single-frequency sinusoid
+
+        The line absorbs any offset and slope left by the linear ephemeris, which
+        is not independent of a sinusoid over a finite baseline.
 
         Priors: f ~ N(1/ttv_period, df) with df = 1/baseline; offset and slope
         ~ N(0, 10) as in _poly_model; sine and cosine amplitudes ~ N(0, 5 std(yobs)).
@@ -220,9 +212,12 @@ class RegularizeOMC(BaseAlg):
 
         weights = np.exp(log_post - log_post.max())
         weights /= weights.sum()
-        if 1 / np.sum(weights**2) < 5:
+        n_eff = 1 / np.sum(weights**2)
+        if n_eff < 5:
             logger.warning(
-                "sinusoid OMC model: frequency posterior spans < 5 grid points"
+                "sinusoid OMC model: frequency grid under-resolves the posterior "
+                "(%.1f effective grid points, need >= 5)",
+                n_eff,
             )
 
         leverage = np.full(len(xtime), np.nan)
@@ -233,7 +228,7 @@ class RegularizeOMC(BaseAlg):
     @staticmethod
     def _matern32_model(xtime, yobs, yerr, mask):
         """
-        Fit TTV observed-minus-calculated data with a regularized Matern-3/2 GP
+        Fit OMC data with a regularized Matern-3/2 GP
 
         Transits with NaN yobs are unmeasured: they get predictions but do not
         enter the priors
@@ -241,8 +236,8 @@ class RegularizeOMC(BaseAlg):
         Returns
         -------
         fit : dict
-            posterior median 'pred' at all xtime;
-            'dof' = sum(predictive variance / yerr^2) over mask; 'leverage', the
+            posterior median 'pred' at all xtime; 'dof', the posterior median of
+            sum(predictive variance / yerr^2) over mask; 'leverage', the
             posterior median of predictive variance / yerr^2 (the diagonal of the
             smoother matrix) on mask (NaN elsewhere)
         """
@@ -260,6 +255,7 @@ class RegularizeOMC(BaseAlg):
             )
 
         def make_gp(theta):
+            """GP at theta = (log_sigma, rho, mean), computed on mask"""
             log_sigma, rho, mean = theta
             kernel = GPterms.Matern32Term(sigma=np.exp(log_sigma), rho=rho)
             gp = celerite2.GaussianProcess(kernel, mean=mean)
@@ -269,6 +265,7 @@ class RegularizeOMC(BaseAlg):
         # priors: log_sigma ~ N(log_ymax, 5) truncated above at log_ymax;
         # rho ~ U(2 dx, baseline); mean ~ N(mean(yobs), std(yobs))
         def prior_transform(u):
+            """Map the unit cube to the priors"""
             return np.array(
                 [
                     norm_ppf(u[0] / 2, log_ymax, 5.0),
@@ -278,8 +275,10 @@ class RegularizeOMC(BaseAlg):
             )
 
         def loglike(theta):
+            """GP log-likelihood of yobs on mask"""
             return make_gp(theta).log_likelihood(yobs[mask])
 
+        logger.info("matern32 OMC model: sample GP hyperparameters")
         draws = RegularizeOMC._sample(loglike, prior_transform, 3)
 
         # medians over (at most) the first 500 equal-weight draws
@@ -301,9 +300,7 @@ class RegularizeOMC(BaseAlg):
 
     @staticmethod
     def _sample(loglike, prior_transform, ndim):
-        """
-        Seeded dynesty nested sampling; returns equal-weight posterior draws
-        """
+        """Seeded dynesty nested sampling; returns equal-weight posterior draws"""
         t0 = time.perf_counter()
         sampler = dynesty.NestedSampler(
             loglike,
@@ -316,7 +313,7 @@ class RegularizeOMC(BaseAlg):
         sampler.run_nested(dlogz=0.5, print_progress=False)
         results = sampler.results
         logger.info(
-            "dynesty ncall = %d, %.1f s",
+            "dynesty: ncall = %d, %.1f s",
             np.sum(results.ncall),
             time.perf_counter() - t0,
         )
@@ -325,8 +322,7 @@ class RegularizeOMC(BaseAlg):
     @staticmethod
     def _fit(model, tlin, omc, err, mask, period=None):
         """
-        Fit OMC model 'poly_<k>', 'sinusoid' (at TTV period) or 'matern32' to
-        the transits in mask
+        Fit OMC model 'poly_<k>', 'sinusoid' (at TTV period) or 'matern32' on mask
 
         Returns
         -------
@@ -345,8 +341,9 @@ class RegularizeOMC(BaseAlg):
     @staticmethod
     def _robust_fit(model, tlin, omc, err, unclipped, period=None):
         """
-        Fit an OMC model on unclipped transits and reject its outliers, by the
-        number of transits N:
+        Fit an OMC model on unclipped transits and reject its outliers
+
+        By the number N of unclipped transits:
           * N < 8: nothing rejected
           * 8 <= N < 16: leave-one-out test; the worst studentized residual is
             flagged while it fails a Bonferroni-corrected alpha = 0.01 test, with
@@ -383,7 +380,7 @@ class RegularizeOMC(BaseAlg):
             res = np.where(inlier, omc - fit["pred"], z_crit * err)
             lnlike = np.sum(stats.norm.logpdf(res, scale=err)[unclipped])
         else:
-            _, out_flag, lnlike = RegularizeOMC._calculate_outlier_probability(
+            out_flag, lnlike = RegularizeOMC._calculate_outlier_probability(
                 omc, err, fit["pred"], mask=unclipped
             )
             inlier = unclipped & ~out_flag
@@ -392,7 +389,7 @@ class RegularizeOMC(BaseAlg):
                 inlier = unclipped.copy()
             if np.any(inlier != unclipped):
                 fit = RegularizeOMC._fit(model, tlin, omc, err, inlier, period)
-                _, _, lnlike = RegularizeOMC._calculate_outlier_probability(
+                _, lnlike = RegularizeOMC._calculate_outlier_probability(
                     omc, err, fit["pred"], mask=unclipped
                 )
 
@@ -403,7 +400,7 @@ class RegularizeOMC(BaseAlg):
         yobs, yerr, ymod, mask=None, maxiter=200, tol=1e-6
     ):
         """
-        Calculate the probability that each measured omc transit time is an outlier
+        Flag measured omc transit times that are more likely outliers than not
 
         Residuals r = yobs - ymod follow a two-component Gaussian mixture, fit by
         expectation-maximization
@@ -423,14 +420,12 @@ class RegularizeOMC(BaseAlg):
             regularized model for yobs
         mask : ndarray of bool, optional
             transits the mixture is fit to and lnlike is summed over (default all);
-            probabilities are returned for every transit
+            flags are returned for every transit
 
         Returns
         -------
-        out_prob : ndarray
-            probability that each transit time is an outlier
-        out_flag : ndarray
-            boolean flag that each transit time is an outlier
+        out_flag : ndarray of bool
+            True where a transit time is an outlier (False where yobs is NaN)
         lnlike : float
             mixture log-likelihood over mask
         """
@@ -441,6 +436,7 @@ class RegularizeOMC(BaseAlg):
         err2 = yerr**2
 
         def log_components(f, jit2, V):
+            """Log weighted foreground and background densities of every residual"""
             s2 = err2 + jit2
             ln_fg = np.log1p(-f) + stats.norm.logpdf(res, scale=np.sqrt(s2))
             ln_bg = np.log(f) + stats.norm.logpdf(res, scale=np.sqrt(s2 + V))
@@ -458,7 +454,8 @@ class RegularizeOMC(BaseAlg):
         for _ in range(maxiter):
             # E-step: foreground probability
             ln_fg, ln_bg = log_components(f, jit2, V)
-            fg_new = np.exp(ln_fg - np.logaddexp(ln_fg, ln_bg))[mask]
+            ln_fg, ln_bg = ln_fg[mask], ln_bg[mask]
+            fg_new = np.exp(ln_fg - np.logaddexp(ln_fg, ln_bg))
 
             # M-step: closed form for equal errors, approximate otherwise
             f = np.clip(np.mean(1 - fg_new), 1e-3, 0.5)
@@ -474,28 +471,36 @@ class RegularizeOMC(BaseAlg):
             if converged:
                 break
         else:
-            logger.warning("outlier mixture did not converge in %d iterations", maxiter)
+            logger.warning(
+                "outlier mixture did not converge in %d iterations; last iterate used",
+                maxiter,
+            )
 
         # probabilities for every transit at the fitted mixture parameters
         ln_fg, ln_bg = log_components(f, jit2, V)
-        ln_tot = np.logaddexp(ln_fg, ln_bg)
+        # unmeasured transits (outside mask) have NaN residuals by design; a NaN
+        # inside mask still warns in the E-step
+        with np.errstate(invalid="ignore"):
+            ln_tot = np.logaddexp(ln_fg, ln_bg)
         fg_prob = np.exp(ln_fg - ln_tot)
 
-        return 1 - fg_prob, fg_prob < 0.5, np.sum(ln_tot[mask])
+        return fg_prob < 0.5, np.sum(ln_tot[mask])
 
     # --- periodic signals ---------------------------------------------------
 
     @staticmethod
     def _lomb_scargle_peak(xtime, yobs, mask):
         """
-        Highest peak of a Lomb-Scargle periodogram of OMC data and its
-        bootstrap false alarm probability; assumes nearly even sampling
+        Highest Lomb-Scargle peak of OMC data and its false alarm probability
+
+        The false alarm probability is from a seeded bootstrap. Assumes nearly
+        even sampling.
 
         Returns
         -------
         freq : float or None
             peak frequency; None for < 8 transits, a peak at the lowest searched
-            frequency, or a failed search
+            frequency, or a baseline (after the outlier cut) too short to search
         fap : float
             false alarm probability of the peak (1.0 when freq is None)
         """
@@ -506,44 +511,38 @@ class RegularizeOMC(BaseAlg):
         x = xtime[mask]
         y = yobs[mask]
 
-        try:
-            fsamp = 1 / np.min(x[1:] - x[:-1])
+        fsamp = 1 / np.min(x[1:] - x[:-1])
 
-            # Hann window to reduce ringing
-            hann = signal.windows.hann(len(x))
-            hann /= np.sum(hann)
+        # Hann window to reduce ringing
+        hann = signal.windows.hann(len(x))
+        hann /= np.sum(hann)
 
-            # egregious outliers excluded from the search
-            out = np.abs(y - np.median(y)) / mad_std(y - np.median(y)) > 5.0
-            xt = x[~out]
-            yt = y[~out]
+        # egregious outliers excluded from the search
+        out = np.abs(y - np.median(y)) / mad_std(y - np.median(y)) > 5.0
+        xt = x[~out]
+        yt = y[~out]
 
-            # frequency grid, shared by the search and its false alarm probability
-            grid = dict(
-                minimum_frequency=1.5 / (xt.max() - xt.min()),
-                maximum_frequency=0.25 * fsamp,
-                samples_per_peak=10,
-            )
-
-            lombscargle = LombScargle(xt, yt * hann[~out])
-            xf, yf = lombscargle.autopower(**grid)
-
-            peak_freq = xf[np.argmax(yf)]
-            peak_fap = lombscargle.false_alarm_probability(
-                yf.max(),
-                method="bootstrap",
-                method_kwds={"random_seed": SEED},
-                **grid,
-            )
-
-        except Exception:
-            logger.warning(
-                "Lomb-Scargle TTV search failed (%d transits); "
-                "assuming no periodic signal",
-                npts,
-                exc_info=True,
-            )
+        # frequency grid, shared by the search and its false alarm probability:
+        # at least 1.5 cycles over the baseline, up to half the Nyquist frequency
+        grid = dict(
+            minimum_frequency=1.5 / (xt.max() - xt.min()),
+            maximum_frequency=0.25 * fsamp,
+            samples_per_peak=10,
+        )
+        # outliers cut from the ends can leave too short a baseline for any period
+        if grid["minimum_frequency"] >= grid["maximum_frequency"]:
             return None, 1.0
+
+        lombscargle = LombScargle(xt, yt * hann[~out])
+        xf, yf = lombscargle.autopower(**grid)
+
+        peak_freq = xf[np.argmax(yf)]
+        peak_fap = lombscargle.false_alarm_probability(
+            yf.max(),
+            method="bootstrap",
+            method_kwds={"random_seed": SEED},
+            **grid,
+        )
 
         # a peak at the lowest searched frequency is a rising edge, not a period
         if peak_freq <= xf.min():
@@ -553,9 +552,11 @@ class RegularizeOMC(BaseAlg):
 
     def _periodic_signals(self, tlin, omc, mask):
         """
-        Significant periodic TTV period for each planet (None if none):
+        Significant periodic TTV period (days) for each planet, None if none
+
+        tlin, omc and mask are per-planet lists. A peak is significant if
         FAP < 0.03, or FAP < 0.3 with a matching frequency (within 1/baseline)
-        in another planet of a multiplanet system
+        in another planet of a multiplanet system.
         """
         npl = len(self.planets)
 
@@ -600,9 +601,13 @@ class RegularizeOMC(BaseAlg):
     @staticmethod
     def _candidates(omc, err, measured, unclipped, period, max_polyorder="auto"):
         """
-        Names of the OMC models offered: poly_1 up to poly_3 (2^(k+1) transits
-        for order k, or up to max_polyorder if an int); sinusoid if a TTV period
-        was found; matern32 with >= 16 transits and errors <= 0.5 mad_std(OMC)
+        Names of the OMC models offered for a planet
+
+          * poly_1 up to poly_3, order k needing 2^(k+1) unclipped transits;
+            or up to max_polyorder if an int
+          * sinusoid if a TTV period was found
+          * matern32 with >= 16 unclipped transits and median error
+            <= 0.5 mad_std(OMC) over measured transits
         """
         npts = np.sum(unclipped)
         models = []
@@ -636,6 +641,9 @@ class RegularizeOMC(BaseAlg):
         """
         Select a model by AIC and BIC
 
+        If they disagree, a parametric model is preferred over matern32, else the
+        model with more degrees of freedom.
+
         Parameters
         ----------
         fits : dict
@@ -668,17 +676,15 @@ class RegularizeOMC(BaseAlg):
         aic_best = min(aic, key=aic.get)
         bic_best = min(bic, key=bic.get)
 
-        # Case 1: AIC and BIC agree
         if aic_best == bic_best:
             best = aic_best
             reason = "AIC and BIC agree"
 
-        # Case 2: select the parametric model over the Matern-3/2 GP
         elif "matern32" in (aic_best, bic_best):
             best = bic_best if aic_best == "matern32" else aic_best
             reason = "parametric model preferred over matern32"
 
-        # Case 3: select the model with more degrees of freedom (AIC on ties)
+        # max keeps aic_best on a dof tie
         else:
             best = max((aic_best, bic_best), key=lambda k: fits[k]["dof"])
             reason = "more degrees of freedom"
@@ -693,11 +699,14 @@ class RegularizeOMC(BaseAlg):
 
         return best
 
-    def _recheck_sinusoid(self, n, tlin, omc, err, unclipped, fits, period, period2):
+    def _recheck_sinusoid(self, tlin, omc, err, unclipped, fits, period, period2):
         """
-        Keep the sinusoid candidate of planet n only if a second search, without
-        the selected model's outliers, confirms its period; otherwise remove it,
-        or refit (or add) it at the second-search period. Updates fits in place
+        Recheck the sinusoid against a second periodic search; updates fits in place
+
+        period is from the first search, period2 from the second, which excludes
+        the selected model's outliers. The sinusoid is kept if period2 matches
+        period (within 1/baseline), removed if period2 is None, and otherwise
+        refit (or added) at period2.
 
         Returns
         -------
@@ -708,9 +717,8 @@ class RegularizeOMC(BaseAlg):
             if period is not None:
                 del fits["sinusoid"]
                 logger.info(
-                    "planet %d: periodic TTV signal at P = %.1f d not significant "
+                    "periodic TTV signal at P = %.1f d not significant "
                     "after outlier rejection; sinusoid rejected",
-                    n,
                     period,
                 )
             return None
@@ -718,16 +726,13 @@ class RegularizeOMC(BaseAlg):
         df = 1 / np.ptp(tlin[unclipped])
         if period is not None and np.abs(1 / period2 - 1 / period) < df:
             logger.info(
-                "planet %d: periodic TTV signal at P = %.1f d confirmed after "
-                "outlier rejection",
-                n,
+                "periodic TTV signal at P = %.1f d confirmed after outlier rejection",
                 period,
             )
             return period
 
         logger.info(
-            "planet %d: sinusoid %s at P = %.1f d after outlier rejection",
-            n,
+            "sinusoid %s at P = %.1f d after outlier rejection",
             "added" if period is None else "moved",
             period2,
         )
@@ -766,6 +771,7 @@ class RegularizeOMC(BaseAlg):
         obsmode = np.asarray(lc.obsmode)[use]
 
         def dip(p, tc):
+            """Transit flux minus 1 of planet p centered at tc, exposure-integrated"""
             out = np.ones(len(time))
             for om in np.unique(obsmode):
                 k = obsmode == om
@@ -811,12 +817,14 @@ class RegularizeOMC(BaseAlg):
         self, n, tlin, omc, err, measured, model, period, dof, exptime_offsets
     ):
         """
-        Test the measured times of planet n, worst leave-one-out residual first,
-        against its selected model. A time is supported if the light curve
-        prefers it over the model prediction by dchi2 >= 9 with free and with
-        expected depth; a supported time ends the test. An unsupported time is
-        flagged and the model refit; the model is restored if the chi-squared
-        test of the remaining times then passes
+        Photometrically test the measured times of planet n against its model
+
+        Times are tested worst leave-one-out residual first, while |z| >= 4 and
+        the majority guard of _robust_fit holds. A time is supported if the light
+        curve prefers it over the model prediction by dchi2 >= 9 with free and
+        with expected depth; a supported time ends the test. An unsupported time
+        is flagged and the model refit; the model is restored if the chi-squared
+        test of the remaining times then passes (p >= 0.01).
 
         Returns
         -------
@@ -863,7 +871,13 @@ class RegularizeOMC(BaseAlg):
             fit = self._fit(model, tlin, omc, err, inlier, period)
             pval = self._chi2_pvalue(omc, err, fit["pred"], inlier, dof)
             if pval >= 0.01:
-                logger.info("planet %d: chi2 test p = %.2g; model restored", n, pval)
+                logger.info(
+                    "planet %d: %s OMC model chi2 test p = %.2g without flagged "
+                    "transits; model kept",
+                    n,
+                    model,
+                    pval,
+                )
                 return {**fit, "inlier": inlier}
 
         return None
@@ -871,9 +885,10 @@ class RegularizeOMC(BaseAlg):
     @staticmethod
     def _wild_score(tlin, omc, err, mask, model, k):
         """
-        Residual of transit k against the model fit to mask and k, in units of
-        the largest of its error, the robust (MAD) scatter of the other
-        transits, and their median error
+        Wild score of transit k: its residual against the model fit to mask and k
+
+        The residual is in units of the largest of its error, the robust (MAD)
+        scatter of the other transits, and their median error.
 
           * the residual is studentized by leverage (Cook & Weisberg 1982),
             undoing the fit's pull toward transit k without the extrapolation
@@ -902,9 +917,10 @@ class RegularizeOMC(BaseAlg):
             chi-squared test (p < 0.001) against the model, unless (N >= 8) the
             light curve rejects the times driving the failure; the model is then
             kept with those times flagged. Failing that, polynomials up to
-            poly_3 are refit; the best is kept if every time it rejects is wild
-            (_wild_score) and not photometrically trusted, and its inliers pass
-            the chi-squared test
+            poly_3 are refit; the best is kept if it rejects at least one time,
+            every time it rejects is wild (_wild_score) and not photometrically
+            trusted (dchi2 < 50), and its inliers pass a chi-squared test
+            (p >= 0.01)
           * N >= 16: a matern32 model with dof/N > 0.5 mostly reproduces the
             measured times; they are adopted (mixture outlier flags kept)
 
@@ -999,45 +1015,56 @@ class RegularizeOMC(BaseAlg):
                 dchi2 = self._transit_dchi2(
                     n, tlin[k] + omc[k], tlin[k] + refit["pred"][k], exptime_offsets
                 )
+                # dchi2 >= 50 (~7 sigma) is beyond the noise dips a timing
+                # search over many trial positions finds (look-elsewhere
+                # effect; Gross & Vitells 2010): such a time is real
+                wild = score >= z_crit and min(dchi2) < 50
                 logger.info(
                     "planet %d: %s rejects transit at %.3f, wild score %.1f "
-                    "(need >= %.1f), photometric dchi2 = %.0f / %.0f",
+                    "(need >= %.1f), photometric dchi2 = %.0f (free depth), "
+                    "%.0f (expected depth) (need < 50); %s",
                     n,
                     refit_model,
                     tlin[k],
                     score,
                     z_crit,
                     *dchi2,
+                    "wild" if wild else "not wild",
                 )
-                # dchi2 >= 50 (~7 sigma) is beyond the noise dips a timing
-                # search over many trial positions finds (look-elsewhere
-                # effect; Gross & Vitells 2010): such a time is real
-                wild = score >= z_crit and min(dchi2) < 50
                 if not wild:
                     break
             if wild:
                 pval = self._chi2_pvalue(
                     omc, err, refit["pred"], refit["inlier"], refit["dof"]
                 )
-                logger.info("planet %d: %s chi2 test p = %.2g", n, refit_model, pval)
+                logger.info(
+                    "planet %d: %s OMC model chi2 test p = %.2g; %s",
+                    n,
+                    refit_model,
+                    pval,
+                    "model kept" if pval >= 0.01 else "measured times adopted",
+                )
                 if pval >= 0.01:
                     return refit_model, refit
 
         gp = self._fit("matern32", tlin, omc, err, measured)
         return "independent", {**gp, "inlier": measured}
 
-    def _lasso_upgrade(self, n, tlin, omc, err, label, fit):
+    def _lasso_upgrade(self, tlin, omc, err, label, fit):
         """
-        Replace planet n's model (not 'independent') with a lasso polynomial of
-        order 4 or 5 (_lasso_poly_model) if its kept times fail a chi-squared
-        test (p < 0.001) and the lasso fit beats it in an F-test (p < 0.001; the
-        order with the smaller p). The F-test judges the chi2 gain against the
-        residual scatter, not the timing errors, which the failed test shows are
-        unreliable. Fit on the kept times; outlier flags are unchanged
+        Replace a poorly fitting model with a lasso polynomial of order 4 or 5
+
+        Applies unless label is 'independent', if the kept times fail a
+        chi-squared test (p < 0.001) and the lasso fit (_lasso_poly_model) beats
+        the model in an F-test (p < 0.001; the order with the smaller p). The
+        F-test judges the chi2 gain against the residual scatter, not the timing
+        errors, which the failed test shows are unreliable. The lasso is fit on
+        the kept times; outlier flags are unchanged.
 
         Returns
         -------
         label : str
+            input label, or 'lasso_<k>'
         fit : dict
             'pred', 'dof', 'inlier'
         """
@@ -1051,6 +1078,7 @@ class RegularizeOMC(BaseAlg):
             return label, fit
 
         def chi2(pred):
+            """Chi-squared of pred over the kept times"""
             return np.sum(((omc - pred)[inlier] / err[inlier]) ** 2)
 
         best_p, best_label, best_fit = 1.0, None, None
@@ -1067,9 +1095,7 @@ class RegularizeOMC(BaseAlg):
                 best_p, best_label, best_fit = p, f"lasso_{k}", lasso
 
         logger.info(
-            "planet %d: %s OMC model chi2 test p = %.2g; "
-            "best lasso F-test p = %.2g; %s",
-            n,
+            "%s OMC model chi2 test p = %.2g; best lasso F-test p = %.2g; %s",
             label,
             pval,
             best_p,
@@ -1084,6 +1110,8 @@ class RegularizeOMC(BaseAlg):
 
     def perform(self, method, check_periodic=True):
         """
+        Regularize the transit times of every planet
+
         Parameters
         ----------
         method : str
@@ -1099,14 +1127,19 @@ class RegularizeOMC(BaseAlg):
             search for periodic TTV signals before model selection, and again
             after outlier rejection ('select' only)
 
-        Returns
-        -------
-        planets : list of Planet
-        litecurve : LiteCurve
+        Raises
+        ------
+        ValueError
+            if method is not 'smooth' or 'select'
+        UnsupportedTargetError
+            if a planet has < 3 measured transit times
 
+        Notes
+        -----
         Each planet carries its regularized TransitTimes, with OMC diagnostics
-        ttime_obs, kept_ttv, model_name (the final label: 'smooth', the
-        selected model, or 'independent') and model_dof
+        ttime_obs (NaN where unmeasured), kept_ttv, model_name (the final label:
+        'smooth', the selected model, or 'independent'), model_dof and
+        ttv_scatter
         """
         if method not in ("smooth", "select"):
             raise ValueError(f"method must be 'smooth' or 'select', got {method!r}")
@@ -1121,7 +1154,7 @@ class RegularizeOMC(BaseAlg):
         for n, m in enumerate(measured):
             # 1-2 transit planets need special handling (not yet implemented)
             if np.sum(m) < 3:
-                raise ValueError(
+                raise UnsupportedTargetError(
                     f"planet {n}: {np.sum(m)} measured transit times; "
                     "RegularizeOMC needs at least 3"
                 )
@@ -1145,28 +1178,31 @@ class RegularizeOMC(BaseAlg):
                 period = self._periodic_signals(tlin, omc, unclipped)
             else:
                 period = [None] * npl
-            fits = [
-                {
-                    k: self._robust_fit(
-                        k, tlin[n], omc[n], err[n], unclipped[n], period[n]
-                    )
-                    for k in self._candidates(
-                        omc[n], err[n], measured[n], unclipped[n], period[n]
-                    )
-                }
-                for n in range(npl)
-            ]
-            model = [self._compare(fits[n], np.sum(unclipped[n])) for n in range(npl)]
+            fits, model = [], []
+            for n in range(npl):
+                logger.info("planet %d: OMC model selection", n)
+                fits.append(
+                    {
+                        k: self._robust_fit(
+                            k, tlin[n], omc[n], err[n], unclipped[n], period[n]
+                        )
+                        for k in self._candidates(
+                            omc[n], err[n], measured[n], unclipped[n], period[n]
+                        )
+                    }
+                )
+                model.append(self._compare(fits[n], np.sum(unclipped[n])))
 
             # Lomb-Scargle once more, without the selected model's outliers; a
             # sinusoid is offered only at a period significant after rejection
             if check_periodic:
+                logger.info("periodic TTV search after outlier rejection")
                 period2 = self._periodic_signals(
                     tlin, omc, [fits[n][model[n]]["inlier"] for n in range(npl)]
                 )
                 for n in range(npl):
+                    logger.info("planet %d: periodic TTV recheck", n)
                     period[n] = self._recheck_sinusoid(
-                        n,
                         tlin[n],
                         omc[n],
                         err[n],
@@ -1186,6 +1222,7 @@ class RegularizeOMC(BaseAlg):
                 pred = self._smooth(tt.index, omc[n], inlier)
 
             elif method == "select":
+                logger.info("planet %d: vet selected OMC model", n)
                 label, fit = self._vet(
                     n,
                     tlin[n],
@@ -1197,7 +1234,8 @@ class RegularizeOMC(BaseAlg):
                     model[n],
                     period[n],
                 )
-                label, fit = self._lasso_upgrade(n, tlin[n], omc[n], err[n], label, fit)
+                logger.info("planet %d: lasso check", n)
+                label, fit = self._lasso_upgrade(tlin[n], omc[n], err[n], label, fit)
                 inlier, dof = fit["inlier"], float(fit["dof"])
                 pred = fit["pred"].copy()
 
@@ -1222,11 +1260,9 @@ class RegularizeOMC(BaseAlg):
                 model_dof=dof,
                 ttv_scatter=ttv_scatter,
             )
-            regularized.append((label, inlier, transit_times))
+            regularized.append(transit_times)
 
-        for n, (p, (label, inlier, transit_times)) in enumerate(
-            zip(self.planets, regularized)
-        ):
+        for n, (p, transit_times) in enumerate(zip(self.planets, regularized)):
             old_period = p.period
             try:
                 p.set_transit_times(transit_times)
@@ -1236,10 +1272,10 @@ class RegularizeOMC(BaseAlg):
                 "planet %d: %s OMC model; %d measured, %d sigma-clipped, "
                 "%d rejected by model; P = %.6f -> %.6f d, ttv_buffer = %.1f min",
                 n,
-                label,
+                transit_times.model_name,
                 np.sum(measured[n]),
                 np.sum(measured[n] & ~unclipped[n]),
-                np.sum(unclipped[n] & ~inlier),
+                np.sum(unclipped[n] & ~transit_times.kept_ttv),
                 old_period,
                 p.period,
                 transit_times.ttv_buffer() * 1440,

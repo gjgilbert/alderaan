@@ -17,15 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class SampleTransitModel(BaseAlg):
-    """
-    Sample transit shape posteriors with dynesty
-
-    Parameters
-    ----------
-    star : Star
-    planets : list of Planet
-    litecurve : LiteCurve
-    """
+    """Sample transit shape posteriors with dynesty"""
 
     @staticmethod
     def _prior_transform(uniform_hypercube, tm):
@@ -45,7 +37,7 @@ class SampleTransitModel(BaseAlg):
             Carter+ 2008 (2008ApJ...689..499C)
             Kipping 2013 (2013MNRAS.435.2152K)
             Gilbert, MacDougall, & Petigura 2022 (2022AJ....164...92G)
-            MacDougal, Gilbert, & Petigura 2023 (2023AJ....166...61M)
+            MacDougall, Gilbert, & Petigura 2023 (2023AJ....166...61M)
 
         Parameters
         ----------
@@ -56,7 +48,7 @@ class SampleTransitModel(BaseAlg):
 
         Returns
         -------
-        transformed_hypercube : array_like, length 5 * npl + 2
+        x : ndarray, length 5 * npl + 2
             samples in the physical basis
         """
         u = np.asarray(uniform_hypercube)
@@ -79,10 +71,12 @@ class SampleTransitModel(BaseAlg):
 
     @staticmethod
     def _throttled_print_fn(interval=60):
+        """dynesty print_func that logs progress at most once per interval (s)"""
         last = [0]
         start = time.time()
 
         def callback(results, niter, ncall, *args, **kwargs):
+            """Log progress if interval has passed since the last log"""
             now = time.time()
             if now - last[0] >= interval:
                 fn_args = get_print_fn_args(results, niter, ncall, *args, **kwargs)
@@ -97,6 +91,7 @@ class SampleTransitModel(BaseAlg):
         return callback
 
     def _sample(self, tm):
+        """Run the dynesty DynamicNestedSampler; return (results, settings)"""
         ndim = 5 * tm.npl + 2
         settings = {"seed": SEED, "bound": "multi", "sample": "rwalk"}
         logger.info(
@@ -117,7 +112,7 @@ class SampleTransitModel(BaseAlg):
         )
         sampler.run_nested(
             print_progress=True,
-            print_func=self._throttled_print_fn(interval=60),
+            print_func=self._throttled_print_fn(interval=300),
         )
 
         results = sampler.results
@@ -137,9 +132,11 @@ class SampleTransitModel(BaseAlg):
 
     @staticmethod
     def _log_posterior_summary(results, tm):
+        """Log 16/50/84 posterior quantiles; warn if median T14 is near a prior edge"""
         weights = results.importance_weights()
 
         def _q(i):
+            """Weighted 16/50/84 quantiles of theta entry i"""
             return np.asarray(
                 quantile(results.samples[:, i], [0.16, 0.5, 0.84], weights=weights)
             )
@@ -175,19 +172,20 @@ class SampleTransitModel(BaseAlg):
 
     def perform(self):
         """
-        Sample the photometry of every transit with good photometry (phot_coverage
-        and phot_noise) at ttime_mod, whether or not its time was measured or kept
+        Sample the transit model on transits with good photometry
+
+        Uses cadences within max(3 x T14, 2 hours) of every transit with
+        phot_coverage and phot_noise, at ttime_mod, whether or not its time was
+        measured or kept.
 
         Returns
         -------
         posteriors : Posteriors
+            dynesty samples; meta records the sampler settings and the limb
+            darkening prior (LDPRIOR, and LD_U1, LD_U2 if set)
         """
         tm = TransitModel(self.star, self.planets, self.litecurve)
-        # full width = max(3 x T14, 2 hours)
         tm.trim(self.make_transit_mask(rel_size=3.0, abs_size=2 / 24, phot_only=True))
-
-        for obsmode in tm.unique_obsmodes:
-            logger.info("supersample factor (%s): %d", obsmode, tm.supersample[obsmode])
 
         results, settings = self._sample(tm)
         self._log_posterior_summary(results, tm)

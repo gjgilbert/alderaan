@@ -77,8 +77,7 @@ def norm_ppf(u, mu, sig, eps=1e-12):
 
 def sigma_cutoff(npts, sigma_min=3.0):
     """
-    Two-sided sigma cutoff beyond which one of npts normal draws is expected,
-    floored at sigma_min
+    Two-sided cutoff [sigma] beyond which one of npts normal draws is expected
 
     Parameters
     ----------
@@ -86,15 +85,21 @@ def sigma_cutoff(npts, sigma_min=3.0):
         number of points
     sigma_min : float
         minimum cutoff
+
+    Returns
+    -------
+    cutoff : float
+        the larger of sigma_min and the expected cutoff
     """
     return np.max([sigma_min, scipy_norm.interval((npts - 1) / npts)[1]])
 
 
 def robust_polyfit(x, y, deg):
     """
-    Drop-in replacement for np.polyfit(x, y, deg) that solves the least squares fit
-    in a Legendre basis over the span of x, which stays well conditioned where the
-    power-basis Vandermonde matrix does not
+    Drop-in replacement for np.polyfit(x, y, deg), solved in a Legendre basis
+
+    The least squares fit uses a Legendre basis over the span of x, which stays
+    well conditioned where the power-basis Vandermonde matrix does not.
 
     Parameters
     ----------
@@ -127,8 +132,7 @@ def robust_polyfit(x, y, deg):
 
 def weighted_percentile(a, q, w=None):
     """
-    q-th percentile of a, with optional weights w (like np.percentile, but
-    not axis-wise)
+    q-th percentile of a, with optional weights w (like np.percentile, no axis)
 
     Parameters
     ----------
@@ -208,8 +212,10 @@ def bin_data(time, data, binsize, bin_centers=None):
 
 def legendre_p1(x, domain):
     """
-    First Legendre polynomial P1 of x, with domain (x_min, x_max) mapped onto
-    the Legendre window [-1, 1] (numpy convention): x_min -> -1, x_max -> +1
+    First Legendre polynomial P1 of x over domain
+
+    domain (x_min, x_max) maps onto the Legendre window [-1, 1] (numpy
+    convention): x_min -> -1, x_max -> +1.
 
     Parameters
     ----------

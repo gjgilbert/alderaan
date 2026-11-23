@@ -1,4 +1,5 @@
-"""`alderaan run`: parse arguments and run the pipeline on one target
+"""
+`alderaan run`: parse arguments and run the pipeline on one target
 
 Example::
 
@@ -6,22 +7,26 @@ Example::
         --input_dir /path/to/kepler/lightcurves \\
         --output_dir /path/to/outputs \\
         --catalog reference/alderaan/kepler_merged_alderaan.csv \\
-        --run_id my_run  # optional; default run_{UT launch stamp}
+        --run_id my_run  # optional; default UT launch stamp
 
 Add ``--visits 4 5 6`` to load only some Kepler quarters. A rerun into a
 non-empty results or plots directory fails; use a new run_id.
 
+Exit codes: 0 ok; 3 unsupported target (a known limit, e.g. < 3 transits);
+2 bad arguments; 1 any other error (traceback in the log).
+
 Outputs, under ``{output_dir}/{run_id}/`` (NN is the planet index)::
 
     logs/
-        alderaan_K00137_{UTstamp}.log        # DEBUG-level run log
+        alderaan_K00137_{run_id}.log         # DEBUG-level run log
     results/K00137/
         K00137_detrended.fits                # detrended photometry
-        K00137_results.fits                  # posteriors, transit times, photometry
+        K00137_results.fits                  # posteriors, transit times
     plots/K00137/
         K00137_litecurve_raw.png
         K00137_litecurve_detrended.png
         K00137_omc_NN.png
+        K00137_folded_transit_NN.png
         K00137_dynesty_runplot.png
         K00137_dynesty_traceplot_NN.png
         K00137_dynesty_cornerplot_NN.png
@@ -33,6 +38,7 @@ from pathlib import Path
 
 
 def build_parser():
+    """Argument parser for `alderaan run`"""
     parser = argparse.ArgumentParser(
         prog="alderaan run", description="Run the ALDERAAN pipeline on one target"
     )
@@ -46,7 +52,7 @@ def build_parser():
     )
     parser.add_argument(
         "--run_id",
-        help="run identifier (default: run_{UT launch stamp})",
+        help="run identifier (default: UT launch stamp, %%Y%%m%%dT%%H%%M%%S)",
     )
     parser.add_argument(
         "--input_dir",
@@ -83,21 +89,26 @@ def build_parser():
 
 
 def main(argv=None):
+    """Run one target; return exit code 0, or 3 for an unsupported target"""
     args = build_parser().parse_args(argv)
-    args.run_id = args.run_id or time.strftime("run_%Y%m%dT%H%M%S", time.gmtime())
+    args.run_id = args.run_id or time.strftime("%Y%m%dT%H%M%S", time.gmtime())
 
     # deferred so --help and argument errors don't pay for the pipeline imports
+    from alderaan.errors import UnsupportedTargetError
     from alderaan.pipeline import main as run_pipeline
 
-    run_pipeline(
-        target=args.target,
-        mission=args.mission,
-        run_id=args.run_id,
-        input_dir=str(args.input_dir.resolve()),
-        output_dir=str(args.output_dir.resolve()),
-        catalog=str(args.catalog.resolve()),
-        visits=args.visits,
-        log_level=args.log_level,
-    )
+    try:
+        run_pipeline(
+            target=args.target,
+            mission=args.mission,
+            run_id=args.run_id,
+            input_dir=str(args.input_dir.resolve()),
+            output_dir=str(args.output_dir.resolve()),
+            catalog=str(args.catalog.resolve()),
+            visits=args.visits,
+            log_level=args.log_level,
+        )
+    except UnsupportedTargetError:
+        return 3  # known limit; pipeline.main logged the reason
 
     return 0
