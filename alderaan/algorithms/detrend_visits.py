@@ -345,13 +345,6 @@ class DetrendVisits(BaseAlg):
 
         best = np.argmax(S)
         z_crit = norm.isf(0.01 / len(periods))
-        logger.debug(
-            "ACF: S = %.2f (threshold %.2f) at P = %.2f d; half-decay P = %.2f d",
-            S[best],
-            z_crit,
-            periods[best],
-            period_half,
-        )
         return bool(S[best] >= z_crit), periods[best], period_half, S[best]
 
     def _nominal_period(self, lc, masks):

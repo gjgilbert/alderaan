@@ -117,7 +117,7 @@ class SampleTransitModel(BaseAlg):
         )
         sampler.run_nested(
             print_progress=True,
-            print_func=self._throttled_print_fn(interval=60),
+            print_func=self._throttled_print_fn(interval=300),
         )
 
         results = sampler.results

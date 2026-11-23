@@ -458,7 +458,8 @@ class RegularizeOMC(BaseAlg):
         for _ in range(maxiter):
             # E-step: foreground probability
             ln_fg, ln_bg = log_components(f, jit2, V)
-            fg_new = np.exp(ln_fg - np.logaddexp(ln_fg, ln_bg))[mask]
+            ln_fg, ln_bg = ln_fg[mask], ln_bg[mask]
+            fg_new = np.exp(ln_fg - np.logaddexp(ln_fg, ln_bg))
 
             # M-step: closed form for equal errors, approximate otherwise
             f = np.clip(np.mean(1 - fg_new), 1e-3, 0.5)
@@ -478,7 +479,11 @@ class RegularizeOMC(BaseAlg):
 
         # probabilities for every transit at the fitted mixture parameters
         ln_fg, ln_bg = log_components(f, jit2, V)
-        ln_tot = np.logaddexp(ln_fg, ln_bg)
+        # Suppress NaN-input warnings: unmeasured transits (outside mask) have
+        # NaN residuals by design and get NaN probabilities. A NaN inside mask
+        # still warns in the E-step above, which has no suppression.
+        with np.errstate(invalid="ignore"):
+            ln_tot = np.logaddexp(ln_fg, ln_bg)
         fg_prob = np.exp(ln_fg - ln_tot)
 
         return 1 - fg_prob, fg_prob < 0.5, np.sum(ln_tot[mask])

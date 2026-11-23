@@ -80,9 +80,9 @@ def setup_logging(log_dir, target, run_id, level="INFO"):
     for name in _THIRD_PARTY_PINS:
         logging.getLogger(name).setLevel(logging.WARNING)
 
-    # astropy can't parse Kepler FITS unit strings ('e-/s', 'BJD - 2454833');
-    # alderaan doesn't use astropy units, so these are noise; teardown restores
-    # the caller's warning filters
+    # Suppress astropy UnitsWarning: astropy cannot parse Kepler FITS unit
+    # strings ('e-/s', 'BJD - 2454833'), and alderaan does not use astropy
+    # units. Teardown restores the caller's warning filters.
     context = warnings.catch_warnings()
     context.__enter__()
     _warning_filters.append(context)

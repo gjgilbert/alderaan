@@ -1,6 +1,7 @@
 """Staged MAP optimization of a log-probability function"""
 
 import logging
+import warnings
 
 import numpy as np
 from scipy.optimize import minimize
@@ -35,6 +36,7 @@ def optimize(logp, x0, stages):
     """
     x = np.array(x0, dtype=float)
     logp_x0 = logp(x)
+    n_kept = 0
 
     for i, idx in enumerate(stages):
 
@@ -45,22 +47,21 @@ def optimize(logp, x0, stages):
 
         start = x[idx].copy()
         logp_start = -objective(start)
-        info = minimize(objective, start, method="BFGS")
+        # Suppress scipy's finite-difference RuntimeWarnings only: a gradient
+        # step across a logp = -inf boundary (by design, e.g. a truncated prior)
+        # gives inf - inf in _numdiff. The isfinite and status checks below catch
+        # a bad result. Warnings raised inside logp itself still reach the log.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore", category=RuntimeWarning, module="scipy.optimize._numdiff"
+            )
+            info = minimize(objective, start, method="BFGS")
         improved = np.isfinite(info.fun) and -info.fun > logp_start
         if improved:
             x[idx] = info.x
+            n_kept += 1
         else:
             info.x = start
-        logger.debug(
-            "stage %d/%d (%d parameters): logp %.6g -> %.6g, %s (%s)",
-            i + 1,
-            len(stages),
-            len(idx),
-            logp_start,
-            -info.fun,
-            "kept" if improved else "rejected",
-            info.message,
-        )
         # BFGS status 1 = iteration limit, 3 = NaN; 2 (precision loss) is routine
         if info.status in (1, 3):
             logger.warning(
@@ -70,7 +71,11 @@ def optimize(logp, x0, stages):
                 info.message,
             )
 
-    if not logp(x) > logp_x0:
+    logp_x = logp(x)
+    logger.debug(
+        "logp %.6g -> %.6g, %d of %d stages kept", logp_x0, logp_x, n_kept, len(stages)
+    )
+    if not logp_x > logp_x0:
         logger.warning("logp did not improve (%.6g)", logp_x0)
 
     return x, info

@@ -44,8 +44,9 @@ def approx_transit_depth(p, b):
     """
     p, b = np.asarray(p, dtype=float), np.asarray(b, dtype=float)
 
-    # grazing transit (1-p < b < 1+p); terms are unused outside this regime, and
-    # clipped against roundoff at the contact points
+    # grazing transit (1-p < b < 1+p); terms are clipped against roundoff at the
+    # contact points. Suppress divide/invalid warnings: these terms are NaN or
+    # inf outside the grazing regime (e.g. b = 0), where np.where discards them.
     with np.errstate(divide="ignore", invalid="ignore"):
         k0 = np.arccos(np.clip((p**2 + b**2 - 1) / (2 * p * b), -1, 1))
         k1 = np.arccos(np.clip((1 - p**2 + b**2) / (2 * b), -1, 1))

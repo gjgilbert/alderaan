@@ -134,6 +134,7 @@ class LiteCurve:
         logger.info("found %d MAST files for KIC %d", len(mast_files), kic_id)
 
         raw = []
+        n_skipped = 0
         for mf in mast_files:
             header = fits.getheader(mf)
             if header["OBSMODE"] == obsmode and np.isin(header["QUARTER"], visits):
@@ -150,12 +151,10 @@ class LiteCurve:
                     )
                 raw.append(lkc)
             else:
-                logger.debug(
-                    "skipped %s (OBSMODE = %s, QUARTER = %d not requested)",
-                    mf,
-                    header["OBSMODE"],
-                    header["QUARTER"],
-                )
+                n_skipped += 1
+        logger.debug(
+            "skipped %d file(s) not %s in quarters %s", n_skipped, obsmode, list(visits)
+        )
 
         if len(raw) == 0:
             raise FileNotFoundError(
