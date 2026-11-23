@@ -73,7 +73,8 @@ class _GPTrendModel:
         self.min_period = min_period
         self.n_seg = len(seg_t0)
 
-        # Normal priors (mu, sigma), from out-of-transit cadences only
+        # Normal priors (mu, sigma), from out-of-transit cadences only; widths are
+        # weakly informative, except log_P, kept near the vetted ACF period
         flux_oot = flux[oot]
         approx_mean = [np.mean(flux[oot & (seg_id == i)]) for i in range(self.n_seg)]
         self.priors = {
@@ -104,7 +105,7 @@ class _GPTrendModel:
         self.x0 = np.zeros(start)
         for name, (mu, _) in self.priors.items():
             self.x0[self.ix[name]] = mu
-        self.x0[self.ix["log_Q0"]] = np.log(0.5)
+        self.x0[self.ix["log_Q0"]] = np.log(2.5)  # q = 3 (one coherent cycle)
         if self.rotation:
             self.x0[self.ix["log_dQ"]] = np.log(1e-3)
             self.x0[self.ix["logit_mix"]] = logit(0.1)
@@ -187,22 +188,28 @@ class _GPTrendModel:
 class DetrendVisits(BaseAlg):
     """Detrend a litecurve visit-by-visit"""
 
-    # minimum gap tolerance and oscillation period, in cadences
-    CADENCE_FLOOR = {"short cadence": 91, "long cadence": 13}
-
     def __init__(self, star, planets, litecurve):
         super().__init__(star, planets, litecurve)
 
         self.durations = np.array([p.duration for p in self.planets])
 
+    @staticmethod
+    def _cadence_floor(obsmode):
+        """Floor on gap tolerance and GP period: >= 13 cadences and >= 1.5 hr"""
+        # 13 cadences give the GP enough points
+        return max(13, int(1.5 / 24 / EXPTIME[obsmode]))
+
     def _min_period(self, obsmode):
         """
         Floor on the GP oscillation period (days)
 
-        The larger of 3 x the longest T14 and CADENCE_FLOOR cadences.
+        The larger of 3 x the longest T14 and _cadence_floor cadences.
         """
         return np.max(
-            [3 * np.max(self.durations), self.CADENCE_FLOOR[obsmode] * EXPTIME[obsmode]]
+            [
+                3 * np.max(self.durations),
+                self._cadence_floor(obsmode) * EXPTIME[obsmode],
+            ]
         )
 
     @staticmethod
@@ -486,7 +493,10 @@ class DetrendVisits(BaseAlg):
         """
         exptime = EXPTIME[obsmode]
         gap_tolerance = np.max(
-            [int(np.min(self.durations) / exptime * 5 / 2), self.CADENCE_FLOOR[obsmode]]
+            [
+                int(np.min(self.durations) / exptime * 5 / 2),
+                self._cadence_floor(obsmode),
+            ]
         )
         logger.debug("gap tolerance = %d cadences", gap_tolerance)
 
