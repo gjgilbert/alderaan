@@ -15,15 +15,16 @@ Example::
         --output_dir /path/to/outputs \\
         --catalog reference/alderaan/kepler_merged_alderaan.csv \\
         --jobs 64 \\
-        --run_id my_run  # optional; default batch_{UT launch stamp}
+        --run_id my_run  # optional; default UT launch stamp
 
 Every target writes the same files as `alderaan run`, all under one run
 directory ``{output_dir}/{run_id}/``::
 
+    alderaan_batch_{run_id}.csv              # copy of the input catalog
     logs/
-        alderaan_batch_{UTstamp}.log         # batch progress and failure report
-        alderaan_K00001_{UTstamp}.log        # one run log per target
-        alderaan_K00002_{UTstamp}.log
+        alderaan_batch_{run_id}.log          # batch progress and failure report
+        alderaan_K00001_{run_id}.log         # one run log per target
+        alderaan_K00002_{run_id}.log
         ...
     results/K00001/                          # see `alderaan run` for file names
     results/K00002/
@@ -37,6 +38,7 @@ import argparse
 import concurrent.futures
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -73,7 +75,7 @@ def build_parser():
     )
     parser.add_argument(
         "--run_id",
-        help="run identifier (default: batch_{UT launch stamp})",
+        help="run identifier (default: UT launch stamp, %%Y%%m%%dT%%H%%M%%S)",
     )
     parser.add_argument(
         "--input_dir", type=Path, required=True, help="photometry directory"
@@ -280,7 +282,7 @@ def read_targets(catalog):
 def main(argv=None):
     configure_runtime()
     args = build_parser().parse_args(argv)
-    args.run_id = args.run_id or time.strftime("batch_%Y%m%dT%H%M%S", time.gmtime())
+    args.run_id = args.run_id or time.strftime("%Y%m%dT%H%M%S", time.gmtime())
 
     import alderaan
     from alderaan.utils.logger import setup_logging, teardown_logging
@@ -289,7 +291,7 @@ def main(argv=None):
     output_dir = str(args.output_dir.resolve())
     catalog = str(args.catalog.resolve())
     log_dir = os.path.join(output_dir, args.run_id, "logs")
-    log_path = setup_logging(log_dir, "batch", "INFO")
+    log_path = setup_logging(log_dir, "batch", args.run_id, "INFO")
 
     try:
         targets = read_targets(catalog)
@@ -304,6 +306,13 @@ def main(argv=None):
             args.launch_interval,
         )
         logger.info("batch log: %s", log_path)
+        catalog_copy = os.path.join(
+            output_dir,
+            args.run_id,
+            f"alderaan_batch_{args.run_id}{args.catalog.suffix}",
+        )
+        shutil.copyfile(catalog, catalog_copy)
+        logger.info("catalog copy: %s", catalog_copy)
 
         tasks = [
             (

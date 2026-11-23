@@ -23,9 +23,10 @@ def root_logger():
 
 class TestLogging:
     def test_file_records_debug_from_module_loggers(self, tmp_path, root_logger):
-        log_path = setup_logging(str(tmp_path / "logs"), "K00137", level="WARNING")
-        assert log_path.startswith(str(tmp_path / "logs" / "alderaan_K00137_"))
-        assert log_path.endswith(".log")
+        log_path = setup_logging(
+            str(tmp_path / "logs"), "K00137", "test", level="WARNING"
+        )
+        assert log_path == str(tmp_path / "logs" / "alderaan_K00137_test.log")
 
         logging.getLogger("alderaan.some_module").debug("debug message")
         teardown_logging()
@@ -35,14 +36,14 @@ class TestLogging:
         assert "alderaan.some_module: debug message" in text
 
     def test_captures_warnings(self, tmp_path, root_logger):
-        log_path = setup_logging(str(tmp_path), "K00137")
+        log_path = setup_logging(str(tmp_path), "K00137", "test")
         warnings.warn("careful", UserWarning, stacklevel=1)
         teardown_logging()
         assert "careful" in open(log_path).read()
 
     def test_teardown_removes_handlers(self, tmp_path, root_logger):
         n_before = len(root_logger.handlers)
-        log_path = setup_logging(str(tmp_path), "K00137")
+        log_path = setup_logging(str(tmp_path), "K00137", "test")
         assert len(root_logger.handlers) == n_before + 2
 
         teardown_logging()
@@ -53,13 +54,13 @@ class TestLogging:
 
     def test_teardown_restores_warning_filters(self, tmp_path, root_logger):
         filters_before = list(warnings.filters)
-        setup_logging(str(tmp_path), "K00137")
+        setup_logging(str(tmp_path), "K00137", "test")
         assert warnings.filters != filters_before
         teardown_logging()
         assert warnings.filters == filters_before
 
     def test_setup_replaces_previous_handlers(self, tmp_path, root_logger):
         n_before = len(root_logger.handlers)
-        setup_logging(str(tmp_path / "a"), "K00137")
-        setup_logging(str(tmp_path / "b"), "K00137")
+        setup_logging(str(tmp_path / "a"), "K00137", "test")
+        setup_logging(str(tmp_path / "b"), "K00137", "test")
         assert len(root_logger.handlers) == n_before + 2

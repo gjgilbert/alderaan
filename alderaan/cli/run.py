@@ -6,7 +6,7 @@ Example::
         --input_dir /path/to/kepler/lightcurves \\
         --output_dir /path/to/outputs \\
         --catalog reference/alderaan/kepler_merged_alderaan.csv \\
-        --run_id my_run  # optional; default run_{UT launch stamp}
+        --run_id my_run  # optional; default UT launch stamp
 
 Add ``--visits 4 5 6`` to load only some Kepler quarters. A rerun into a
 non-empty results or plots directory fails; use a new run_id.
@@ -14,7 +14,7 @@ non-empty results or plots directory fails; use a new run_id.
 Outputs, under ``{output_dir}/{run_id}/`` (NN is the planet index)::
 
     logs/
-        alderaan_K00137_{UTstamp}.log        # DEBUG-level run log
+        alderaan_K00137_{run_id}.log         # DEBUG-level run log
     results/K00137/
         K00137_detrended.fits                # detrended photometry
         K00137_results.fits                  # posteriors, transit times, photometry
@@ -47,7 +47,7 @@ def build_parser():
     )
     parser.add_argument(
         "--run_id",
-        help="run identifier (default: run_{UT launch stamp})",
+        help="run identifier (default: UT launch stamp, %%Y%%m%%dT%%H%%M%%S)",
     )
     parser.add_argument(
         "--input_dir",
@@ -85,7 +85,7 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    args.run_id = args.run_id or time.strftime("run_%Y%m%dT%H%M%S", time.gmtime())
+    args.run_id = args.run_id or time.strftime("%Y%m%dT%H%M%S", time.gmtime())
 
     # deferred so --help and argument errors don't pay for the pipeline imports
     from alderaan.pipeline import main as run_pipeline

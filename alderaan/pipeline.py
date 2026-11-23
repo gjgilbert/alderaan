@@ -43,7 +43,7 @@ def main(
         )
 
     log_path = setup_logging(
-        os.path.join(output_dir, run_id, "logs"), target, log_level
+        os.path.join(output_dir, run_id, "logs"), target, run_id, log_level
     )
 
     logger.info("alderaan %s (git %s)", alderaan.__version__, alderaan.git_hash())
