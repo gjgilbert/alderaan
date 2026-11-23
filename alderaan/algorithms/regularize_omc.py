@@ -220,9 +220,12 @@ class RegularizeOMC(BaseAlg):
 
         weights = np.exp(log_post - log_post.max())
         weights /= weights.sum()
-        if 1 / np.sum(weights**2) < 5:
+        n_eff = 1 / np.sum(weights**2)
+        if n_eff < 5:
             logger.warning(
-                "sinusoid OMC model: frequency posterior spans < 5 grid points"
+                "sinusoid OMC model: frequency grid under-resolves the posterior "
+                "(%.1f effective grid points, need >= 5)",
+                n_eff,
             )
 
         leverage = np.full(len(xtime), np.nan)
@@ -280,6 +283,7 @@ class RegularizeOMC(BaseAlg):
         def loglike(theta):
             return make_gp(theta).log_likelihood(yobs[mask])
 
+        logger.info("matern32 OMC model: sample GP hyperparameters")
         draws = RegularizeOMC._sample(loglike, prior_transform, 3)
 
         # medians over (at most) the first 500 equal-weight draws
@@ -316,7 +320,7 @@ class RegularizeOMC(BaseAlg):
         sampler.run_nested(dlogz=0.5, print_progress=False)
         results = sampler.results
         logger.info(
-            "dynesty ncall = %d, %.1f s",
+            "dynesty: ncall = %d, %.1f s",
             np.sum(results.ncall),
             time.perf_counter() - t0,
         )
@@ -473,7 +477,10 @@ class RegularizeOMC(BaseAlg):
             if converged:
                 break
         else:
-            logger.warning("outlier mixture did not converge in %d iterations", maxiter)
+            logger.warning(
+                "outlier mixture did not converge in %d iterations; last iterate used",
+                maxiter,
+            )
 
         # probabilities for every transit at the fitted mixture parameters
         ln_fg, ln_bg = log_components(f, jit2, V)
@@ -855,7 +862,13 @@ class RegularizeOMC(BaseAlg):
             fit = self._fit(model, tlin, omc, err, inlier, period)
             pval = self._chi2_pvalue(omc, err, fit["pred"], inlier, dof)
             if pval >= 0.01:
-                logger.info("planet %d: chi2 test p = %.2g; model restored", n, pval)
+                logger.info(
+                    "planet %d: %s OMC model chi2 test p = %.2g without flagged "
+                    "transits; model kept",
+                    n,
+                    model,
+                    pval,
+                )
                 return {**fit, "inlier": inlier}
 
         return None
@@ -991,27 +1004,35 @@ class RegularizeOMC(BaseAlg):
                 dchi2 = self._transit_dchi2(
                     n, tlin[k] + omc[k], tlin[k] + refit["pred"][k], exptime_offsets
                 )
+                # dchi2 >= 50 (~7 sigma) is beyond the noise dips a timing
+                # search over many trial positions finds (look-elsewhere
+                # effect; Gross & Vitells 2010): such a time is real
+                wild = score >= z_crit and min(dchi2) < 50
                 logger.info(
                     "planet %d: %s rejects transit at %.3f, wild score %.1f "
-                    "(need >= %.1f), photometric dchi2 = %.0f / %.0f",
+                    "(need >= %.1f), photometric dchi2 = %.0f (free depth), "
+                    "%.0f (expected depth) (need < 50); %s",
                     n,
                     refit_model,
                     tlin[k],
                     score,
                     z_crit,
                     *dchi2,
+                    "wild" if wild else "not wild",
                 )
-                # dchi2 >= 50 (~7 sigma) is beyond the noise dips a timing
-                # search over many trial positions finds (look-elsewhere
-                # effect; Gross & Vitells 2010): such a time is real
-                wild = score >= z_crit and min(dchi2) < 50
                 if not wild:
                     break
             if wild:
                 pval = self._chi2_pvalue(
                     omc, err, refit["pred"], refit["inlier"], refit["dof"]
                 )
-                logger.info("planet %d: %s chi2 test p = %.2g", n, refit_model, pval)
+                logger.info(
+                    "planet %d: %s OMC model chi2 test p = %.2g; %s",
+                    n,
+                    refit_model,
+                    pval,
+                    "model kept" if pval >= 0.01 else "measured times adopted",
+                )
                 if pval >= 0.01:
                     return refit_model, refit
 
@@ -1179,7 +1200,7 @@ class RegularizeOMC(BaseAlg):
                 pred = self._smooth(tt.index, omc[n], inlier)
 
             elif method == "select":
-                logger.info("planet %d: vet", n)
+                logger.info("planet %d: vet selected OMC model", n)
                 label, fit = self._vet(
                     n,
                     tlin[n],

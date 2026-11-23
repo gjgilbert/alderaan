@@ -49,7 +49,11 @@ def main(
     logger.info("alderaan %s (git %s)", alderaan.__version__, alderaan.git_hash())
     logger.info("argv: %s", " ".join(sys.argv))
     logger.info(
-        "target %s, mission %s, run_id %s, visits %s", target, mission, run_id, visits
+        "target %s, mission %s, run_id %s, visits %s",
+        target,
+        mission,
+        run_id,
+        "all" if visits is None else visits,
     )
     logger.info(
         "input_dir %s, output_dir %s, catalog %s",

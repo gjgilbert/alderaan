@@ -400,14 +400,14 @@ class DetrendVisits(BaseAlg):
 
         logger.info(
             "%s GP: %d of %d visits periodic; nominal period %.2f d "
-            "(from %s, %d of %d clipped)",
+            "(mean %s of %d visits, %d 3-sigma outliers excluded)",
             "RotationTerm" if periodic else "SHOTerm",
             np.sum(visit_periodic),
             len(visits),
             nominal_period,
             "P_acf" if periodic else "P_half",
-            len(log_P) - len(kept),
             len(log_P),
+            len(log_P) - len(kept),
         )
 
         return periodic, nominal_period
