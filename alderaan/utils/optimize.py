@@ -31,8 +31,6 @@ def optimize(logp, x0, stages):
     -------
     x : ndarray
         optimized parameter vector
-    info : scipy.optimize.OptimizeResult
-        result of the last stage
     """
     x = np.array(x0, dtype=float)
     logp_x0 = logp(x)
@@ -60,8 +58,6 @@ def optimize(logp, x0, stages):
         if improved:
             x[idx] = info.x
             n_kept += 1
-        else:
-            info.x = start
         # BFGS status 1 = iteration limit, 3 = NaN; 2 (precision loss) is routine
         if info.status in (1, 3):
             logger.warning(
@@ -78,4 +74,4 @@ def optimize(logp, x0, stages):
     if not logp_x > logp_x0:
         logger.warning("logp did not improve (%.6g)", logp_x0)
 
-    return x, info
+    return x

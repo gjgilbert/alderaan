@@ -10,8 +10,11 @@ import numpy as np
 from alderaan.data_models import LiteCurve, Planet, Star
 
 
-def _log_perform(perform, name, module):
-    logger = logging.getLogger(module)
+def _log_perform(perform):
+    # perform is defined in the class body: its module and qualname give the
+    # subclass module's logger and the class name
+    logger = logging.getLogger(perform.__module__)
+    name = perform.__qualname__.rsplit(".", 1)[0]
 
     @functools.wraps(perform)
     def wrapper(self, *args, **kwargs):
@@ -45,7 +48,7 @@ class BaseAlg:
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         if "perform" in cls.__dict__:
-            cls.perform = _log_perform(cls.perform, cls.__name__, cls.__module__)
+            cls.perform = _log_perform(cls.perform)
 
     def __init__(self, star, planets, litecurve):
         if not isinstance(litecurve, LiteCurve):

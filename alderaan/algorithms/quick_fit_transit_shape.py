@@ -157,14 +157,11 @@ class QuickFitTransitShape(BaseAlg):
         # full width = max(3 x T14, 2 hours)
         tm.trim(self.make_transit_mask(rel_size=3.0, abs_size=2 / 24, phot_only=True))
 
-        for obsmode in tm.unique_obsmodes:
-            logger.info("supersample factor (%s): %d", obsmode, tm.supersample[obsmode])
-
         best_logp, best_theta = -np.inf, None
         for b in (0.38, 0.71, 0.84):
+            logger.info("shape fit from b = %.2f", b)
             theta = self._optimize(tm, self._theta_start(tm, b))
             logp = tm.ln_likelihood(theta)
-            logger.info("shape fit from b = %.2f: logp = %.6g", b, logp)
             if logp > best_logp:
                 best_logp, best_theta = logp, theta
 

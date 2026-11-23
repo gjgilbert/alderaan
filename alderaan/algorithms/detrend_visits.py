@@ -67,9 +67,7 @@ class _GPTrendModel:
 
         self.time, self.flux, self.oot = time, flux, oot
         self.seg_id, self.seg_t0 = seg_id, seg_t0
-        self.gp_term = gp_term
         self.rotation = gp_term == "RotationTerm"
-        self.nominal_period = nominal_period
         self.min_period = min_period
         self.n_seg = len(seg_t0)
 
@@ -275,8 +273,6 @@ class DetrendVisits(BaseAlg):
             tau_half is the lag where the ACF (normalized at lag 1, removing
             white noise) falls to 1/2; equals 2 pi / w0 for an SHOTerm with
             Q = 1/sqrt(2)
-        S : float
-            max S; NaN if no trial period fits the visit
         """
         # native cadence grid; gaps and masked cadences have weight 0
         oot = ~mask
@@ -324,7 +320,10 @@ class DetrendVisits(BaseAlg):
 
         max_period = (nlag - 1) * exptime / 3.5
         if max_period <= min_period:
-            return False, np.nan, period_half, np.nan
+            logger.info(
+                "ACF: no trial period fits the visit; P_half = %.2f d", period_half
+            )
+            return False, np.nan, period_half
         periods = np.exp(np.arange(np.log(min_period), np.log(max_period), 0.02))
 
         # rfft bins -> sum over the full frequency band
@@ -345,7 +344,17 @@ class DetrendVisits(BaseAlg):
 
         best = np.argmax(S)
         z_crit = norm.isf(0.01 / len(periods))
-        return bool(S[best] >= z_crit), periods[best], period_half, S[best]
+        periodic = bool(S[best] >= z_crit)
+        logger.info(
+            "ACF: S = %.2f (threshold %.2f), periodic = %s, P_acf = %.2f d, "
+            "P_half = %.2f d",
+            S[best],
+            z_crit,
+            periodic,
+            periods[best],
+            period_half,
+        )
+        return periodic, periods[best], period_half
 
     def _nominal_period(self, lc, masks):
         """
@@ -373,21 +382,13 @@ class DetrendVisits(BaseAlg):
         for j, v in enumerate(visits):
             in_visit = lc.visit == v
             obsmode = lc.obsmode[in_visit][0]
-            visit_periodic[j], period_acf[j], period_half[j], S = self._acf_period(
+            logger.info("visit %d: ACF test", v)
+            visit_periodic[j], period_acf[j], period_half[j] = self._acf_period(
                 lc.cadno[in_visit],
                 lc.flux[in_visit],
                 masks[v],
                 EXPTIME[obsmode],
                 self._min_period(obsmode),
-            )
-            logger.info(
-                "visit %d: ACF S = %.2f, periodic = %s, P_acf = %.2f d, "
-                "P_half = %.2f d",
-                v,
-                S,
-                visit_periodic[j],
-                period_acf[j],
-                period_half[j],
             )
 
         periodic = np.mean(visit_periodic) >= 0.5
@@ -412,7 +413,7 @@ class DetrendVisits(BaseAlg):
         return periodic, nominal_period
 
     @staticmethod
-    def _fit(model, visit):
+    def _fit(model):
         """
         Optimize a _GPTrendModel in stages, ending with all parameters jointly;
         returns the predicted trend (same length as model.time)
@@ -428,17 +429,14 @@ class DetrendVisits(BaseAlg):
         stages.append(list(model.ix))
 
         stage_ix = [np.concatenate([model.ix[n] for n in s]) for s in stages]
-        x, _ = optimize(model.logp, model.x0, stage_ix)
+        x = optimize(model.logp, model.x0, stage_ix)
 
         period, q, sigma = model.hyperparameters(model.unpack(x))
         logger.info(
-            "visit %d: %s GP (%d segments): P = %.2f d (nominal %.2f d), "
-            "%s = %.2f, sigma = %.2e",
-            visit,
-            model.gp_term,
+            "%s GP (%d segments): P = %.2f d, %s = %.2f, sigma = %.2e",
+            "RotationTerm" if model.rotation else "SHOTerm",
             model.n_seg,
             period,
-            model.nominal_period,
             "Q0" if model.rotation else "Q",
             q,
             sigma,
@@ -446,7 +444,7 @@ class DetrendVisits(BaseAlg):
 
         return model.predict(x)
 
-    def _transit_mask(self, time, visit, obsmode, tight_mask):
+    def _transit_mask(self, time, obsmode, tight_mask):
         """Transit mask (True near transit) for one visit"""
         exptime = EXPTIME[obsmode]
         # at short periods the general masks leave the GP too little data
@@ -473,24 +471,9 @@ class DetrendVisits(BaseAlg):
                 buffer=np.where(usp, exptime, 0.0),
                 time=time,
             )
-        logger.debug(
-            "visit %d: %s transit mask covers %d of %d cadences",
-            visit,
-            "tight" if tight_mask else "wide",
-            np.sum(mask),
-            len(mask),
-        )
-        if np.mean(mask) > 0.5:
-            logger.warning(
-                "visit %d: transit mask covers %.0f%% of cadences",
-                visit,
-                100 * np.mean(mask),
-            )
         return mask
 
-    def _detrend(
-        self, time, flux, cadno, mask, visit, obsmode, periodic, nominal_period
-    ):
+    def _detrend(self, time, flux, cadno, mask, obsmode, periodic, nominal_period):
         """
         Detrend one visit; returns the predicted trend (same length as time)
 
@@ -501,7 +484,7 @@ class DetrendVisits(BaseAlg):
         gap_tolerance = np.max(
             [int(np.min(self.durations) / exptime * 5 / 2), self.CADENCE_FLOOR[obsmode]]
         )
-        logger.debug("visit %d: gap tolerance = %d cadences", visit, gap_tolerance)
+        logger.debug("gap tolerance = %d cadences", gap_tolerance)
 
         seg_id = self._identify_breaks(
             cadno, flux, mask, gap_tolerance, jump_tolerance=5.0
@@ -519,7 +502,7 @@ class DetrendVisits(BaseAlg):
             nominal_period,
             self._min_period(obsmode),
         )
-        return self._fit(model, visit)
+        return self._fit(model)
 
     def perform(self, method):
         """
@@ -553,20 +536,32 @@ class DetrendVisits(BaseAlg):
         obsmode = {v: lc.obsmode[in_visit[v]][0] for v in visits}
 
         # transit masks first: the star-level kernel choice needs every visit
-        masks = {
-            v: self._transit_mask(lc.time[in_visit[v]], v, obsmode[v], tight_mask)
-            for v in visits
-        }
+        masks = {}
+        for v in visits:
+            masks[v] = self._transit_mask(lc.time[in_visit[v]], obsmode[v], tight_mask)
+            logger.debug(
+                "visit %d: %s transit mask covers %d of %d cadences",
+                v,
+                "tight" if tight_mask else "wide",
+                np.sum(masks[v]),
+                len(masks[v]),
+            )
+            if np.mean(masks[v]) > 0.5:
+                logger.warning(
+                    "visit %d: transit mask covers %.0f%% of cadences",
+                    v,
+                    100 * np.mean(masks[v]),
+                )
         periodic, nominal_period = self._nominal_period(lc, masks)
 
         for v in visits:
             use = in_visit[v]
+            logger.info("visit %d: detrend %d cadences", v, np.sum(use))
             pred = self._detrend(
                 lc.time[use],
                 lc.flux[use],
                 lc.cadno[use],
                 masks[v],
-                v,
                 obsmode[v],
                 periodic,
                 nominal_period,

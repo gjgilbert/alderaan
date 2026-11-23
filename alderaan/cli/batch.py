@@ -173,8 +173,8 @@ def _terminate_all_children(grace=5.0):
 def _run_one(argv, timeout=None, launch_interval=0.0):
     """Run one subprocess; return (returncode, stderr)
 
-    Returns (124, note) after killing the process group on timeout, and (130, "")
-    without launching once teardown has begun.
+    Returns (124, stderr) after killing the process group on timeout, and
+    (130, "") without launching once teardown has begun.
     """
     if _interrupted.is_set():
         return 130, ""
@@ -209,14 +209,14 @@ def _run_one(argv, timeout=None, launch_interval=0.0):
             return proc.returncode, stderr
         except subprocess.TimeoutExpired:
             _kill_group(proc)
-            proc.communicate()
-            return 124, f"timed out after {timeout}s; child process group killed"
+            _out, stderr = proc.communicate()
+            return 124, stderr
     finally:
         with _live_lock:
             _live_procs.discard(proc)
 
 
-def run_targets(tasks, jobs, log_dir, job_timeout=None, launch_interval=0.0):
+def run_targets(tasks, jobs, job_timeout=None, launch_interval=0.0):
     """Run `tasks` (a list of (target, argv)) in a pool of `jobs`; return failed targets
 
     On SIGINT/SIGTERM/SIGHUP, cancel the queue, terminate every running child, and
@@ -240,7 +240,14 @@ def run_targets(tasks, jobs, log_dir, job_timeout=None, launch_interval=0.0):
             if rc == 0:
                 logger.info("ok: %s", target)
             else:
-                logger.warning("FAILED: %s (exit %d)", target, rc)
+                if rc == 124:
+                    logger.warning(
+                        "FAILED: %s (timed out after %ss; process group killed)",
+                        target,
+                        job_timeout,
+                    )
+                else:
+                    logger.warning("FAILED: %s (exit %d)", target, rc)
                 failures.append((target, rc, stderr))
     except KeyboardInterrupt:
         _interrupted.set()
@@ -260,15 +267,11 @@ def run_targets(tasks, jobs, log_dir, job_timeout=None, launch_interval=0.0):
         pool.shutdown(wait=True)
 
     for target, rc, stderr in failures:
-        lines = [
-            f"FAILED {target} (exit {rc})",
-            f"  inspect log: {os.path.join(log_dir, f'alderaan_{target}_*.log')}",
-        ]
         tail = (stderr or "").strip().splitlines()[-20:]
         if tail:
-            lines.append("  --- last stderr lines ---")
+            lines = [f"{target} (exit {rc}): last stderr lines"]
             lines.extend(f"  {line}" for line in tail)
-        logger.error("\n".join(lines))
+            logger.error("\n".join(lines))
     return {target for target, _, _ in failures}
 
 
@@ -340,11 +343,12 @@ def main(argv=None):
             )
             for t in targets
         ]
-        failed = run_targets(
-            tasks, args.jobs, log_dir, args.job_timeout, args.launch_interval
-        )
+        failed = run_targets(tasks, args.jobs, args.job_timeout, args.launch_interval)
         logger.info(
-            "done: %d/%d target(s) ok", len(targets) - len(failed), len(targets)
+            "done: %d/%d target(s) ok; per-target logs in %s",
+            len(targets) - len(failed),
+            len(targets),
+            log_dir,
         )
     finally:
         teardown_logging()

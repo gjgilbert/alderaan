@@ -219,10 +219,6 @@ class Posteriors:
             supersample,
         )
 
-    @property
-    def nsamp(self):
-        return len(self.samples)
-
     def neff(self):
         """Number of effective samples (Kish ESS)"""
         return dynesty.utils.get_neff_from_logwt(self.sampler_info["logwt"])

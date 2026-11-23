@@ -383,7 +383,7 @@ class RegularizeOMC(BaseAlg):
             res = np.where(inlier, omc - fit["pred"], z_crit * err)
             lnlike = np.sum(stats.norm.logpdf(res, scale=err)[unclipped])
         else:
-            _, out_flag, lnlike = RegularizeOMC._calculate_outlier_probability(
+            out_flag, lnlike = RegularizeOMC._calculate_outlier_probability(
                 omc, err, fit["pred"], mask=unclipped
             )
             inlier = unclipped & ~out_flag
@@ -392,7 +392,7 @@ class RegularizeOMC(BaseAlg):
                 inlier = unclipped.copy()
             if np.any(inlier != unclipped):
                 fit = RegularizeOMC._fit(model, tlin, omc, err, inlier, period)
-                _, _, lnlike = RegularizeOMC._calculate_outlier_probability(
+                _, lnlike = RegularizeOMC._calculate_outlier_probability(
                     omc, err, fit["pred"], mask=unclipped
                 )
 
@@ -403,7 +403,7 @@ class RegularizeOMC(BaseAlg):
         yobs, yerr, ymod, mask=None, maxiter=200, tol=1e-6
     ):
         """
-        Calculate the probability that each measured omc transit time is an outlier
+        Flag measured omc transit times that are more likely outliers than not
 
         Residuals r = yobs - ymod follow a two-component Gaussian mixture, fit by
         expectation-maximization
@@ -427,8 +427,6 @@ class RegularizeOMC(BaseAlg):
 
         Returns
         -------
-        out_prob : ndarray
-            probability that each transit time is an outlier
         out_flag : ndarray
             boolean flag that each transit time is an outlier
         lnlike : float
@@ -486,7 +484,7 @@ class RegularizeOMC(BaseAlg):
             ln_tot = np.logaddexp(ln_fg, ln_bg)
         fg_prob = np.exp(ln_fg - ln_tot)
 
-        return 1 - fg_prob, fg_prob < 0.5, np.sum(ln_tot[mask])
+        return fg_prob < 0.5, np.sum(ln_tot[mask])
 
     # --- periodic signals ---------------------------------------------------
 
@@ -698,9 +696,9 @@ class RegularizeOMC(BaseAlg):
 
         return best
 
-    def _recheck_sinusoid(self, n, tlin, omc, err, unclipped, fits, period, period2):
+    def _recheck_sinusoid(self, tlin, omc, err, unclipped, fits, period, period2):
         """
-        Keep the sinusoid candidate of planet n only if a second search, without
+        Keep the sinusoid candidate only if a second search, without
         the selected model's outliers, confirms its period; otherwise remove it,
         or refit (or add) it at the second-search period. Updates fits in place
 
@@ -713,9 +711,8 @@ class RegularizeOMC(BaseAlg):
             if period is not None:
                 del fits["sinusoid"]
                 logger.info(
-                    "planet %d: periodic TTV signal at P = %.1f d not significant "
+                    "periodic TTV signal at P = %.1f d not significant "
                     "after outlier rejection; sinusoid rejected",
-                    n,
                     period,
                 )
             return None
@@ -723,16 +720,13 @@ class RegularizeOMC(BaseAlg):
         df = 1 / np.ptp(tlin[unclipped])
         if period is not None and np.abs(1 / period2 - 1 / period) < df:
             logger.info(
-                "planet %d: periodic TTV signal at P = %.1f d confirmed after "
-                "outlier rejection",
-                n,
+                "periodic TTV signal at P = %.1f d confirmed after outlier rejection",
                 period,
             )
             return period
 
         logger.info(
-            "planet %d: sinusoid %s at P = %.1f d after outlier rejection",
-            n,
+            "sinusoid %s at P = %.1f d after outlier rejection",
             "added" if period is None else "moved",
             period2,
         )
@@ -1031,9 +1025,9 @@ class RegularizeOMC(BaseAlg):
         gp = self._fit("matern32", tlin, omc, err, measured)
         return "independent", {**gp, "inlier": measured}
 
-    def _lasso_upgrade(self, n, tlin, omc, err, label, fit):
+    def _lasso_upgrade(self, tlin, omc, err, label, fit):
         """
-        Replace planet n's model (not 'independent') with a lasso polynomial of
+        Replace the model (not 'independent') with a lasso polynomial of
         order 4 or 5 (_lasso_poly_model) if its kept times fail a chi-squared
         test (p < 0.001) and the lasso fit beats it in an F-test (p < 0.001; the
         order with the smaller p). The F-test judges the chi2 gain against the
@@ -1072,9 +1066,7 @@ class RegularizeOMC(BaseAlg):
                 best_p, best_label, best_fit = p, f"lasso_{k}", lasso
 
         logger.info(
-            "planet %d: %s OMC model chi2 test p = %.2g; "
-            "best lasso F-test p = %.2g; %s",
-            n,
+            "%s OMC model chi2 test p = %.2g; best lasso F-test p = %.2g; %s",
             label,
             pval,
             best_p,
@@ -1150,28 +1142,31 @@ class RegularizeOMC(BaseAlg):
                 period = self._periodic_signals(tlin, omc, unclipped)
             else:
                 period = [None] * npl
-            fits = [
-                {
-                    k: self._robust_fit(
-                        k, tlin[n], omc[n], err[n], unclipped[n], period[n]
-                    )
-                    for k in self._candidates(
-                        omc[n], err[n], measured[n], unclipped[n], period[n]
-                    )
-                }
-                for n in range(npl)
-            ]
-            model = [self._compare(fits[n], np.sum(unclipped[n])) for n in range(npl)]
+            fits, model = [], []
+            for n in range(npl):
+                logger.info("planet %d: OMC model selection", n)
+                fits.append(
+                    {
+                        k: self._robust_fit(
+                            k, tlin[n], omc[n], err[n], unclipped[n], period[n]
+                        )
+                        for k in self._candidates(
+                            omc[n], err[n], measured[n], unclipped[n], period[n]
+                        )
+                    }
+                )
+                model.append(self._compare(fits[n], np.sum(unclipped[n])))
 
             # Lomb-Scargle once more, without the selected model's outliers; a
             # sinusoid is offered only at a period significant after rejection
             if check_periodic:
+                logger.info("periodic TTV search after outlier rejection")
                 period2 = self._periodic_signals(
                     tlin, omc, [fits[n][model[n]]["inlier"] for n in range(npl)]
                 )
                 for n in range(npl):
+                    logger.info("planet %d: periodic TTV recheck", n)
                     period[n] = self._recheck_sinusoid(
-                        n,
                         tlin[n],
                         omc[n],
                         err[n],
@@ -1191,6 +1186,7 @@ class RegularizeOMC(BaseAlg):
                 pred = self._smooth(tt.index, omc[n], inlier)
 
             elif method == "select":
+                logger.info("planet %d: vet", n)
                 label, fit = self._vet(
                     n,
                     tlin[n],
@@ -1202,7 +1198,8 @@ class RegularizeOMC(BaseAlg):
                     model[n],
                     period[n],
                 )
-                label, fit = self._lasso_upgrade(n, tlin[n], omc[n], err[n], label, fit)
+                logger.info("planet %d: lasso check", n)
+                label, fit = self._lasso_upgrade(tlin[n], omc[n], err[n], label, fit)
                 inlier, dof = fit["inlier"], float(fit["dof"])
                 pred = fit["pred"].copy()
 
@@ -1227,11 +1224,9 @@ class RegularizeOMC(BaseAlg):
                 model_dof=dof,
                 ttv_scatter=ttv_scatter,
             )
-            regularized.append((label, inlier, transit_times))
+            regularized.append(transit_times)
 
-        for n, (p, (label, inlier, transit_times)) in enumerate(
-            zip(self.planets, regularized)
-        ):
+        for n, (p, transit_times) in enumerate(zip(self.planets, regularized)):
             old_period = p.period
             try:
                 p.set_transit_times(transit_times)
@@ -1241,10 +1236,10 @@ class RegularizeOMC(BaseAlg):
                 "planet %d: %s OMC model; %d measured, %d sigma-clipped, "
                 "%d rejected by model; P = %.6f -> %.6f d, ttv_buffer = %.1f min",
                 n,
-                label,
+                transit_times.model_name,
                 np.sum(measured[n]),
                 np.sum(measured[n] & ~unclipped[n]),
-                np.sum(unclipped[n] & ~inlier),
+                np.sum(unclipped[n] & ~transit_times.kept_ttv),
                 old_period,
                 p.period,
                 transit_times.ttv_buffer() * 1440,

@@ -75,7 +75,6 @@ class TransitModel:
                     "call Planet.set_static_period_and_epoch() first"
                 )
         self.static_period = np.array([p.static_period for p in self.planets])
-        self.static_epoch = np.array([p.static_epoch for p in self.planets])
 
         # photometry span for the Legendre mapping of C0, C1 (fixed on the
         # litecurve, so outlier clipping and trim() do not change it)

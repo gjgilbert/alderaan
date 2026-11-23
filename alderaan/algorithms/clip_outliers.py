@@ -27,7 +27,7 @@ class ClipOutliers(BaseAlg):
     """
 
     @staticmethod
-    def _clip_outliers(flux, visit, sigma_upper, sigma_lower, kernel_size, mask=None):
+    def _clip_outliers(flux, sigma_upper, sigma_lower, kernel_size, mask=None):
         """
         Sigma-clip flux about a median-filter trend, iterating up to 3 times.
         If > 1% of cadences are flagged, retry with a savgol trend; if still
@@ -39,8 +39,6 @@ class ClipOutliers(BaseAlg):
         ----------
         flux : ndarray
             flux for one visit
-        visit : int
-            visit number (for logging)
         sigma_upper : float
             upper sigma clipping threshold
         sigma_lower : float
@@ -68,9 +66,10 @@ class ClipOutliers(BaseAlg):
 
             if np.sum(bad) / len(bad) > 0.01:
                 logger.debug(
-                    "visit %d: median filter flagged %d of %d cadences; "
-                    "retrying with savgol filter",
-                    visit,
+                    "clip at %g/%g sigma (upper/lower): median filter flagged "
+                    "%d of %d cadences; retrying with savgol filter",
+                    sigma_upper,
+                    sigma_lower,
                     np.sum(bad),
                     len(bad),
                 )
@@ -85,9 +84,11 @@ class ClipOutliers(BaseAlg):
 
             if np.sum(bad) / len(bad) > 0.01:
                 logger.warning(
-                    "visit %d: >1%% of cadences flagged by median and savgol filters "
-                    "(%d of %d); skipping outlier rejection this iteration",
-                    visit,
+                    "clip at %g/%g sigma (upper/lower): >1%% of cadences flagged "
+                    "by median and savgol filters (%d of %d); skipping outlier "
+                    "rejection this iteration",
+                    sigma_upper,
+                    sigma_lower,
                     np.sum(bad),
                     len(bad),
                 )
@@ -139,6 +140,7 @@ class ClipOutliers(BaseAlg):
             npts_initial = int(np.sum(use))
 
             if method == "local_trend":
+                logger.info("visit %d: clip about local trend", v)
                 # full width = max(3 x T14, 2 x (exptime + 1 hour)); USPs as in
                 # the DetrendVisits wide mask
                 exptime = EXPTIME[lc.obsmode[use][0]]
@@ -151,7 +153,6 @@ class ClipOutliers(BaseAlg):
                 )
                 keep[use] = self._clip_outliers(
                     lc.flux[use],
-                    v,
                     sigma_upper=5,
                     sigma_lower=5,
                     kernel_size=13,
@@ -160,7 +161,7 @@ class ClipOutliers(BaseAlg):
                 # second pass: upper outliers only, including in transit
                 use = (lc.visit == v) & keep
                 keep[use] = self._clip_outliers(
-                    lc.flux[use], v, sigma_upper=5, sigma_lower=1000, kernel_size=13
+                    lc.flux[use], sigma_upper=5, sigma_lower=1000, kernel_size=13
                 )
 
             elif method == "transit_model":

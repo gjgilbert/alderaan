@@ -37,7 +37,7 @@ class TestMain:
         monkeypatch.setattr(pipeline, "_run", fake_run)
         pipeline.main(mission="Kepler", output_dir=str(tmp_path), visits=[4], **ARGS)
 
-        assert calls == [("K00137", "Kepler", "test", "in", str(tmp_path), "cat", [4])]
+        assert calls == [("K00137", "test", "in", str(tmp_path), "cat", [4])]
         assert "pipeline completed" in _log_text(tmp_path)
         assert alderaan_logger._installed_handlers == []
 

@@ -123,8 +123,6 @@ class QuickFitTransitTimes(BaseAlg):
         -------
         ttime, ttime_err : float
             fitted transit time and its uncertainty; NaN if the fit was skipped
-        skip_reason : str or None
-            why the fit was skipped, or None on success
         """
         lc = tm.litecurve
         exptime = EXPTIME[obsmode]
@@ -136,7 +134,8 @@ class QuickFitTransitTimes(BaseAlg):
         in_window = np.abs(lc.time - tc) < transit_window_size / 2
 
         if np.sum(in_transit) == 0:
-            return np.nan, np.nan, "no in-transit data"
+            logger.debug("transit at %.3f not fit: no in-transit data", tc)
+            return np.nan, np.nan
 
         _t = lc.time[in_window]
         _f_obs = lc.flux[in_window]
@@ -166,7 +165,8 @@ class QuickFitTransitTimes(BaseAlg):
 
         # no trial transit fits better than no transit at all
         if chisq.min() >= np.sum(((_f_obs - 1) / _f_err) ** 2):
-            return np.nan, np.nan, "no detection"
+            logger.debug("transit at %.3f not fit: no detection", tc)
+            return np.nan, np.nan
 
         # STEP 2: widen delta_chisq until enough points near the minimum
         delta_chisq = 2.0
@@ -193,7 +193,8 @@ class QuickFitTransitTimes(BaseAlg):
 
         # STEP 3: fit a parabola to local chisq minimum
         if len(tc_fit) <= 3:
-            return np.nan, np.nan, "too few chisq points"
+            logger.debug("transit at %.3f not fit: too few chisq points", tc)
+            return np.nan, np.nan
 
         quad_coeffs = robust_polyfit(tc_fit, x2_fit, 2)
         quad_model = np.polyval(quad_coeffs, tc_fit)
@@ -205,11 +206,12 @@ class QuickFitTransitTimes(BaseAlg):
         within_bounds = (_tti > tc_fit.min()) and (_tti < tc_fit.max())
 
         if not (convex_local_min and within_bounds):
-            return np.nan, np.nan, "ill-conditioned"
+            logger.debug("transit at %.3f not fit: ill-conditioned", tc)
+            return np.nan, np.nan
 
         # scaled error; sqrt is real only for a convex fit
         qtc_err = np.sqrt(1 / quad_coeffs[0])
-        return _tti, qtc_err * (1 + np.std(x2_fit - quad_model)), None
+        return _tti, qtc_err * (1 + np.std(x2_fit - quad_model))
 
     def _cross_correlation_times(
         self,
@@ -260,20 +262,13 @@ class QuickFitTransitTimes(BaseAlg):
 
         ttime = np.full(ntransit, np.nan)
         ttime_err = np.full(ntransit, np.nan)
-        skipped = {
-            "sibling in window": int(np.sum(sibling_in_window)),
-            "no in-transit data": 0,
-            "no detection": 0,
-            "too few chisq points": 0,
-            "ill-conditioned": 0,
-        }
-
+        logger.debug("planet %d: cross-correlation fit", planet_no)
         for i, tc in enumerate(p.transit_times.ttime_mod):
             if sibling_in_window[i]:
                 continue
 
             obsmode = transit_obsmode[i]
-            ttime[i], ttime_err[i], skip_reason = self._fit_one_transit(
+            ttime[i], ttime_err[i] = self._fit_one_transit(
                 tm,
                 obsmode,
                 tc,
@@ -282,17 +277,16 @@ class QuickFitTransitTimes(BaseAlg):
                 transit_window_size,
                 *templates[obsmode],
             )
-            if skip_reason is not None:
-                skipped[skip_reason] += 1
 
         nfit = int(np.sum(~np.isnan(ttime)))
         logger.log(
             logging.WARNING if nfit < 0.5 * ntransit else logging.INFO,
-            "planet %d: cross-correlation fit %d of %d transits (skipped: %s)",
+            "planet %d: cross-correlation fit %d of %d transits "
+            "(%d skipped: sibling in window)",
             planet_no,
             nfit,
             ntransit,
-            ", ".join(f"{v} {k}" for k, v in skipped.items()),
+            np.sum(sibling_in_window),
         )
 
         return ttime, ttime_err, sibling_in_window
@@ -410,7 +404,6 @@ class QuickFitTransitTimes(BaseAlg):
                 ),
             )
 
-            theta_start = theta.copy()
             theta[~fix] = result.x
             logp_final = self._window_ln_likelihood(
                 theta, tm, obsmode[i], t_obs, f_obs, f_err
@@ -423,7 +416,7 @@ class QuickFitTransitTimes(BaseAlg):
                 i,
                 tc,
                 theta[planet_no],
-                (theta[planet_no] - theta_start[planet_no]) * 1440,
+                (theta[planet_no] - tc) * 1440,
                 logp_initial,
                 logp_final,
                 result.nfev,

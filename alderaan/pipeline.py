@@ -67,9 +67,7 @@ def main(
     )
 
     try:
-        results_path = _run(
-            target, mission, run_id, input_dir, output_dir, catalog, visits
-        )
+        results_path = _run(target, run_id, input_dir, output_dir, catalog, visits)
     except KeyboardInterrupt:
         logger.error(
             "interrupted after %.1f min",
@@ -90,7 +88,7 @@ def main(
         teardown_logging()
 
 
-def _run(target, mission, run_id, input_dir, output_dir, catalog, visits):
+def _run(target, run_id, input_dir, output_dir, catalog, visits):
     results_dir = os.path.join(output_dir, run_id, "results", target)
     plots_dir = os.path.join(output_dir, run_id, "plots", target)
 

@@ -186,9 +186,6 @@ class SampleTransitModel(BaseAlg):
         # full width = max(3 x T14, 2 hours)
         tm.trim(self.make_transit_mask(rel_size=3.0, abs_size=2 / 24, phot_only=True))
 
-        for obsmode in tm.unique_obsmodes:
-            logger.info("supersample factor (%s): %d", obsmode, tm.supersample[obsmode])
-
         results, settings = self._sample(tm)
         self._log_posterior_summary(results, tm)
 

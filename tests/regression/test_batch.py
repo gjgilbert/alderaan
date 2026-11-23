@@ -19,17 +19,17 @@ class TestReadTargets:
 
 
 class TestRunTargets:
-    def test_returns_failed_targets(self, tmp_path):
+    def test_returns_failed_targets(self):
         tasks = [_exit_task("a", 0), _exit_task("b", 3), _exit_task("c", 0)]
-        assert run_targets(tasks, jobs=2, log_dir=str(tmp_path)) == {"b"}
+        assert run_targets(tasks, jobs=2) == {"b"}
 
-    def test_timeout_is_failure(self, tmp_path):
+    def test_timeout_is_failure(self):
         tasks = [_exit_task("slow", 0, sleep=30), _exit_task("fast", 0)]
-        failed = run_targets(tasks, jobs=2, log_dir=str(tmp_path), job_timeout=1)
+        failed = run_targets(tasks, jobs=2, job_timeout=1)
         assert failed == {"slow"}
 
-    def test_launch_interval_spaces_launches(self, tmp_path):
+    def test_launch_interval_spaces_launches(self):
         tasks = [_exit_task(t, 0) for t in "abc"]
         start = time.monotonic()
-        run_targets(tasks, jobs=3, log_dir=str(tmp_path), launch_interval=0.5)
+        run_targets(tasks, jobs=3, launch_interval=0.5)
         assert time.monotonic() - start >= 1.0
