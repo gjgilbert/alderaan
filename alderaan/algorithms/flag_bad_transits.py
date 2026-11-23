@@ -8,6 +8,7 @@ from astropy.stats import mad_std
 from alderaan.algorithms.base import BaseAlg
 from alderaan.constants import EXPTIME
 from alderaan.data_models.transit_times import FIELDS, TransitTimes
+from alderaan.errors import UnsupportedTargetError
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +125,7 @@ class FlagBadTransits(BaseAlg):
             if ngood >= 3:
                 continue
             if self.npl == 1:
-                raise ValueError(f"planet {n}: {ngood} good transits (< 3)")
+                raise UnsupportedTargetError(f"planet {n}: {ngood} good transits (< 3)")
             logger.warning(
                 "planet %d: %d good transits (< 3); dropped and its transits "
                 "removed from the litecurve",
@@ -136,7 +137,7 @@ class FlagBadTransits(BaseAlg):
                 keep_cadence &= np.abs(lc.time - tc) >= 1.5 * p.duration
 
         if not np.any(keep_planet):
-            raise ValueError("every planet has < 3 good transits")
+            raise UnsupportedTargetError("every planet has < 3 good transits")
         lc.select(keep_cadence)
 
         return [p for p, k in zip(self.planets, keep_planet) if k], lc

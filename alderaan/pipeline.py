@@ -17,6 +17,7 @@ from alderaan.algorithms import (
     SampleTransitModel,
 )
 from alderaan.data_models import Results
+from alderaan.errors import UnsupportedTargetError
 from alderaan.utils.kepler import load_kepler_data
 from alderaan.utils.logger import setup_logging, teardown_logging
 
@@ -77,6 +78,10 @@ def main(
             "interrupted after %.1f min",
             (time.perf_counter() - pipeline_start_time) / 60,
         )
+        raise
+    except UnsupportedTargetError as e:
+        # a known limit, not a bug: one line, no traceback
+        logger.error("target not processed (unsupported): %s", e)
         raise
     except Exception:
         # the one catch-log-reraise point: the traceback reaches the log file

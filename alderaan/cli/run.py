@@ -88,17 +88,21 @@ def main(argv=None):
     args.run_id = args.run_id or time.strftime("%Y%m%dT%H%M%S", time.gmtime())
 
     # deferred so --help and argument errors don't pay for the pipeline imports
+    from alderaan.errors import UnsupportedTargetError
     from alderaan.pipeline import main as run_pipeline
 
-    run_pipeline(
-        target=args.target,
-        mission=args.mission,
-        run_id=args.run_id,
-        input_dir=str(args.input_dir.resolve()),
-        output_dir=str(args.output_dir.resolve()),
-        catalog=str(args.catalog.resolve()),
-        visits=args.visits,
-        log_level=args.log_level,
-    )
+    try:
+        run_pipeline(
+            target=args.target,
+            mission=args.mission,
+            run_id=args.run_id,
+            input_dir=str(args.input_dir.resolve()),
+            output_dir=str(args.output_dir.resolve()),
+            catalog=str(args.catalog.resolve()),
+            visits=args.visits,
+            log_level=args.log_level,
+        )
+    except UnsupportedTargetError:
+        return 3  # known limit; pipeline.main logged the reason
 
     return 0

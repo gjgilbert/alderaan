@@ -6,6 +6,8 @@ runs up to --jobs targets at once; launches are spaced --launch_interval apart s
 the pool does not start in lockstep. BLAS/OpenMP pools are pinned to one thread
 per process, so jobs do not oversubscribe the CPUs. The run is fail-soft: every
 target is attempted, failures are reported, and the exit code is 1 if any failed.
+A target that exits 3 is unsupported by design (a known limit, e.g. < 3 transits);
+it is counted apart and does not fail the batch.
 Adapted from the KPF pipeline (scripts/_dispatch.py).
 
 Example::
@@ -217,7 +219,9 @@ def _run_one(argv, timeout=None, launch_interval=0.0):
 
 
 def run_targets(tasks, jobs, job_timeout=None, launch_interval=0.0):
-    """Run `tasks` (a list of (target, argv)) in a pool of `jobs`; return failed targets
+    """Run `tasks` (a list of (target, argv)) in a pool of `jobs`
+
+    Returns (failed, unsupported), two sets of targets; unsupported targets exit 3.
 
     On SIGINT/SIGTERM/SIGHUP, cancel the queue, terminate every running child, and
     exit 130.
@@ -228,6 +232,7 @@ def run_targets(tasks, jobs, job_timeout=None, launch_interval=0.0):
     _last_launch[0] = 0.0
 
     failures = []
+    unsupported = set()
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
     try:
         futures = {
@@ -239,6 +244,9 @@ def run_targets(tasks, jobs, job_timeout=None, launch_interval=0.0):
             rc, stderr = future.result()
             if rc == 0:
                 logger.info("ok: %s", target)
+            elif rc == 3:
+                logger.warning("UNSUPPORTED: %s (known limit; see log)", target)
+                unsupported.add(target)
             else:
                 if rc == 124:
                     logger.warning(
@@ -272,7 +280,7 @@ def run_targets(tasks, jobs, job_timeout=None, launch_interval=0.0):
             lines = [f"{target} (exit {rc}): last stderr lines"]
             lines.extend(f"  {line}" for line in tail)
             logger.error("\n".join(lines))
-    return {target for target, _, _ in failures}
+    return {target for target, _, _ in failures}, unsupported
 
 
 def read_targets(catalog):
@@ -343,11 +351,14 @@ def main(argv=None):
             )
             for t in targets
         ]
-        failed = run_targets(tasks, args.jobs, args.job_timeout, args.launch_interval)
+        failed, unsupported = run_targets(
+            tasks, args.jobs, args.job_timeout, args.launch_interval
+        )
         logger.info(
-            "done: %d/%d target(s) ok; per-target logs in %s",
-            len(targets) - len(failed),
-            len(targets),
+            "done: %d ok, %d unsupported, %d failed; per-target logs in %s",
+            len(targets) - len(failed) - len(unsupported),
+            len(unsupported),
+            len(failed),
             log_dir,
         )
     finally:

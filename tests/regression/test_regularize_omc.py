@@ -7,6 +7,7 @@ from astropy.stats import mad_std
 from alderaan.algorithms import RegularizeOMC
 from alderaan.constants import EXPTIME
 from alderaan.data_models import LiteCurve, Planet, Star, TransitTimes
+from alderaan.errors import UnsupportedTargetError
 from alderaan.transit_model import exposure_offsets, transit_flux
 
 PERIOD, EPOCH = 10.0, 5.0
@@ -647,7 +648,7 @@ class TestSelectFewTransits:
 
     def test_fewer_than_3_measured_times_raise(self):
         star, planets, lc, _ = _system(ntransit=5, missing=[0, 1, 2])
-        with pytest.raises(ValueError, match="needs at least 3"):
+        with pytest.raises(UnsupportedTargetError, match="needs at least 3"):
             RegularizeOMC(star, planets, lc).perform(method="select")
 
 

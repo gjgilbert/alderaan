@@ -6,6 +6,7 @@ import pytest
 from alderaan.algorithms import FlagBadTransits
 from alderaan.constants import EXPTIME
 from alderaan.data_models import LiteCurve, Planet, Star, TransitTimes
+from alderaan.errors import UnsupportedTargetError
 
 NOISE = 1e-4
 PERIOD, EPOCH, DURATION = 3.1, 1.3, 0.2
@@ -153,7 +154,7 @@ class TestTooFewTransits:
     def test_single_planet_with_two_good_transits_raises(self):
         star, planets, lc = _system(t_max=8.0)
         lc.select(np.abs(lc.time - _tc(planets, 2)) > 2 * DURATION)
-        with pytest.raises(ValueError, match="2 good transits"):
+        with pytest.raises(UnsupportedTargetError, match="2 good transits"):
             FlagBadTransits(star, planets, lc).perform()
 
     def test_drops_planet_and_its_transits_in_multiplanet_system(self):

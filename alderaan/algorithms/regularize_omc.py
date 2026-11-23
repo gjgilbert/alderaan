@@ -17,6 +17,7 @@ from scipy.signal import savgol_filter
 from alderaan.algorithms.base import BaseAlg
 from alderaan.constants import SEED
 from alderaan.data_models import TransitTimes
+from alderaan.errors import UnsupportedTargetError
 from alderaan.transit_model import TransitModel, transit_flux
 from alderaan.utils.stats import legendre_p1, norm_ppf, uniform_ppf
 
@@ -1132,7 +1133,7 @@ class RegularizeOMC(BaseAlg):
         for n, m in enumerate(measured):
             # 1-2 transit planets need special handling (not yet implemented)
             if np.sum(m) < 3:
-                raise ValueError(
+                raise UnsupportedTargetError(
                     f"planet {n}: {np.sum(m)} measured transit times; "
                     "RegularizeOMC needs at least 3"
                 )

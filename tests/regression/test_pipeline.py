@@ -10,6 +10,7 @@ import os
 import pytest
 
 from alderaan import pipeline
+from alderaan.errors import UnsupportedTargetError
 from alderaan.utils import logger as alderaan_logger
 
 ARGS = dict(target="K00137", run_id="test", input_dir="in", catalog="cat")
@@ -52,6 +53,21 @@ class TestMain:
         text = _log_text(tmp_path)
         assert "pipeline aborted" in text
         assert "Traceback" in text and "stage exploded" in text
+        assert alderaan_logger._installed_handlers == []
+
+    def test_unsupported_target_is_one_error_line_and_reraised(
+        self, tmp_path, monkeypatch
+    ):
+        def fake_run(*args):
+            raise UnsupportedTargetError("planet 0: 2 good transits (< 3)")
+
+        monkeypatch.setattr(pipeline, "_run", fake_run)
+        with pytest.raises(UnsupportedTargetError):
+            pipeline.main(mission="Kepler", output_dir=str(tmp_path), **ARGS)
+
+        text = _log_text(tmp_path)
+        assert "ERROR" in text and "unsupported): planet 0: 2 good transits" in text
+        assert "Traceback" not in text and "pipeline aborted" not in text
         assert alderaan_logger._installed_handlers == []
 
     def test_refuses_to_mix_outputs_of_two_runs(self, tmp_path):

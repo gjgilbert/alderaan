@@ -11,6 +11,7 @@ import pytest
 
 from alderaan import cli
 from alderaan.cli import run
+from alderaan.errors import UnsupportedTargetError
 
 
 @pytest.fixture
@@ -86,6 +87,15 @@ class TestRun:
         (kwargs,) = pipeline_calls
         assert kwargs["visits"] is None
         assert kwargs["log_level"] == "INFO"
+
+    def test_unsupported_target_exits_3(self, monkeypatch, tmp_path):
+        def raise_unsupported(**kwargs):
+            raise UnsupportedTargetError("planet 0: 2 good transits (< 3)")
+
+        stub = types.ModuleType("alderaan.pipeline")
+        stub.main = raise_unsupported
+        monkeypatch.setitem(sys.modules, "alderaan.pipeline", stub)
+        assert run.main(self._argv(tmp_path, "-m", "Kepler")) == 3
 
     @pytest.mark.parametrize("missing", ["input_dir", "output_dir", "catalog"])
     def test_paths_are_required(self, pipeline_calls, tmp_path, missing):

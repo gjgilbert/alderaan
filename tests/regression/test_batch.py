@@ -20,12 +20,16 @@ class TestReadTargets:
 
 class TestRunTargets:
     def test_returns_failed_targets(self):
-        tasks = [_exit_task("a", 0), _exit_task("b", 3), _exit_task("c", 0)]
-        assert run_targets(tasks, jobs=2) == {"b"}
+        tasks = [_exit_task("a", 0), _exit_task("b", 1), _exit_task("c", 0)]
+        assert run_targets(tasks, jobs=2) == ({"b"}, set())
+
+    def test_exit_3_is_unsupported_not_failed(self):
+        tasks = [_exit_task("a", 0), _exit_task("b", 3), _exit_task("c", 1)]
+        assert run_targets(tasks, jobs=3) == ({"c"}, {"b"})
 
     def test_timeout_is_failure(self):
         tasks = [_exit_task("slow", 0, sleep=30), _exit_task("fast", 0)]
-        failed = run_targets(tasks, jobs=2, job_timeout=1)
+        failed, _ = run_targets(tasks, jobs=2, job_timeout=1)
         assert failed == {"slow"}
 
     def test_launch_interval_spaces_launches(self):

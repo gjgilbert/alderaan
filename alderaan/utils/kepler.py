@@ -17,6 +17,7 @@ import pandas as pd
 
 from alderaan.data_models import LiteCurve, Planet, Star, TransitTimes
 from alderaan.data_models.transit_times import linear_ephemeris_times
+from alderaan.errors import UnsupportedTargetError
 from alderaan.utils.astro import approx_ror
 from alderaan.utils.stats import robust_polyfit
 
@@ -249,7 +250,7 @@ def drop_few_transit_planets(catalog, litecurve):
         if len(ttime) >= 3:
             continue
         if len(catalog) == 1:
-            raise ValueError(
+            raise UnsupportedTargetError(
                 f"planet {n}: {len(ttime)} transits within litecurve span (< 3)"
             )
         logger.warning(
@@ -264,7 +265,9 @@ def drop_few_transit_planets(catalog, litecurve):
             keep_cadence &= np.abs(litecurve.time - tc) >= 1.5 * row.duration
 
     if not np.any(keep_planet):
-        raise ValueError("every planet has < 3 transits within litecurve span")
+        raise UnsupportedTargetError(
+            "every planet has < 3 transits within litecurve span"
+        )
     litecurve.select(keep_cadence)
 
     catalog = catalog[keep_planet].reset_index(drop=True)
