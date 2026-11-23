@@ -11,7 +11,7 @@ import pytest
 from alderaan.algorithms import QuickFitTransitShape
 from alderaan.constants import EXPTIME
 from alderaan.data_models import LiteCurve, Planet, Star, TransitTimes
-from alderaan.transit_model import exposure_offsets, transit_flux
+from alderaan.transit_model import TransitModel, exposure_offsets, transit_flux
 from alderaan.utils.astro import approx_ror, approx_transit_depth
 
 LC = "long cadence"
@@ -105,3 +105,9 @@ class TestQuickFitTransitShape:
         flagged = QuickFitTransitShape(star, planets, litecurve).perform()[0]
         assert flagged[0].ror == pytest.approx(ror, rel=0.03)
         assert flagged[0].duration == pytest.approx(T14, rel=0.03)
+
+    def test_raises_if_no_start_reaches_finite_likelihood(self, monkeypatch):
+        star, planets, litecurve = _synthetic_system(TRUTH[:1])
+        monkeypatch.setattr(TransitModel, "ln_likelihood", lambda self, theta: -1e300)
+        with pytest.raises(ValueError, match="no start reached a finite likelihood"):
+            QuickFitTransitShape(star, planets, litecurve).perform()

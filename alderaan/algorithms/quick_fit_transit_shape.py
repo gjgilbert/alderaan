@@ -157,7 +157,8 @@ class QuickFitTransitShape(BaseAlg):
             logger.info("shape fit from b = %.2f", b)
             theta = self._optimize(tm, self._theta_start(tm, b))
             logp = tm.ln_likelihood(theta)
-            if logp > best_logp:
+            # ln_likelihood returns -1e300 if not finite
+            if logp > max(best_logp, -1e299):
                 best_logp, best_theta = logp, theta
 
         if best_theta is None:
