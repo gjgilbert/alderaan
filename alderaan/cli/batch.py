@@ -7,6 +7,30 @@ the pool does not start in lockstep. BLAS/OpenMP pools are pinned to one thread
 per process, so jobs do not oversubscribe the CPUs. The run is fail-soft: every
 target is attempted, failures are reported, and the exit code is 1 if any failed.
 Adapted from the KPF pipeline (scripts/_dispatch.py).
+
+Example::
+
+    alderaan batch -m Kepler \\
+        --input_dir /path/to/kepler/lightcurves \\
+        --output_dir /path/to/outputs \\
+        --catalog reference/alderaan/kepler_merged_alderaan.csv \\
+        --jobs 64 \\
+        --run_id my_run  # optional; default batch_{UT launch stamp}
+
+Every target writes the same files as `alderaan run`, all under one run
+directory ``{output_dir}/{run_id}/``::
+
+    logs/
+        alderaan_batch_{UTstamp}.log         # batch progress and failure report
+        alderaan_K00001_{UTstamp}.log        # one run log per target
+        alderaan_K00002_{UTstamp}.log
+        ...
+    results/K00001/                          # see `alderaan run` for file names
+    results/K00002/
+    ...
+    plots/K00001/
+    plots/K00002/
+    ...
 """
 
 import argparse

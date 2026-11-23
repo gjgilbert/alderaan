@@ -1,4 +1,31 @@
-"""`alderaan run`: parse arguments and run the pipeline"""
+"""`alderaan run`: parse arguments and run the pipeline on one target
+
+Example::
+
+    alderaan run -t K00137 -m Kepler \\
+        --input_dir /path/to/kepler/lightcurves \\
+        --output_dir /path/to/outputs \\
+        --catalog reference/alderaan/kepler_merged_alderaan.csv \\
+        --run_id my_run  # optional; default run_{UT launch stamp}
+
+Add ``--visits 4 5 6`` to load only some Kepler quarters. A rerun into a
+non-empty results or plots directory fails; use a new run_id.
+
+Outputs, under ``{output_dir}/{run_id}/`` (NN is the planet index)::
+
+    logs/
+        alderaan_K00137_{UTstamp}.log        # DEBUG-level run log
+    results/K00137/
+        K00137_detrended.fits                # detrended photometry
+        K00137_results.fits                  # posteriors, transit times, photometry
+    plots/K00137/
+        K00137_litecurve_raw.png
+        K00137_litecurve_detrended.png
+        K00137_omc_NN.png
+        K00137_dynesty_runplot.png
+        K00137_dynesty_traceplot_NN.png
+        K00137_dynesty_cornerplot_NN.png
+"""
 
 import argparse
 import time
