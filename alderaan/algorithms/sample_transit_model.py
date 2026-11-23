@@ -37,7 +37,8 @@ class SampleTransitModel(BaseAlg):
             ror = Rp/Rs: log-uniform on (1e-5, 0.99)
             b: uniform on (0, 1 + ror)
             T14: log-uniform on (0.01, 3) x planet duration, so durations
-            must be known with reasonable confidence
+            must be known with reasonable confidence; capped below P/2,
+            where the circular (b, T14) geometry stops being unique
             q1, q2: uniform on (0, 1)
 
         Motivation for these choices:
@@ -66,8 +67,9 @@ class SampleTransitModel(BaseAlg):
             x[5 * n + 1] = norm_ppf(u[1 + n * 5], 0.0, 0.1)
             x[5 * n + 2] = loguniform_ppf(u[2 + n * 5], 1e-5, 0.99)
             x[5 * n + 3] = uniform_ppf(u[3 + n * 5], 0.0, 1 + x[5 * n + 2])
+            p = tm.planets[n]
             x[5 * n + 4] = loguniform_ppf(
-                u[4 + n * 5], 0.01 * tm.planets[n].duration, 3 * tm.planets[n].duration
+                u[4 + n * 5], 0.01 * p.duration, min(3 * p.duration, 0.49 * p.period)
             )
 
         x[-2] = uniform_ppf(u[-2], 0, 1)
@@ -152,14 +154,15 @@ class SampleTransitModel(BaseAlg):
                 *b,
                 *(T14 * 24),
             )
-            if T14[1] < 1.05 * 0.01 * p.duration or T14[1] > 0.95 * 3 * p.duration:
+            lo, hi = 0.01 * p.duration, min(3 * p.duration, 0.49 * p.period)
+            if T14[1] < 1.05 * lo or T14[1] > 0.95 * hi:
                 logger.warning(
                     "planet %d: posterior median T14 = %.3f hr is near the prior edge "
                     "(%.3f to %.3f hr)",
                     n,
                     T14[1] * 24,
-                    0.01 * p.duration * 24,
-                    3 * p.duration * 24,
+                    lo * 24,
+                    hi * 24,
                 )
 
         q1, q2 = _q(-2), _q(-1)

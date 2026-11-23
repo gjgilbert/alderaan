@@ -27,4 +27,4 @@ dependencies:
   - pip:
      - celerite2==0.3.3
      - ldtk==1.9.3
-     - git+https://github.com/gjgilbert/batman@6fb48346274fd3b108923c41fe5719d999c64505
+     - git+https://github.com/gjgilbert/batman@2d524ad5a4adad418f2ce9241e1253d41f017feb

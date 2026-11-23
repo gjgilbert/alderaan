@@ -14,7 +14,7 @@ license-files = ["LICENSE"]
 # versions match environment.yml
 dependencies = [
     "astropy==7.2.0",
-    "batman-package @ git+https://github.com/gjgilbert/batman@6fb48346274fd3b108923c41fe5719d999c64505",
+    "batman-package @ git+https://github.com/gjgilbert/batman@2d524ad5a4adad418f2ce9241e1253d41f017feb",
     "celerite2==0.3.3",
     "dynesty==3.2.0",
     "ldtk==1.9.3",
