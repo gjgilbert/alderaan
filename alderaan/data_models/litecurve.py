@@ -15,10 +15,9 @@ from alderaan.utils.plotting import label_axes, save_and_close
 
 logger = logging.getLogger(__name__)
 
-# per-cadence arrays carried by every LiteCurve: name -> FITS column format;
-# OBSMODE width is set at write time
 # per-cadence arrays and their FITS formats; float32 flux and error err by
-# < 0.002 x error, but time stays float64 (float32 errs by seconds)
+# <= 6e-8 relative (0.004 x error for a bright star), but time stays float64
+# (float32 errs by seconds)
 FIELDS = {
     "time": "D",
     "flux": "E",
