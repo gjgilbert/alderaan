@@ -1,6 +1,34 @@
-"""`alderaan run`: parse arguments and run the pipeline"""
+"""`alderaan run`: parse arguments and run the pipeline on one target
+
+Example::
+
+    alderaan run -t K00137 -m Kepler \\
+        --input_dir /path/to/kepler/lightcurves \\
+        --output_dir /path/to/outputs \\
+        --catalog reference/alderaan/kepler_merged_alderaan.csv \\
+        --run_id my_run  # optional; default run_{UT launch stamp}
+
+Add ``--visits 4 5 6`` to load only some Kepler quarters. A rerun into a
+non-empty results or plots directory fails; use a new run_id.
+
+Outputs, under ``{output_dir}/{run_id}/`` (NN is the planet index)::
+
+    logs/
+        alderaan_K00137_{UTstamp}.log        # DEBUG-level run log
+    results/K00137/
+        K00137_detrended.fits                # detrended photometry
+        K00137_results.fits                  # posteriors, transit times, photometry
+    plots/K00137/
+        K00137_litecurve_raw.png
+        K00137_litecurve_detrended.png
+        K00137_omc_NN.png
+        K00137_dynesty_runplot.png
+        K00137_dynesty_traceplot_NN.png
+        K00137_dynesty_cornerplot_NN.png
+"""
 
 import argparse
+import time
 from pathlib import Path
 
 
@@ -16,7 +44,10 @@ def build_parser():
         choices=["Kepler"],
         help="observing mission",
     )
-    parser.add_argument("--run_id", required=True, help="run identifier")
+    parser.add_argument(
+        "--run_id",
+        help="run identifier (default: run_{UT launch stamp})",
+    )
     parser.add_argument(
         "--input_dir",
         type=Path,
@@ -53,6 +84,7 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    args.run_id = args.run_id or time.strftime("run_%Y%m%dT%H%M%S", time.gmtime())
 
     # deferred so --help and argument errors don't pay for the pipeline imports
     from alderaan.pipeline import main as run_pipeline

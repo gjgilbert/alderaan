@@ -2,16 +2,18 @@
 
 import sys
 
-from alderaan.cli import run
+from alderaan.cli import batch, run
 
 _COMMANDS = {
     "run": run.main,
+    "batch": batch.main,
 }
 
 USAGE = """usage: alderaan <command> [options]
 
 commands:
-  run    run the pipeline on one target"""
+  run    run the pipeline on one target
+  batch  run the pipeline on every target in a catalog, in parallel"""
 
 
 def main(argv=None):
