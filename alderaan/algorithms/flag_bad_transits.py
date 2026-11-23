@@ -29,9 +29,8 @@ class FlagBadTransits(BaseAlg):
 
     def _check_coverage(self):
         """
-        Check that each transit has at least 50% coverage
-          * number of cadences in transit (tc +/- 0.5*T14)
-          * number of cadences near transit (tc +/- 1.5*T14)
+        Per transit, True if >= 50% of expected cadences are present both in
+        transit (tc +/- 0.5 T14) and near transit (tc +/- 1.5 T14)
         """
         lc = self.litecurve
 
@@ -151,10 +150,8 @@ class FlagBadTransits(BaseAlg):
         """
         planets = self.planets
 
-        # check for transits with poor photometric coverage
         coverage = self._check_coverage()
 
-        # check for transits with unusually high noise
         good_rms = self._check_rms(rel_size=3.0, abs_size=2 / 24, sigma_cut=5.0)
 
         for n, p in enumerate(planets):
@@ -192,7 +189,6 @@ class FlagBadTransits(BaseAlg):
                 )
             )
 
-        # drop planets left with too few good transits for an ephemeris
         planets, litecurve = self._drop_planets_with_few_transits()
 
         return planets, litecurve

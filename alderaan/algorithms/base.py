@@ -37,9 +37,9 @@ class BaseAlg:
 
     Notes
     -----
-    Each subclass's perform() is wrapped to log its start (with keyword
-    arguments) and runtime to the subclass module's logger; failures propagate
-    to pipeline.py, which logs them.
+    Each subclass's perform() is wrapped to log its start (with arguments) and
+    runtime to the subclass module's logger; failures propagate to pipeline.py,
+    which logs them.
     """
 
     def __init_subclass__(cls, **kwargs):
@@ -48,7 +48,6 @@ class BaseAlg:
             cls.perform = _log_perform(cls.perform, cls.__name__, cls.__module__)
 
     def __init__(self, star, planets, litecurve):
-        # check inputs
         if not isinstance(litecurve, LiteCurve):
             raise TypeError("litecurve must be a LiteCurve")
         if not isinstance(planets, list):
@@ -59,7 +58,6 @@ class BaseAlg:
         if not isinstance(star, Star):
             raise TypeError("star must be a Star")
 
-        # set attributes
         self.litecurve = deepcopy(litecurve)
         self.npl = len(planets)
         self.planets = deepcopy(planets)
@@ -75,10 +73,12 @@ class BaseAlg:
 
         Parameters
         ----------
-        rel_size : float
-            full width of masked region in units of transit duration (T14)
-        abs_size : float
-            floor on rel_size * T14 in days, so short transits are not under-masked
+        rel_size : float or array-like
+            full width of masked region in units of transit duration (T14);
+            one value for all planets or one per planet
+        abs_size : float or array-like
+            floor on rel_size * T14 in days, so short transits are not under-masked;
+            one value for all planets or one per planet
         buffer : float or array-like
             extra full width in days added after the floor (e.g. cadence + TTVs);
             one value for all planets or one per planet
@@ -86,25 +86,29 @@ class BaseAlg:
             cadence times to mask (default = self.litecurve.time)
         phot_only : bool
             mask only transits with good photometry (TransitTimes.phot_coverage
-            and phot_noise), e.g. to select
-            the photometry a fit uses (default False: every transit)
+            and phot_noise), e.g. to select the photometry a fit uses
+            (default False: every transit)
 
         Returns
         -------
         mask : ndarray, bool
             True for cadences near a transit of any planet
         """
-        if rel_size == 0 and abs_size == 0:
+        rel_size = np.broadcast_to(rel_size, self.npl)
+        abs_size = np.broadcast_to(abs_size, self.npl)
+        buffer = np.broadcast_to(buffer, self.npl)
+        if np.any((rel_size == 0) & (abs_size == 0)):
             raise ValueError("either rel_size or abs_size must be nonzero")
 
         if time is None:
             time = self.litecurve.time
 
         mask = np.zeros((self.npl, len(time)), dtype=int)
-        buffer = np.broadcast_to(buffer, self.npl)
 
         for n, p in enumerate(self.planets):
-            half_width = 0.5 * (np.max([rel_size * p.duration, abs_size]) + buffer[n])
+            half_width = 0.5 * (
+                np.max([rel_size[n] * p.duration, abs_size[n]]) + buffer[n]
+            )
             tt = p.transit_times
             phot = tt.phot_coverage & tt.phot_noise
             ttime = tt.ttime_mod[phot] if phot_only else tt.ttime_mod

@@ -30,51 +30,48 @@ class SampleTransitModel(BaseAlg):
     @staticmethod
     def _prior_transform(uniform_hypercube, tm):
         """
-        Prior transform over physical ALDERAAN basis {C0, C1, ror, b, T14}...{q1,q2}
+        Prior transform onto npl * [C0, C1, ror, b, T14] + [q1, q2]
 
-        Distributions are hard-coded to be:
-            Normal on ephemeris perturbations {C0,C1}: N(0, 0.1) days; C0 is the
-            offset at the photometry mid-span, C1 the additional offset at t_end
-            (see TransitModel)
-            Log-uniform on radius ratio ror = Rp/Rs and transit duration T14
-            Uniform on impact parameter b
-            Uniform on quadratic limb darkening coefficients {q1,q2}
+        Priors:
+            C0, C1: Normal N(0, 0.1) days (see TransitModel)
+            ror = Rp/Rs: log-uniform on (1e-5, 0.99)
+            b: uniform on (0, 1 + ror)
+            T14: log-uniform on (0.01, 3) x planet duration, so durations
+            must be known with reasonable confidence; capped below P/2,
+            where the circular (b, T14) geometry stops being unique
+            q1, q2: uniform on (0, 1)
 
-        For motivation behind this prior-parameter choice see:
+        Motivation for these choices:
             Carter+ 2008 (2008ApJ...689..499C)
             Kipping 2013 (2013MNRAS.435.2152K)
             Gilbert, MacDougall, & Petigura 2022 (2022AJ....164...92G)
             MacDougal, Gilbert, & Petigura 2023 (2023AJ....166...61M)
 
-        Assumes that transit durations are known with reasonable confidence
-        * sampled T14 will be restricted between (0.01*fixed_duration, 3*fixed_duration)
-
         Parameters
         ----------
         uniform_hypercube : array-like, length 5 * npl + 2
-            list of parameters npl * [C0, C1, ror, b, T14] + [q1, q2]
+            U(0, 1) samples
         tm : TransitModel
-            transit model; planet durations set the T14 prior limits
+            planet durations set the T14 prior limits
 
         Returns
         -------
         transformed_hypercube : array_like, length 5 * npl + 2
-            transformed samples
+            samples in the physical basis
         """
-        u = np.asarray(uniform_hypercube)  # U(0,1) priors
-        x = np.zeros_like(u)  # physical priors
+        u = np.asarray(uniform_hypercube)
+        x = np.zeros_like(u)
 
-        # 5 * npl + 2 parameters: [C0, C1, ror, b, T14]...[q1, q2]
         for n in range(tm.npl):
             x[5 * n + 0] = norm_ppf(u[0 + n * 5], 0.0, 0.1)
             x[5 * n + 1] = norm_ppf(u[1 + n * 5], 0.0, 0.1)
             x[5 * n + 2] = loguniform_ppf(u[2 + n * 5], 1e-5, 0.99)
             x[5 * n + 3] = uniform_ppf(u[3 + n * 5], 0.0, 1 + x[5 * n + 2])
+            p = tm.planets[n]
             x[5 * n + 4] = loguniform_ppf(
-                u[4 + n * 5], 0.01 * tm.planets[n].duration, 3 * tm.planets[n].duration
+                u[4 + n * 5], 0.01 * p.duration, min(3 * p.duration, 0.49 * p.period)
             )
 
-        # limb darkening coefficients (see Kipping 2013)
         x[-2] = uniform_ppf(u[-2], 0, 1)
         x[-1] = uniform_ppf(u[-1], 0, 1)
 
@@ -101,19 +98,22 @@ class SampleTransitModel(BaseAlg):
 
     def _sample(self, tm):
         ndim = 5 * tm.npl + 2
+        settings = {"seed": SEED, "bound": "multi", "sample": "rwalk"}
         logger.info(
-            "dynesty DynamicNestedSampler: ndim = %d, bound = multi, sample = rwalk, "
+            "dynesty DynamicNestedSampler: ndim = %d, bound = %s, sample = %s, "
             "default nlive/dlogz",
             ndim,
+            settings["bound"],
+            settings["sample"],
         )
         sampler = dynesty.DynamicNestedSampler(
             tm.ln_likelihood,
             self._prior_transform,
             ndim,
-            bound="multi",
-            sample="rwalk",
+            bound=settings["bound"],
+            sample=settings["sample"],
             ptform_args=(tm,),
-            rstate=np.random.default_rng(SEED),
+            rstate=np.random.default_rng(settings["seed"]),
         )
         sampler.run_nested(
             print_progress=True,
@@ -133,7 +133,7 @@ class SampleTransitModel(BaseAlg):
             1 / np.sum(weights**2),
         )
 
-        return results
+        return results, settings
 
     @staticmethod
     def _log_posterior_summary(results, tm):
@@ -154,14 +154,15 @@ class SampleTransitModel(BaseAlg):
                 *b,
                 *(T14 * 24),
             )
-            if T14[1] < 1.05 * 0.01 * p.duration or T14[1] > 0.95 * 3 * p.duration:
+            lo, hi = 0.01 * p.duration, min(3 * p.duration, 0.49 * p.period)
+            if T14[1] < 1.05 * lo or T14[1] > 0.95 * hi:
                 logger.warning(
                     "planet %d: posterior median T14 = %.3f hr is near the prior edge "
                     "(%.3f to %.3f hr)",
                     n,
                     T14[1] * 24,
-                    0.01 * p.duration * 24,
-                    3 * p.duration * 24,
+                    lo * 24,
+                    hi * 24,
                 )
 
         q1, q2 = _q(-2), _q(-1)
@@ -188,9 +189,14 @@ class SampleTransitModel(BaseAlg):
         for obsmode in tm.unique_obsmodes:
             logger.info("supersample factor (%s): %d", obsmode, tm.supersample[obsmode])
 
-        results = self._sample(tm)
+        results, settings = self._sample(tm)
         self._log_posterior_summary(results, tm)
 
-        return Posteriors.from_dynesty(
+        posteriors = Posteriors.from_dynesty(
             self.litecurve.mission, self.litecurve.target, results, tm
         )
+        posteriors.meta.update({k.upper(): v for k, v in settings.items()})
+        posteriors.meta["LDPRIOR"] = self.star.ld_prior
+        if self.star.ld_prior:
+            posteriors.meta.update(LD_U1=self.star.u1, LD_U2=self.star.u2)
+        return posteriors

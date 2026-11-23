@@ -78,10 +78,12 @@ class TestWeightedPercentile:
 class TestBinData:
     def test_bins_linear_trend(self):
         time = np.arange(0, 10, 0.01)
-        centers, binned = bin_data(time, 2 * time + 1, binsize=1.0)
+        centers, binned, error = bin_data(time, 2 * time + 1, binsize=1.0)
         npt.assert_allclose(np.diff(centers), 1.0)
         # end bins are only partly filled
         npt.assert_allclose(binned[1:-1], 2 * centers[1:-1] + 1, atol=0.02)
+        # 100 points uniform over a span of 2: std 2/sqrt(12), error std/sqrt(100)
+        npt.assert_allclose(error[1:-1], 2 / np.sqrt(12) / 10, rtol=0.02)
 
 
 class TestLegendreP1:

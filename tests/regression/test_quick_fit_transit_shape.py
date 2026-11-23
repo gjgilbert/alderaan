@@ -89,3 +89,19 @@ class TestQuickFitTransitShape:
                 new.transit_times.ttime_mod, old.transit_times.ttime_mod
             )
         np.testing.assert_array_equal(new_litecurve.flux, litecurve.flux)
+
+    def test_transits_with_bad_photometry_are_not_fit(self):
+        # corrupt one transit with an extra 1% box dip; flagging it restores the
+        # recovered shape
+        star, planets, litecurve = _synthetic_system(TRUTH[:1])
+        _, _, ror, _, T14 = TRUTH[0]
+        tc = planets[0].transit_times.ttime_mod[3]
+        litecurve.flux[np.abs(litecurve.time - tc) < T14] -= 0.01
+
+        unflagged = QuickFitTransitShape(star, planets, litecurve).perform()[0]
+        assert unflagged[0].ror != pytest.approx(ror, rel=0.03)
+
+        planets[0].transit_times.phot_noise[3] = False
+        flagged = QuickFitTransitShape(star, planets, litecurve).perform()[0]
+        assert flagged[0].ror == pytest.approx(ror, rel=0.03)
+        assert flagged[0].duration == pytest.approx(T14, rel=0.03)

@@ -13,7 +13,7 @@ from copy import copy
 import numpy as np
 from batman import _quadratic_ld, _rsky
 
-from alderaan.constants import EXPTIME
+from alderaan.constants import EXPTIME, KEPLER_LCIT
 from alderaan.utils.astro import ld_q_to_u
 from alderaan.utils.stats import legendre_p1
 
@@ -52,15 +52,13 @@ class TransitModel:
     """
     Transit forward model for a star, planets, and litecurve
 
-    model_flux(theta) uses the parameterization
-        theta = npl * [C0, C1, ror, b, T14] + [q1, q2]
-     * linear perturbation C0 + C1 * legendre_p1(T, (t_start, t_end)) added to
-       each transit time on a fixed ephemeris, where T is each transit's time
-       on the planet's linear ephemeris and (t_start, t_end) is the photometry
-       span: C0 is the offset (days) at
+    theta = npl * [C0, C1, ror, b, T14] + [q1, q2]
+     * C0 + C1 * legendre_p1(T, (t_start, t_end)) shifts each transit time,
+       where T is the transit's time on the planet's linear ephemeris and
+       (t_start, t_end) is the photometry span: C0 is the offset (days) at
        mid-span, C1 the additional offset (days) at t_end
-     * shape parameters (ror = Rp/Rs, impact b, duration T14)
-     * limb darkening (q1,q2) in the Kipping 2013 basis
+     * shape: ror = Rp/Rs, impact b, duration T14
+     * limb darkening (q1, q2) in the Kipping 2013 basis
     """
 
     def __init__(self, star, planets, litecurve):
@@ -104,27 +102,20 @@ class TransitModel:
         depth = ror**2
         tau12 = (13 / 24) * (period / 365.25) ** (1 / 3) * ror
 
-        # supersample factor (forced odd, minimum 7) following Kipping 2010,
-        # and exposure time integration offsets; short cadence is not supersampled
         self.supersample = {}
         self.exptime_offsets = {}
         for om in self.unique_obsmodes:
-            if om == "short cadence":
-                self.supersample[om] = 1
-                self.exptime_offsets[om] = np.array([0.0])
-                continue
-
             exptime = EXPTIME[om]
-            # sigma so binning error is < 0.1% of this obsmode's photometric
-            # uncertainty
+            # Kipping 2010; 0.04 sigma inflates the effective noise < 0.1%
             use = lc.obsmode == om
             sigma = np.mean(lc.error[use] / lc.flux[use]) * 0.04
-            supersample = np.array(
-                np.ceil(np.sqrt((depth / tau12) * (exptime / 8 / sigma))), dtype=int
+            n_noise = np.sqrt((depth / tau12) * (exptime / 8 / sigma))
+            # integration error < 1% of depth at short periods; error ~ exptime / N^2
+            n_min = np.maximum(7, 13 * period ** (-1 / 6)) * np.sqrt(
+                exptime / KEPLER_LCIT
             )
-            self.supersample[om] = np.max(
-                np.hstack([supersample + (supersample % 2 + 1), 7])
-            )
+            n = int(np.ceil(np.max(np.hstack([n_noise, n_min]))))
+            self.supersample[om] = n + (1 - n % 2)  # odd
             self.exptime_offsets[om] = exposure_offsets(exptime, self.supersample[om])
             logger.debug(
                 "supersample (%s) = %d (min tau12 = %.2f min, sigma = %.2e)",
@@ -154,14 +145,13 @@ class TransitModel:
         """
         Warp litecurve times so each planet's transits line up on a fixed ephemeris
 
-        For each planet, every cadence is assigned to its nearest transit k: the
-        bin edges sit halfway between consecutive transit times. Then
-          * warped_time = time - (transit k's time), so the transit is at 0
+        Each cadence is assigned to its nearest transit k (bin edges halfway
+        between consecutive transit times), then
+          * warped_time = time - (transit k's time)
           * warped_legx = legendre_p1(ref_epoch + ref_period * k, (t_start, t_end)),
-            used by the linear ephemeris perturbation C0 + C1 * warped_legx
-        Missing transit indexes fall back to the least squares ephemeris of the
-        transit times, and cadences before the first or after the last transit
-        join those transits.
+            used by the perturbation C0 + C1 * warped_legx
+        Missing transit indexes use the least squares ephemeris; cadences
+        outside the first/last transit join those transits.
 
         Transit indexes must be zero-based.
         """
@@ -228,17 +218,17 @@ class TransitModel:
             theta.append(p.impact)
             theta.append(p.duration)
 
-        # limb darkening in the sampling basis (q1, q2), see Kipping 2013
         theta.extend([self.star.q1, self.star.q2])
 
         return np.array(theta)
 
     def model_flux(self, theta):
         """
-        theta : array-like
-            npl * [C0, C1, ror, b, T14] + [q1, q2]
+        Model flux at every litecurve cadence
 
-        Limb darkening is sampled in terms of [q1, q2] (see Kipping 2013)
+        theta : array-like
+            npl * [C0, C1, ror, b, T14] + [q1, q2], limb darkening in the
+            Kipping 2013 (q1, q2) basis
         """
         u1, u2 = ld_q_to_u(*np.array(theta[-2:]))
 
@@ -268,8 +258,8 @@ class TransitModel:
             # transit at ttime_mod + C0 + C1 * legx
             _t = warped_time[n] - (C0 + C1 * warped_legx[n])
 
-            # batman's _rsky returns no overlap (flux exactly 1) beyond |t_phi| > T14,
-            # so skip cadences whose every sub-exposure lies there; exact, not approx
+            # _rsky gives flux exactly 1 beyond |t_phi| > T14, so skipping cadences
+            # whose every sub-exposure lies there is exact
             period = self.static_period[n]
             t_phi = _t - period * np.round(_t / period)
             near = np.abs(t_phi) <= T14 + EXPTIME[obsmode]

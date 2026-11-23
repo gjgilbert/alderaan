@@ -33,9 +33,7 @@ def main(
     visits=None,
     log_level="INFO",
 ):
-    """
-    Run the ALDERAAN pipeline on one target (see `alderaan run --help`)
-    """
+    """Run the ALDERAAN pipeline on one target (see `alderaan run --help`)"""
     pipeline_start_time = time.perf_counter()
 
     # fail before creating any output directories
@@ -89,7 +87,6 @@ def main(
             results_path,
         )
     finally:
-        # close the log file and stop capturing warnings, even if the run fails
         teardown_logging()
 
 
@@ -118,8 +115,7 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog, visits):
         method="smooth"
     )
 
-    # no fitted transit model yet: clip on a local trend and detrend with a
-    # wide mask
+    # no fitted transit model yet: clip on a local trend, detrend with a wide mask
     planets, litecurve = ClipOutliers(star, planets, litecurve).perform(
         method="local_trend"
     )
@@ -151,6 +147,9 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog, visits):
         method="tight_mask"
     )
     planets, litecurve = FlagBadTransits(star, planets, litecurve).perform()
+    litecurve.meta.update(
+        RUN_ID=run_id, VERSION=alderaan.__version__, GIT_HASH=alderaan.git_hash()
+    )
     litecurve.to_fits(os.path.join(results_dir, f"{target}_detrended.fits"))
     litecurve.plot(
         mark_times=[p.transit_times.ttime_mod for p in planets],
@@ -158,14 +157,16 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog, visits):
     )
     posteriors = SampleTransitModel(star, planets, litecurve).perform()
 
-    # package and save results
     results = Results(
         posteriors=posteriors,
         transit_times=[p.transit_times for p in planets],
         litecurve=litecurve,
     )
+    results.meta.update(litecurve.meta)
+    for n, p in enumerate(planets):
+        results.meta[f"PLNAME{n}"] = p.meta["PLNAME"]
     results_path = os.path.join(results_dir, f"{target}_results.fits")
-    results.to_fits(results_path, run_id)
+    results.to_fits(results_path)
 
     posteriors.dynesty_runplot(
         fig_path=os.path.join(plots_dir, f"{target}_dynesty_runplot.png")

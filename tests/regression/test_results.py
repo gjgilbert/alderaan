@@ -7,7 +7,6 @@ import pytest
 from astropy.io import fits
 from numpy.testing import assert_allclose, assert_array_equal
 
-import alderaan
 from alderaan.data_models import LiteCurve, Results, TransitTimes
 
 TARGET = "K00137"
@@ -74,16 +73,20 @@ class TestFits:
             transit_times=_transit_times(),
             litecurve=_litecurve(),
         )
+        res.meta = {"RUN_ID": "r1", "PLNAME0": "K00137.01"}
+        res.litecurve.meta = {"DTKERNEL": "SHOTerm", "DTNOMP": 2.5}
+        res.posteriors.meta = {"SEED": 7, "LDPRIOR": False}
         path = str(tmp_path / "results.fits")
         lc_path = str(tmp_path / "detrended.fits")
-        res.to_fits(path, run_id="r1")
+        res.to_fits(path)
         res.litecurve.to_fits(lc_path)
 
         out = Results.from_fits(path, lc_path)
         assert (out.mission, out.target, out.npl) == (res.mission, res.target, res.npl)
-        header = fits.getheader(path)
-        assert header["RUN_ID"] == "r1"
-        assert header["VERSION"] == alderaan.__version__
+        assert out.meta == res.meta
+        assert out.litecurve.meta == res.litecurve.meta
+        samples_header = fits.getheader(path, "SAMPLES")
+        assert (samples_header["SEED"], samples_header["LDPRIOR"]) == (7, False)
 
         p_in, p_out = res.posteriors, out.posteriors
         pd.testing.assert_frame_equal(p_out.samples, p_in.samples)
@@ -91,7 +94,6 @@ class TestFits:
             assert_array_equal(p_out.sampler_info[k], v)
         assert p_out.sampler_info["samples_n"].dtype.kind == "i"
         info = p_in.sampler_info
-        samples_header = fits.getheader(path, "SAMPLES")
         assert samples_header["NCALL"] == np.sum(info["ncall"])
         assert np.isclose(samples_header["NEFF"], p_in.neff())
         assert samples_header["LN_Z"] == info["logz"][-1]
@@ -111,7 +113,7 @@ class TestFits:
     def test_round_trip_transit_times_only(self, tmp_path):
         res = Results(transit_times=_transit_times())
         path = str(tmp_path / "results.fits")
-        res.to_fits(path, run_id="r1")
+        res.to_fits(path)
         out = Results.from_fits(path)
         assert out.posteriors is None and out.litecurve is None
         assert out.npl == 2

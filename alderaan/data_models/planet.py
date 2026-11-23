@@ -42,6 +42,7 @@ class Planet:
 
         self.static_period = None
         self.static_epoch = None
+        self.meta = {}  # FITS header cards (see pipeline._run)
 
     @property
     def period(self):
@@ -76,27 +77,14 @@ class Planet:
         self.transit_times = transit_times
 
     def set_static_period_and_epoch(self):
-        """
-        Freeze current period and epoch as the fixed reference for O-C and time warping
-        """
+        """Freeze current period and epoch as the reference for O-C and time warping"""
         if self.static_period is not None:
             raise ValueError("static period/epoch already set")
         self.static_period = self.period
         self.static_epoch = self.epoch
 
     def set_transit_shape(self, ror, impact, duration):
-        """
-        Set transit shape parameters (e.g. from QuickFitTransitShape)
-
-        Parameters
-        ----------
-        ror : float
-            planet-to-star radius ratio Rp/Rs
-        impact : float
-            impact parameter
-        duration : float
-            transit duration T14 (days)
-        """
+        """Set transit shape parameters (see class docstring for units)"""
         self.ror = ror
         self.impact = impact
         self.duration = duration

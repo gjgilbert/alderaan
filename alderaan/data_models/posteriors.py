@@ -79,6 +79,7 @@ class Posteriors:
         self.t_start = float(t_start)
         self.t_end = float(t_end)
         self.supersample = {str(om): int(ss) for om, ss in supersample.items()}
+        self.meta = {}  # FITS header cards, written to SAMPLES; not read back
 
         if len(self.ref_epoch) != self.npl:
             raise ValueError("ref_epoch must have one entry per planet")
@@ -136,9 +137,7 @@ class Posteriors:
         )
 
     def _to_hdus(self):
-        """
-        SAMPLES and EPHEMERIS BinTableHDUs (used by Results.to_fits)
-        """
+        """SAMPLES and EPHEMERIS BinTableHDUs (used by Results.to_fits)"""
         info = self.sampler_info
         samples_df = self.samples.assign(
             **{col: info[k] for k, col in SAMPLE_COLUMNS.items()}
@@ -159,6 +158,7 @@ class Posteriors:
         samples_hdu.header["NBATCH"] = len(info["batch_nlive"])
         for i, nlive in enumerate(info["batch_nlive"]):
             samples_hdu.header[f"NLIVE{i}"] = nlive
+        samples_hdu.header.update(self.meta)
 
         ephem_hdu = fits.BinTableHDU.from_columns(
             [
@@ -224,22 +224,16 @@ class Posteriors:
         return len(self.samples)
 
     def neff(self):
-        """
-        Number of effective samples (Kish ESS)
-        """
+        """Number of effective samples (Kish ESS)"""
         return dynesty.utils.get_neff_from_logwt(self.sampler_info["logwt"])
 
     def weights(self):
-        """
-        Normalized posterior weights
-        """
+        """Normalized posterior weights"""
         wt = np.exp(self.sampler_info["logwt"] - self.sampler_info["logz"][-1])
         return wt / np.sum(wt)
 
     def summary(self):
-        """
-        Weighted posterior summary statistics for each sampled parameter
-        """
+        """Weighted posterior summary statistics for each sampled parameter"""
         weights = self.weights()
 
         rows = {}
@@ -262,10 +256,9 @@ class Posteriors:
         """
         Physical posterior samples for planet n
 
-        The sampled transit times are ttime + C0 + C1 * legx with
-        legx = legendre_p1(ref_epoch + ref_period * index, (t_start, t_end)), which is
-        linear in index; adding that line to the reference ephemeris gives the
-        sampled period and epoch
+        Sampled transit times are ttime + C0 + C1 * legx, with legx linear in
+        transit index (see class docstring); adding that line to the reference
+        ephemeris gives the sampled period and epoch
 
         Returns
         -------
@@ -300,8 +293,8 @@ class Posteriors:
 
     def _dynesty_results(self):
         """
-        dynesty Results for dynesty.plotting; samples_u and samples_id are required
-        by its constructor but unused by these plots
+        dynesty Results for dynesty.plotting; samples_u and samples_id are
+        required by its constructor but unused by these plots
         """
         samples = self.samples.to_numpy()
         return dynesty.utils.Results(

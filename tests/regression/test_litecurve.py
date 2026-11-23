@@ -123,9 +123,11 @@ class TestFits:
     def test_round_trip(self, tmp_path):
         lc = _lc()
         lc.select(lc.time > 130.3)
+        lc.meta = {"VISITS": "4", "DTNOMP": 2.5}
         path = str(tmp_path / "lc.fits")
         lc.to_fits(path)
         out = LiteCurve.from_fits(path)
+        assert out.meta == lc.meta
 
         assert (out.mission, out.target) == (lc.mission, lc.target)
         assert (out.t_start, out.t_end) == (lc.t_start, lc.t_end)
@@ -175,8 +177,10 @@ class TestFromKplrPdcsap:
         assert len(flagged) > 0
         assert not np.any(np.isin(kplr_lc.cadno, flagged))
 
-    def test_missing_obsmode_fails(self):
-        with pytest.raises(FileNotFoundError, match="short cadence"):
-            LiteCurve.from_kplr_pdcsap(
-                str(DATA_DIR), TARGET, KIC_ID, "short cadence", visits=VISITS
-            )
+
+def test_missing_obsmode_fails():
+    # reads FITS headers only, so fast
+    with pytest.raises(FileNotFoundError, match="short cadence"):
+        LiteCurve.from_kplr_pdcsap(
+            str(DATA_DIR), TARGET, KIC_ID, "short cadence", visits=VISITS
+        )

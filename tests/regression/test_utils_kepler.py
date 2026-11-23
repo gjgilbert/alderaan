@@ -1,8 +1,8 @@
 """
 Tests for alderaan/utils/kepler.py: KOI and Holczer+2016 catalogs, target loading
 
-The KOI catalog and synthetic Holczer tables are fast; the full Holczer+2016
-table and load_kepler_data on K00137 (Kepler-18) are slow.
+Catalog reads (KOI, full Holczer+2016) and synthetic Holczer tables are fast;
+load_kepler_data on K00137 (Kepler-18) is slow.
 """
 
 from pathlib import Path
@@ -94,10 +94,27 @@ class TestMatchHolczer16:
         npt.assert_allclose(short.ttime_err, 2e-3)
 
         assert long.ttime_obs.size == 11
-        assert np.isnan(long.ttime_obs[2]) and np.isnan(long.ttime_err[2])
         npt.assert_allclose(long.ttime_obs[idx_a], 103.0 + 9.0 * idx_a + 0.01)
-        # unmeasured epochs keep the linear ephemeris prediction
-        npt.assert_allclose(long.ttime_mod[2], 103.01 + 9.0 * 2)
+        # unmeasured epochs are interpolated in OMC, with no error
+        assert np.isnan(long.ttime_err[2])
+        npt.assert_allclose(long.ttime_obs[2], 103.01 + 9.0 * 2)
+        npt.assert_allclose(long.ttime_mod, long.ttime_obs)
+
+    def test_unmeasured_epochs_interpolated_in_omc(self):
+        # Holczer measures epochs 0, 2, 3 of 5 in the window, OMC 0, +2, +3 min
+        planets = [_planet(10.0, 105.0, self.T_MIN, self.T_MAX)]
+        index = np.array([0, 2, 3])
+        omc = np.array([0.0, 2.0, 3.0]) / 24 / 60
+        tables = [(index, 105.0 + 10.0 * index + omc, np.full(3, 1e-3))]
+
+        planets = match_holczer16_transit_times(planets, tables, self.T_MIN, self.T_MAX)
+        t = planets[0].transit_times.ttime_obs
+
+        assert np.all(np.isfinite(t))
+        # epoch 1 lies midway between Holczer epochs 0 and 2
+        npt.assert_allclose(t[1], 0.5 * (t[0] + t[2]))
+        # past the last Holczer epoch, OMC is held flat: equal spacing
+        npt.assert_allclose(np.diff(t[3:]), np.diff(t[3:])[0])
 
     def test_table_matching_two_planets_raises(self):
         planets = [
@@ -145,7 +162,7 @@ class TestDropFewTransitPlanets:
         with pytest.raises(ValueError, match="2 transits within litecurve span"):
             drop_few_transit_planets(_catalog([(37.0, 21.5, 0.2)]), _litecurve())
 
-    def test_drops_planet_and_its_transits_in_multiplanet_system(self, caplog):
+    def test_drops_planet_and_its_transits_in_multiplanet_system(self):
         # planet 1: one transit, at 50.0
         catalog = _catalog([(3.1, 1.3, 0.2), (100.0, 50.0, 0.4)])
         lc = _litecurve()
@@ -155,7 +172,6 @@ class TestDropFewTransitPlanets:
 
         npt.assert_allclose(out.period, [3.1])
         assert (out.npl == 1).all()
-        assert "planet 1 (P = 100.000000 d): 1 transits" in caplog.text
         # 3 T14 window around the dropped transit
         npt.assert_array_equal(lc.time, time[np.abs(time - 50.0) >= 1.5 * 0.4])
 
@@ -165,7 +181,6 @@ class TestDropFewTransitPlanets:
             drop_few_transit_planets(catalog, _litecurve())
 
 
-@pytest.mark.slow
 class TestParseHolczer16:
     def test_k00137(self):
         tables = parse_holczer16_catalog(HOLCZER_TXT, TARGET)

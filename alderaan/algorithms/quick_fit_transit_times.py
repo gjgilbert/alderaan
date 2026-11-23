@@ -41,7 +41,6 @@ class QuickFitTransitTimes(BaseAlg):
         transit_window_size : float
             full width of the template (days)
         """
-        # shorthand
         p = tm.planets[planet_no]
 
         exptime = EXPTIME[obsmode]
@@ -132,7 +131,7 @@ class QuickFitTransitTimes(BaseAlg):
         supersample = tm.supersample[obsmode]
         exptime_ioff = tm.exptime_offsets[obsmode]
 
-        # STEP 0: pull data near a single transit
+        # STEP 0: data near this transit
         in_transit = np.abs(lc.time - tc) < duration / 2
         in_window = np.abs(lc.time - tc) < transit_window_size / 2
 
@@ -152,8 +151,8 @@ class QuickFitTransitTimes(BaseAlg):
             _slope, _intercept = robust_polyfit(_t[use], _f_obs[use], 1)
             _f_obs /= _intercept + _slope * _t
 
-        # STEP 1: chisq vs trial tc; step resolves the tc error
-        # trial transits stay fully inside the data window
+        # STEP 1: chisq vs trial tc; gridstep resolves the tc error, and trial
+        # transits stay fully inside the data window
         gridstep = min(exptime / supersample / 5, tc_error_pred)
         tc_offset = np.arange(0, (transit_window_size - duration) / 2, gridstep)
         tc_offset = tc + np.hstack([-tc_offset[:-1][::-1], tc_offset])
@@ -169,12 +168,11 @@ class QuickFitTransitTimes(BaseAlg):
         if chisq.min() >= np.sum(((_f_obs - 1) / _f_err) ** 2):
             return np.nan, np.nan, "no detection"
 
-        # STEP 2: isolate relevant portions of {tc_offset, chisq} vectors
+        # STEP 2: widen delta_chisq until enough points near the minimum
         delta_chisq = 2.0
 
         loop = True
         while loop:
-            # grab data near chisq minimum
             tc_fit = tc_offset[chisq < chisq.min() + delta_chisq]
             x2_fit = chisq[chisq < chisq.min() + delta_chisq]
 
@@ -186,28 +184,23 @@ class QuickFitTransitTimes(BaseAlg):
             tc_fit = tc_fit[~faraway]
             x2_fit = x2_fit[~faraway]
 
-            # check stopping conditions
             if len(x2_fit) > 7:
                 loop = False
             if delta_chisq >= 16:
                 loop = False
 
-            # increment chisq
             delta_chisq *= np.sqrt(2)
 
         # STEP 3: fit a parabola to local chisq minimum
         if len(tc_fit) <= 3:
             return np.nan, np.nan, "too few chisq points"
 
-        # polynomial fitting
         quad_coeffs = robust_polyfit(tc_fit, x2_fit, 2)
         quad_model = np.polyval(quad_coeffs, tc_fit)
         qtc_min = -quad_coeffs[1] / (2 * quad_coeffs[0])
 
-        # transit time
         _tti = np.mean([qtc_min, np.mean(tc_fit)])
 
-        # check that the fit is well-conditioned
         convex_local_min = quad_coeffs[0] > 0
         within_bounds = (_tti > tc_fit.min()) and (_tti < tc_fit.max())
 
@@ -239,7 +232,6 @@ class QuickFitTransitTimes(BaseAlg):
         sibling_in_window : ndarray of bool
             a sibling transit is inside the data window (not fit)
         """
-        # shorthand
         p = tm.planets[planet_no]
 
         transit_obsmode = tm.transit_obsmode[planet_no]
@@ -456,6 +448,9 @@ class QuickFitTransitTimes(BaseAlg):
 
     def perform(self):
         """
+        Measure transit times by cross-correlation, then by least squares
+        where a sibling transit blocked cross-correlation
+
         Returns
         -------
         planets : list of Planet
@@ -466,7 +461,7 @@ class QuickFitTransitTimes(BaseAlg):
         litecurve = self.litecurve
         npl = len(planets)
 
-        # fit transit times using Mazeh+13 / Holczer+16 cross-correlation method
+        # Mazeh+13 / Holczer+16 cross-correlation
         tm = TransitModel(star, planets, litecurve)
         ttime_cc = [None] * npl
         error_cc = [None] * npl

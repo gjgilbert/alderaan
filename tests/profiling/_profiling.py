@@ -1,28 +1,25 @@
 """Shared harness for the ALDERAAN "tallest tentpole" profiling suite.
 
-This is **not** a test module (no ``test_`` prefix) and pytest does not collect
-it. It is imported by the standalone ``tests/profiling/profile_*.py`` harnesses,
-run on demand via ``make profile*`` (see the ``## Profiling`` section of
-CLAUDE.md). It runs fully standalone with no interactive input.
+Not a pytest module; imported by the standalone ``profile_*.py`` harnesses
+(``make profile*``; see "## Profiling" in CLAUDE.md). Non-interactive.
 
 Strategy
 --------
-We only care about the most critical bottlenecks ("tentpoles"). Each harness:
+Only the biggest bottlenecks ("tentpoles") matter. Each harness:
 
-1. Runs the target under :mod:`cProfile` (pass 1) and charges every function's own
-   time to the nearest enclosing **ALDERAAN function** (attribution), so the
-   ranking points at the function to optimize rather than the library leaf it
-   bottoms out in.
-2. Flags the **hotspots**: functions with >= :data:`HOTSPOT_FRACTION` attributed
-   time AND >= :data:`HOTSPOT_MIN_SECONDS`. "No hotspot" is a fine outcome.
+1. Runs the target under :mod:`cProfile` (pass 1) and charges every function's
+   own time to the nearest enclosing **ALDERAAN function**, so the ranking names
+   the function to optimize, not the library leaf it bottoms out in.
+2. Flags **hotspots**: >= :data:`HOTSPOT_FRACTION` attributed time AND
+   >= :data:`HOTSPOT_MIN_SECONDS`. "No hotspot" is a fine outcome.
 3. Drills into each hotspot line-by-line with :mod:`line_profiler` (pass 2).
-4. Writes a Markdown report to stdout and to the gitignored :data:`REPORTS_DIR`.
+4. Writes a Markdown report to stdout and :data:`REPORTS_DIR`.
 
 Inputs are real K00137 (Kepler-18) photometry, quarters 4-5 (see :data:`VISITS`).
-Each algorithm harness profiles every invocation of that algorithm in the
-pipeline, starting from the pipeline state that precedes it (:data:`STEPS`
-mirrors ``alderaan.pipeline._run``); building that state is excluded from the
-profile. ``run_profile`` returns the profiled wall-clock seconds.
+Each algorithm harness profiles every pipeline invocation of that algorithm,
+starting from the state that precedes it (:data:`STEPS` mirrors
+``alderaan.pipeline._run``); building that state is not profiled.
+``run_profile`` returns the profiled wall-clock seconds.
 
 Harness-only sampler setting (:func:`patch_samplers`): the transit-model
 dynesty run stops after :data:`DYNESTY_MAXITER` iterations.
@@ -204,12 +201,12 @@ def _module_label(filename):
 def _attributed(stats):
     """Charge each function's own time to the nearest enclosing ALDERAAN function.
 
-    cProfile aggregates by function, so a bottleneck surfaces as a library *leaf*
-    with no hint of which ALDERAAN function drives it. Push every non-ALDERAAN
-    function's own time up the caller graph, weighted by per-caller cumulative
-    time, until it lands on an ALDERAAN function. Recursive callers (cycles in
-    the caller graph, e.g. recursive library calls) are skipped and the
-    remaining weights renormalized, so time is not lost at a cycle. Returns
+    cProfile aggregates by function, so a bottleneck surfaces as a library leaf
+    with no hint of which ALDERAAN function drives it. Each non-ALDERAAN
+    function's own time is pushed up the caller graph, weighted by per-caller
+    cumulative time, until it lands on an ALDERAAN function. Callers already on
+    the path (cycles) are skipped and the remaining weights renormalized, so no
+    time is lost at a cycle. Returns
     ``{func_key: attributed_seconds}`` (``func_key`` is cProfile's
     ``(filename, lineno, funcname)``).
     """
@@ -294,11 +291,11 @@ def _note(r):
 def _recipe_summary(stats, wall):
     """Partition pipeline wall-clock into algorithm stages, I/O, and the rest.
 
-    Each algorithm row is the cumulative time of its ``perform`` (every invocation
-    combined); I/O is ``load_kepler_data`` plus the outermost ``to_fits`` calls.
-    Plots are not separable: under Python 3.12, cProfile drops every frame that
-    is active while matplotlib renders a figure (``_run`` and the plot methods
-    themselves), so plots and orchestration are the wall-clock remainder.
+    Each algorithm row is the cumulative time of its ``perform`` (all invocations);
+    I/O is ``load_kepler_data`` plus the outermost ``to_fits`` calls. Plots are
+    not separable: under Python 3.12, cProfile drops every frame active while
+    matplotlib renders (``_run`` and the plot methods), so plots and
+    orchestration are the wall-clock remainder.
     """
     buckets = {}
 
@@ -359,8 +356,8 @@ def _own_functions():
 
 
 def _drilldown_function(registry, r):
-    """The function to line-profile for hotspot row ``r``; a nested function
-    (closure) is not addressable, so fall back to the function enclosing it."""
+    """The function to line-profile for hotspot row ``r``; for a nested function
+    (not addressable), the function enclosing it."""
     key = (r["file"], r["line"])
     if key in registry:
         return registry[key]
@@ -545,7 +542,7 @@ def run_profile(title, report_name, setup, call, line_pass=True, recipe=False):
         tuple). Called once per profiling pass so each pass gets fresh input;
         its work is excluded from the measured call.
     call : callable
-        The function actually profiled, invoked as ``call(*args)``.
+        The profiled function, invoked as ``call(*args)``.
     line_pass : bool, default True
         Run the second :mod:`line_profiler` pass over the hotspots.
     recipe : bool, default False

@@ -182,12 +182,54 @@ class TestTransitModel:
             assert (ror, b, T14) == (p.ror, p.impact, p.duration)
         npt.assert_allclose(theta[-2:], [star.q1, star.q2])
 
-    def test_supersampling_at_least_seven_and_odd(self):
+    def test_supersampling_odd(self):
         star, planets, litecurve = _synthetic_system()
         model = TransitModel(star, planets, litecurve)
         ss = model.supersample["long cadence"]
-        assert ss >= 7 and ss % 2 == 1
+        assert ss % 2 == 1
         assert model.exptime_offsets["long cadence"].size == ss
+
+    @pytest.mark.parametrize(
+        "period, T14", [(0.5, 0.04), (1.0, 0.06), (3.0, 0.09)], ids=["P0.5", "P1", "P3"]
+    )
+    @pytest.mark.parametrize(
+        "obsmode, exptime",
+        [("long cadence", KEPLER_LCIT), ("short cadence", KEPLER_SCIT)],
+        ids=["LC", "SC"],
+    )
+    def test_supersampling_integration_error_below_one_percent(
+        self, period, T14, obsmode, exptime
+    ):
+        # small planet, noisy photometry: the noise term asks for few samples, so
+        # the period floor sets the supersample factor
+        ror, b = 0.02, 0.3
+        p = Planet("Kepler", "SYN", period, 100.2, ror, b, T14)
+        p.set_transit_times(
+            TransitTimes.from_linear_ephemeris(
+                "Kepler", "SYN", period, 100.2, 100.0, 106.0
+            )
+        )
+        p.set_static_period_and_epoch()
+        time = np.arange(100.0, 106.0, exptime)
+        n = time.size
+        litecurve = LiteCurve(
+            "Kepler",
+            "SYN",
+            time,
+            np.ones(n),
+            np.full(n, 1e-3),
+            np.arange(n),
+            np.full(n, 5),
+            np.full(n, obsmode),
+        )
+        star = Star("Kepler", "SYN", "K99999", 1, U1, U2)
+        model = TransitModel(star, [p], litecurve)
+
+        t = np.linspace(-T14, T14, 4001)
+        args = (0.0, period, ror, b, T14, U1, U2)
+        f = transit_flux(t, *args, exptime_offsets=model.exptime_offsets[obsmode])
+        f_ref = transit_flux(t, *args, exptime_offsets=exposure_offsets(exptime, 401))
+        assert np.max(np.abs(f - f_ref)) < 0.01 * ror**2
 
     def test_reproduces_injected_ttv_transits(self):
         star, planets, litecurve = _synthetic_system()
@@ -260,13 +302,9 @@ class TestTransitModel:
         )
         model = TransitModel(star, planets, litecurve)
 
-        assert model.supersample["short cadence"] == 1
-        assert model.supersample["long cadence"] >= 7
+        assert all(ss % 2 == 1 for ss in model.supersample.values())
         residuals = model.residuals(_theta_true())
-        is_lc = obsmode == "long cadence"
-        npt.assert_allclose(residuals[is_lc], 0.0, atol=0.05)
-        # short cadence is not integrated over its 1 min exposure (by design)
-        npt.assert_allclose(residuals[~is_lc], 0.0, atol=0.1)
+        npt.assert_allclose(residuals, 0.0, atol=0.05)
 
     def test_models_short_cadence_inside_a_long_cadence_transit(self):
         # short cadence covers only the second half of one transit, so no transit

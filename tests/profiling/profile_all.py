@@ -1,12 +1,12 @@
 """Run every per-algorithm harness in one process, sharing pipeline state.
 
-Harnesses run in order of the last pipeline step each profiles, so each step's
-profiled output is the next harness's input: setup builds only the steps ahead
-of the first transit-model clip, once, instead of every harness rebuilding the
+Harnesses run in order of the last pipeline step each profiles, so each one's
+profiled output is the next one's input. Setup thus builds the steps ahead of
+the first transit-model clip once, rather than every harness rebuilding the
 pipeline (DetrendVisits and RegularizeOMC) from scratch.
 
-Ends with a summary report ranking algorithms by profiled wall-clock (every
-pipeline invocation combined; data I/O and plots are in ``profile_pipeline.py``).
+Writes a summary ranking algorithms by profiled wall-clock (all pipeline
+invocations combined; data I/O and plots are in ``profile_pipeline.py``).
 
 Run with ``make profile`` or ``python tests/profiling/profile_all.py``.
 """

@@ -1,12 +1,10 @@
 """
 Tests for alderaan/algorithms/quick_fit_transit_times.py
 
-Recovery of injected per-transit time offsets (TTVs) from a synthetic detrended
-long cadence litecurve, including a transit that overlaps a second planet's;
-poor photometry and undetected transits stay unmeasured; high-SNR short cadence
-transits are measured by cross-correlation; transits with a sibling in the window go to
-the optimizer, including a planet whose every transit has a USP sibling in
-the window.
+Recovers injected TTVs from a synthetic detrended litecurve, including
+overlapping transits; poor-photometry and undetected transits stay unmeasured;
+high-SNR short cadence transits are measured by cross-correlation; transits
+with a sibling in the window (e.g. a USP sibling) go to the optimizer.
 """
 
 import numpy as np
@@ -29,14 +27,14 @@ TTV_AMP = 10 / 1440  # days
 TRUTH = [(5.3, 102.1, 0.08, 0.3, 0.15), (11.7, 111.65, 0.07, 0.4, 0.2)]
 
 
-def _synthetic_system(truth, seed=0, noise=NOISE, obsmode=LC):
+def _synthetic_system(truth, seed=0, noise=NOISE, obsmode=LC, span=60.0):
     """
-    Star, planets on linear ephemerides with known shapes, a 60-day detrended
-    single-obsmode litecurve whose transits carry sinusoidal TTVs, and the true
-    transit times
+    Star, planets on linear ephemerides with known shapes, a detrended
+    single-obsmode litecurve (span in days) whose transits carry sinusoidal TTVs,
+    and the true transit times
     """
     rng = np.random.default_rng(seed)
-    cadno = np.arange(int(60 / EXPTIME[obsmode]))
+    cadno = np.arange(int(span / EXPTIME[obsmode]))
     time = 100.0 + cadno * EXPTIME[obsmode]
     offsets = exposure_offsets(EXPTIME[obsmode], 15)
     star = Star("Kepler", "SYN", 1.01, 1, U1, U2)
@@ -136,12 +134,13 @@ class TestQuickFitTransitTimes:
 
     def test_high_snr_transits_measured_by_cross_correlation(self):
         # short cadence (no supersampling) at per-transit SNR ~ 500, the highest
-        # expected for a Kepler planet; the tc grid must resolve the tc error
+        # expected for a Kepler planet; the tc grid must resolve the tc error.
+        # 20 days (4 transits): short cadence costs ~0.5 s per transit
         ror, impact, T14 = 0.1, 0.3, 0.1
         depth = approx_transit_depth(ror, impact)
         noise = depth * np.sqrt(T14 / EXPTIME[SC]) / 500
         star, planets, litecurve, ttime_true = _synthetic_system(
-            [(5.3, 102.1, ror, impact, T14)], noise=noise, obsmode=SC
+            [(5.3, 102.1, ror, impact, T14)], noise=noise, obsmode=SC, span=20.0
         )
         new_planets, _ = QuickFitTransitTimes(star, planets, litecurve).perform()
 

@@ -4,9 +4,8 @@ Tests for alderaan/algorithms/detrend_visits.py
 Fast tier: segment identification, GP trend model (mean function ramp origin,
 finite log posterior, no RotationTerm timescale collapse), single-visit ACF
 periodicity test, star-level kernel choice and nominal period, method check,
-GP fallback chains.
-Slow tier: GP detrending of a synthetic two-visit litecurve with a slow stellar
-trend, a data gap, and injected transits.
+GP fallback chains, and GP detrending of a synthetic two-visit litecurve with a
+slow stellar trend, a data gap, and injected transits. No slow tier.
 """
 
 import copy
@@ -129,16 +128,13 @@ class TestGPTrendModel:
         seg_id = (time >= 10).astype(int)
         oot = (time < 10) | (time > 12)
         model = _GPTrendModel(
-            time, flux, oot, seg_id, np.array([0.0, 10.0]), "SHOTerm", True, 2.0, 1.0
+            time, flux, oot, seg_id, np.array([0.0, 10.0]), "SHOTerm", 2.0, 1.0
         )
         p = {"flux0": np.ones(2), "ramp_amp": np.full(2, 0.1), "log_tau": np.zeros(2)}
         np.testing.assert_allclose(model._mean(p, oot), model._mean(p)[oot])
 
-    @pytest.mark.parametrize(
-        "gp_term, correct_ramp",
-        [("RotationTerm", True), ("RotationTerm", False), ("SHOTerm", False)],
-    )
-    def test_finite_logp_and_full_length_prediction(self, gp_term, correct_ramp):
+    @pytest.mark.parametrize("gp_term", ["RotationTerm", "SHOTerm"])
+    def test_finite_logp_and_full_length_prediction(self, gp_term):
         rng = np.random.default_rng(2)
         time = np.arange(0.0, 20.0, EXPTIME[LC])
         flux = 1 + 1e-3 * np.sin(time / 3) + NOISE * rng.normal(size=time.size)
@@ -151,7 +147,6 @@ class TestGPTrendModel:
             seg_id,
             np.array([0.0, 10.0]),
             gp_term,
-            correct_ramp,
             2.0,
             1.0,
         )
@@ -178,12 +173,34 @@ class TestGPTrendModel:
             np.zeros(time.size, dtype=int),
             np.array([0.0]),
             "RotationTerm",
-            True,
             2.0,
             1.0,
         )
         x = model.x0.copy()
         x[model.ix[name]] = value
+        assert model.logp(x) == -np.inf
+
+    def test_logp_is_minus_inf_where_covariance_is_singular(self):
+        # within the truncated prior, but sigma, P and Q so large that celerite2
+        # cannot factorize (as K00001 visit 9's optimizer probe)
+        time = np.arange(0.0, 20.0, EXPTIME[LC])
+        flux = 1 + NOISE * np.random.default_rng(3).normal(size=time.size)
+        model = _GPTrendModel(
+            time,
+            flux,
+            np.ones(time.size, dtype=bool),
+            np.zeros(time.size, dtype=int),
+            np.array([0.0]),
+            "SHOTerm",
+            2.0,
+            1.0,
+        )
+        x = model.x0.copy()
+        for name in ("log_sigma", "log_P", "log_Q0"):
+            mu, sd = model.priors[name]
+            x[model.ix[name]] = mu + 3.9 * sd
+        with pytest.raises(LinAlgError):
+            model._gp(model.unpack(x))
         assert model.logp(x) == -np.inf
 
     def test_rotation_term_decay_time_does_not_collapse(self):
@@ -198,7 +215,6 @@ class TestGPTrendModel:
             np.zeros(time.size, dtype=int),
             np.array([0.0]),
             "RotationTerm",
-            False,
             2.0,
             1.0,
         )
@@ -312,54 +328,39 @@ class TestNominalPeriod:
         assert got_period == pytest.approx(period, rel=0.02)
 
 
+class TestTransitMask:
+    @staticmethod
+    def _width(period, ror, duration, tight_mask, ttv_scatter=0.01):
+        """Full width (days) of the mask around one transit of a lone planet"""
+        planet = Planet("Kepler", "SYN", period, 0.0, ror, 0.0, duration)
+        index = np.arange(3)
+        planet.set_transit_times(TransitTimes("Kepler", "SYN", index, period * index))
+        planet.transit_times.ttv_scatter = ttv_scatter
+        star = Star("Kepler", "SYN", 1.01, 1, U1, U2)
+        _, _, litecurve, _ = _synthetic_system()
+        alg = DetrendVisits(star, [planet], litecurve)
+        dt = 1e-4
+        time = period + np.arange(-0.5, 0.5, dt)
+        return np.sum(alg._transit_mask(time, 1, LC, tight_mask)) * dt
+
+    @pytest.mark.parametrize("tight_mask, k", [(False, 2.0), (True, 1.5)])
+    @pytest.mark.parametrize("duration", [0.02, 0.1])
+    def test_usp_full_width_is_k_t14_plus_exptime(self, tight_mask, k, duration):
+        assert self._width(1.0, 0.02, duration, tight_mask) == pytest.approx(
+            k * duration + EXPTIME[LC], abs=1e-3
+        )
+
+    def test_non_usp_keeps_three_t14_wide_mask(self):
+        assert self._width(5.0, 0.02, 0.1, False) == pytest.approx(0.3, abs=1e-3)
+        assert self._width(1.0, 0.06, 0.1, False) == pytest.approx(0.3, abs=1e-3)
+
+
 class TestPerform:
     def test_rejects_unknown_method(self):
         star, planets, litecurve, _ = _synthetic_system()
         with pytest.raises(ValueError, match="wide_mask"):
             DetrendVisits(star, planets, litecurve).perform(method="none")
 
-    @pytest.mark.parametrize(
-        "periodic, chain",
-        [
-            (
-                True,
-                [("RotationTerm", True), ("RotationTerm", False), ("SHOTerm", False)],
-            ),
-            (False, [("SHOTerm", True), ("SHOTerm", False)]),
-        ],
-    )
-    @pytest.mark.parametrize("fail_all", [False, True])
-    def test_falls_back_to_simpler_gp_on_linalg_error(
-        self, monkeypatch, periodic, chain, fail_all
-    ):
-        # the star's kernel picks the chain; all but the last model fail, or all
-        n_fail = len(chain) if fail_all else len(chain) - 1
-        tried = []
-
-        def fake_fit(model, visit):
-            tried.append((model.gp_term, model.correct_ramp))
-            if len(tried) <= n_fail:
-                raise LinAlgError("not positive definite")
-            return np.ones_like(model.time)
-
-        monkeypatch.setattr(DetrendVisits, "_fit", staticmethod(fake_fit))
-        monkeypatch.setattr(
-            DetrendVisits,
-            "_nominal_period",
-            lambda self, lc, masks: (periodic, 9.0),
-        )
-        star, planets, litecurve, _ = _synthetic_system()
-        litecurve.select(litecurve.visit == 1)
-        alg = DetrendVisits(star, planets, litecurve)
-
-        if fail_all:
-            with pytest.raises(LinAlgError):
-                alg.perform(method="wide_mask")
-        else:
-            alg.perform(method="wide_mask")
-        assert tried == chain
-
-    @pytest.mark.slow
     @pytest.mark.parametrize("method", ["wide_mask", "tight_mask"])
     def test_removes_trend_and_preserves_transits(self, method):
         star, planets, litecurve, clean = _synthetic_system()
@@ -370,3 +371,4 @@ class TestPerform:
         residual = detrended.flux - clean.flux
         assert np.std(residual) < 0.3 * NOISE
         np.testing.assert_allclose(detrended.error, clean.error, rtol=1e-3)
+        assert detrended.meta["DTKERNEL"] in ("RotationTerm", "SHOTerm")

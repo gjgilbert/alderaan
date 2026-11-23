@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
 
-import alderaan
 from alderaan.constants import EXPTIME, KEPLER_SCIT, SEED
 from alderaan.data_models.litecurve import LiteCurve
 from alderaan.data_models.posteriors import Posteriors
@@ -42,6 +41,7 @@ class Results:
         self.posteriors = posteriors
         self.transit_times = transit_times
         self.litecurve = litecurve
+        self.meta = {}  # FITS header cards, written to PRIMARY
 
         components = []
         if posteriors is not None:
@@ -75,20 +75,17 @@ class Results:
             return self.posteriors.npl
         return None
 
-    def to_fits(self, filepath, run_id):
+    def to_fits(self, filepath):
         """
-        Write PRIMARY, SAMPLES + EPHEMERIS (if posteriors), and TTIMES_nn (if
-        transit_times); the detrended litecurve is written by LiteCurve.to_fits
-
-        The PRIMARY header records the run_id, ALDERAAN version, and git hash
+        Write PRIMARY (MISSION, TARGET, NPL, meta), SAMPLES + EPHEMERIS (if
+        posteriors), and TTIMES_nn (if transit_times); the detrended litecurve
+        is written by LiteCurve.to_fits
         """
         primary_hdu = fits.PrimaryHDU()
         primary_hdu.header["MISSION"] = self.mission
         primary_hdu.header["TARGET"] = self.target
         primary_hdu.header["NPL"] = self.npl
-        primary_hdu.header["RUN_ID"] = run_id
-        primary_hdu.header["VERSION"] = alderaan.__version__
-        primary_hdu.header["GIT_HASH"] = alderaan.git_hash()
+        primary_hdu.header.update(self.meta)
 
         # component HDU builders are private to data_models; Results owns the file
         hdul = fits.HDUList([primary_hdu])
@@ -106,7 +103,7 @@ class Results:
     @classmethod
     def from_fits(cls, results_filepath, detrended_filepath=None):
         """
-        Load a results file written by Results.to_fits and, optionally, a detrended
+        Load a file written by Results.to_fits and, optionally, a detrended
         litecurve written by LiteCurve.to_fits
 
         Parameters
@@ -119,6 +116,8 @@ class Results:
         logger.info("reading %s", results_filepath)
         with fits.open(results_filepath) as hdul:
             npl = hdul[0].header["NPL"]
+            skip = ("SIMPLE", "BITPIX", "NAXIS", "EXTEND", "MISSION", "TARGET", "NPL")
+            meta = {k: v for k, v in hdul[0].header.items() if k not in skip}
 
             if "SAMPLES" in hdul:
                 posteriors = Posteriors._from_hdus(hdul["SAMPLES"], hdul["EPHEMERIS"])
@@ -137,9 +136,11 @@ class Results:
         else:
             litecurve = LiteCurve.from_fits(detrended_filepath)
 
-        return cls(
+        results = cls(
             posteriors=posteriors, transit_times=transit_times, litecurve=litecurve
         )
+        results.meta = meta
+        return results
 
     def summary(self):
         return self.posteriors.summary()
@@ -161,9 +162,7 @@ class Results:
         )
 
     def plot_omc(self, n, show_outliers=False, fig_path=None):
-        """
-        Plot O-C for planet n; returns the Figure (see TransitTimes.plot_omc)
-        """
+        """Plot O-C for planet n; returns the Figure (see TransitTimes.plot_omc)"""
         tt = self.transit_times[n]
         return tt.plot_omc(
             show_outliers=show_outliers,
@@ -268,7 +267,6 @@ class Results:
         flux = self.litecurve.flux
         obsmode = self.litecurve.obsmode
 
-        # fold photometry on the model transit times
         t_folded, f_folded, om_folded = [], [], []
         for tc in self.median_transit_times(n):
             use = np.abs(time - tc) / T14 < 1.5
@@ -305,11 +303,10 @@ class Results:
 
         # bin the exposure-integrated model at each cadence exactly as the data
         # are binned, so binned data and binned model are directly comparable
-        t_binned, f_binned = bin_data(t_folded, f_folded, T14 / 11)
-        _, m_binned = bin_data(t_folded, f_folded - residuals, T14 / 11)
-        _, r_binned = bin_data(t_folded, residuals, T14 / 11)
+        t_binned, f_binned, f_binned_err = bin_data(t_folded, f_folded, T14 / 11)
+        _, m_binned, _ = bin_data(t_folded, f_folded - residuals, T14 / 11)
+        _, r_binned, r_binned_err = bin_data(t_folded, residuals, T14 / 11)
 
-        # deterministic subset of points to plot
         rng = np.random.default_rng(SEED)
         inds = rng.choice(
             len(t_folded), size=min(max_pts, len(t_folded)), replace=False
@@ -320,7 +317,7 @@ class Results:
         )
 
         ax[0].plot(t_folded[inds] * 24, f_folded[inds], "o", color="lightgrey")
-        ax[0].plot(t_binned * 24, f_binned, "s", color="w", mec="k", ms=10)
+        ax[0].errorbar(t_binned * 24, f_binned, f_binned_err, fmt="o", color="k", ms=3)
         ax[0].plot(t_mod * 24, f_mod, color=f"C{n}", lw=3)
         for f in f_mod_integrated:
             ax[0].plot(t_mod * 24, f, "k--", lw=2)
@@ -328,7 +325,7 @@ class Results:
         label_axes(ax[0], ylabel="Flux", title=f"{self.target} - Planet {n}")
 
         ax[1].plot(t_folded[inds] * 24, residuals[inds], ".", color="lightgrey")
-        ax[1].plot(t_binned * 24, r_binned, "s", color="w", mec="k", ms=10)
+        ax[1].errorbar(t_binned * 24, r_binned, r_binned_err, fmt="o", color="k", ms=3)
         ax[1].axhline(0, color="k", ls="--", lw=2)
         ax[1].set_xlim(t_folded.min() * 24, t_folded.max() * 24)
         annotate_plot(ax[1], f"RMS = {int(np.std(residuals) * 1e6)} ppm", "lower left")

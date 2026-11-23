@@ -1,9 +1,7 @@
-"""
-Shared pytest configuration and fixtures
+"""Shared pytest configuration and fixtures.
 
 Real-data fixtures load K00137 (Kepler-18, 3 planets) from tests/data and
-reference/; tests that use them, or that run samplers, are marked
-@pytest.mark.slow.
+reference/; tests that use them, or that run samplers, are @pytest.mark.slow.
 """
 
 import copy
@@ -38,16 +36,17 @@ def _k00137_session():
 
 @pytest.fixture
 def k00137(_k00137_session):
-    """(star, planets, litecurve) for K00137 quarters 4-6; a fresh deep copy per test"""
+    """(star, planets, litecurve) for K00137 quarters 4-6; deep-copied per test."""
     return copy.deepcopy(_k00137_session)
 
 
 @pytest.fixture
 def make_posteriors():
-    """
-    Factory for synthetic Posteriors: make_posteriors(npl, nsamp, target, **kwargs)
-    builds uniform samples and dynesty-like sampler_info for npl planets with
-    reference ephemerides spanning 130-200 d; kwargs override Posteriors arguments
+    """Factory for synthetic Posteriors.
+
+    make_posteriors(npl, nsamp, target, seed, **kwargs) builds uniform samples and
+    dynesty-like sampler_info for npl <= 2 planets on a 130-200 d baseline;
+    kwargs override Posteriors arguments.
     """
     from alderaan.data_models import Posteriors
 

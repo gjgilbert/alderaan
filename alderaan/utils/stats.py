@@ -21,80 +21,71 @@ from scipy.stats import norm as scipy_norm
 
 def uniform_ppf(u, a, b):
     """
-    Transform from U(0,1) --> Uniform(a,b)
+    Transform U(0,1) samples to Uniform(a, b)
 
     Parameters
     ----------
     u : array-like
-        samples from standard uniform distribution U(0,1)
-    a : float
-        lower bound on transformed distribution U(a,b)
-    b : float
-        upper bound on transformed distribution U(a,b)
+        samples from U(0,1)
+    a, b : float
+        lower and upper bounds
 
     Returns
     -------
     x : array-like
-        transformed samples from uniform distribution
     """
     return u * (b - a) + a
 
 
 def loguniform_ppf(u, a, b):
     """
-    Transform from U(0,1) --> LogUniform(a,b)
+    Transform U(0,1) samples to LogUniform(a, b)
 
     Parameters
     ----------
     u : array-like
-        samples from standard uniform distribution U(0,1)
-    a : float
-        lower bound on transformed distribution lnU(a,b)
-    b : float
-        upper bound on transformed distribution lnU(a,b)
+        samples from U(0,1)
+    a, b : float
+        lower and upper bounds
 
     Returns
     -------
     x : array-like
-        transformed samples from log-uniform distribution
     """
     return np.exp(u * np.log(b) + (1 - u) * np.log(a))
 
 
 def norm_ppf(u, mu, sig, eps=1e-12):
     """
-    Transform from U(0,1) --> Normal(mu,sig)
+    Transform U(0,1) samples to Normal(mu, sig)
 
     Parameters
     ----------
     u : array-like
-        samples from standard uniform distribution U(0,1)
-    mu : float
-        mean of transformed distribution N(mu,sig)
-    sig : float
-        standard deviation of transformed distribution N(mu,sig)
+        samples from U(0,1)
+    mu, sig : float
+        mean and standard deviation
     eps : float
-        numerical stability in the inverse error function at the edges
+        keeps erfinv finite at u = 0 and u = 1
 
     Returns
     -------
     x : array-like
-        transformed samples from Normal distribution
     """
     return mu + sig * np.sqrt(2) * erfinv((2 * u - 1) / (1 + eps))
 
 
 def sigma_cutoff(npts, sigma_min=3.0):
     """
-    Set sigma cutoff such that not even one outlier is expected
-    if distribution is normal
+    Two-sided sigma cutoff beyond which one of npts normal draws is expected,
+    floored at sigma_min
 
     Parameters
     ----------
     npts : int
         number of points
     sigma_min : float
-        minimum sigma cutoff (default = 3.0)
+        minimum cutoff
     """
     return np.max([sigma_min, scipy_norm.interval((npts - 1) / npts)[1]])
 
@@ -136,9 +127,8 @@ def robust_polyfit(x, y, deg):
 
 def weighted_percentile(a, q, w=None):
     """
-    Compute the q-th percentile of data array a, with optional weights w
-
-    Similar to np.percentile, but allows for weights (not axis-wise)
+    q-th percentile of a, with optional weights w (like np.percentile, but
+    not axis-wise)
 
     Parameters
     ----------
@@ -146,8 +136,8 @@ def weighted_percentile(a, q, w=None):
         data
     q : float or array-like
         percentile(s) in [0, 100]
-    w : array-like
-        optional weights, same length as a
+    w : array-like, optional
+        weights, same length as a
 
     Returns
     -------
@@ -175,10 +165,10 @@ def weighted_percentile(a, q, w=None):
 
 
 def bin_data(time, data, binsize, bin_centers=None):
-    """Bin a 1D timeseries data array
+    """
+    Bin a 1D timeseries
 
-    If bin_centers is not provided, bins will be linearly spaced
-    between (time.min(),time.max())
+    Default bin_centers: spaced by binsize from time.mean(), spanning the data
 
     Parameters
     ----------
@@ -187,14 +177,16 @@ def bin_data(time, data, binsize, bin_centers=None):
     data : ndarray
         corresponding data to be binned
     binsize : float
-        bin size for output data, in same units as time
-    bin_centers : ndarray
-        (optional) pre-defined bin centers
+        bin width, in units of time
+    bin_centers : ndarray, optional
 
     Returns
     -------
     bin_centers : ndarray
     binned_data : ndarray
+        mean of data in each bin
+    binned_error : ndarray
+        standard error of the mean in each bin
     """
     if bin_centers is None:
         bin_centers = np.hstack(
@@ -205,10 +197,13 @@ def bin_data(time, data, binsize, bin_centers=None):
         )
 
     binned_data = np.zeros(len(bin_centers))
+    binned_error = np.zeros(len(bin_centers))
     for i, t0 in enumerate(bin_centers):
-        binned_data[i] = np.mean(data[np.abs(time - t0) < binsize / 2])
+        d = data[np.abs(time - t0) < binsize / 2]
+        binned_data[i] = np.mean(d)
+        binned_error[i] = np.std(d) / np.sqrt(d.size)
 
-    return bin_centers, binned_data
+    return bin_centers, binned_data, binned_error
 
 
 def legendre_p1(x, domain):

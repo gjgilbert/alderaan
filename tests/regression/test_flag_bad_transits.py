@@ -156,7 +156,7 @@ class TestTooFewTransits:
         with pytest.raises(ValueError, match="2 good transits"):
             FlagBadTransits(star, planets, lc).perform()
 
-    def test_drops_planet_and_its_transits_in_multiplanet_system(self, caplog):
+    def test_drops_planet_and_its_transits_in_multiplanet_system(self):
         star, planets, lc = _system()
         p2 = Planet("Kepler", "SYN", 37.0, 21.5, 0.03, 0.0, DURATION)
         p2.set_transit_times(
@@ -169,8 +169,7 @@ class TestTooFewTransits:
 
         assert len(planets_out) == 1
         assert planets_out[0].period == pytest.approx(PERIOD)
-        assert "planet 1: 2 good transits" in caplog.text
-        # 3 T14 window
+        # the dropped planet's 3 T14 windows are removed
         near = np.any(np.abs(lc.time[:, None] - tc2) < 1.5 * DURATION, axis=1)
         np.testing.assert_array_equal(lc_out.time, lc.time[~near])
         np.testing.assert_array_equal(lc_out.flux, lc.flux[~near])

@@ -63,6 +63,7 @@ class LiteCurve:
     ):
         self.mission = mission
         self.target = target
+        self.meta = {}  # FITS header cards, written to PRIMARY
 
         self.time = np.asarray(time, dtype=float)
         self.t_start = float(self.time.min() if t_start is None else t_start)
@@ -86,37 +87,37 @@ class LiteCurve:
         logger.info("reading %s", filepath)
         with fits.open(filepath) as hdul:
             hdu = hdul["LITECURVE"]
-            return cls(
+            lc = cls(
                 hdu.header["MISSION"],
                 hdu.header["TARGET"],
                 **{k: hdu.data[k.upper()] for k in FIELDS},
                 t_start=hdu.header["T_START"],
                 t_end=hdu.header["T_END"],
             )
+            skip = ("SIMPLE", "BITPIX", "NAXIS", "EXTEND", "MISSION", "TARGET", "NPL")
+            lc.meta = {k: v for k, v in hdul[0].header.items() if k not in skip}
+        return lc
 
     @classmethod
     def from_kplr_pdcsap(cls, data_dir, target, kic_id, obsmode, visits=None):
         """
-        Load photometric data from Kepler Project PDCSAP Flux lightcurves
-        The raw fits files must be pre-downloaded from MAST servers and stored locally
+        Load Kepler PDCSAP lightcurves from pre-downloaded MAST fits files
 
-        This function performs minimal detrending steps
-         * remove_nans()
-         * normalize()
-         * remove cadences flagged by the Kepler pipeline (default bitmask)
+        Removes NaNs and cadences flagged by the Kepler pipeline (default
+        bitmask), and normalizes each quarter.
 
         Parameters
         ----------
         data_dir : str
-            path to where data are stored
+            directory of MAST fits files
         target : str
             target name, e.g. K00137
         kic_id : int
             KIC number
         obsmode : str
             'short cadence' or 'long cadence'
-        visits : list
-            (optional) visits (Kepler quarters) to load
+        visits : list, optional
+            visits (Kepler quarters) to load; default all
 
         Returns
         -------
@@ -127,7 +128,6 @@ class LiteCurve:
         if isinstance(visits, int):
             visits = [visits]
 
-        # read requested MAST files (visits are Kepler quarters)
         mast_files = sorted(
             glob.glob(os.path.join(data_dir, f"kplr{kic_id:09d}*.fits"))
         )
@@ -137,9 +137,18 @@ class LiteCurve:
         for mf in mast_files:
             header = fits.getheader(mf)
             if header["OBSMODE"] == obsmode and np.isin(header["QUARTER"], visits):
-                # read from an open HDUList; lk.read(path) leaves the file open
+                # read from an open HDUList; lk.read(path) leaves the file open.
+                # lightkurve drops Kepler-flagged cadences (default bitmask)
                 with fits.open(mf) as hdul:
-                    raw.append(lk.KeplerLightCurve.read(hdul, format="kepler"))
+                    lkc = lk.KeplerLightCurve.read(hdul, format="kepler")
+                    logger.info(
+                        "Q%d: removed %d of %d cadences with Kepler quality flags "
+                        "(default bitmask)",
+                        header["QUARTER"],
+                        len(hdul[1].data) - len(lkc.time),
+                        len(hdul[1].data),
+                    )
+                raw.append(lkc)
             else:
                 logger.debug(
                     "skipped %s (OBSMODE = %s, QUARTER = %d not requested)",
@@ -180,26 +189,16 @@ class LiteCurve:
 
         lklc = lk.LightCurveCollection(quarters).stitch()
 
-        # remove cadences flagged by Kepler project pipeline
-        qmask = lk.KeplerQualityFlags.create_quality_mask(
-            lklc.quality.value, bitmask="default"
-        )
-        logger.info(
-            "removed %d of %d cadences with Kepler quality flags (default bitmask)",
-            np.sum(~qmask),
-            len(qmask),
-        )
-
         # span (t_start, t_end) is that of the quality-filtered cadences
         return cls(
             "Kepler",
             target,
-            time=lklc.time.value[qmask],
-            flux=lklc.flux.value[qmask],
-            error=lklc.flux_err.value[qmask],
-            cadno=lklc.cadenceno.value[qmask],
-            visit=np.asarray(lklc.quarter)[qmask],
-            obsmode=np.full(np.sum(qmask), obsmode),
+            time=lklc.time.value,
+            flux=lklc.flux.value,
+            error=lklc.flux_err.value,
+            cadno=lklc.cadenceno.value,
+            visit=np.asarray(lklc.quarter),
+            obsmode=np.full(len(lklc.time), obsmode),
         )
 
     def select(self, mask):
@@ -247,12 +246,13 @@ class LiteCurve:
 
     def to_fits(self, filepath):
         """
-        Save as a fits file: PRIMARY (MISSION, TARGET) + LITECURVE table
-        (header T_START, T_END)
+        Save as fits: PRIMARY (MISSION, TARGET, meta) + LITECURVE table (T_START,
+        T_END)
         """
         primary_hdu = fits.PrimaryHDU()
         primary_hdu.header["MISSION"] = self.mission
         primary_hdu.header["TARGET"] = self.target
+        primary_hdu.header.update(self.meta)
 
         width = max([1, *map(len, self.obsmode)])
         columns = [
@@ -318,7 +318,5 @@ class LiteCurve:
         if new_figure:
             ax.figure.tight_layout()
         save_and_close(ax.figure, fig_path, close=new_figure)
-
-        return ax.figure
 
         return ax.figure

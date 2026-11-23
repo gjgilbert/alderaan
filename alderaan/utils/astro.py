@@ -28,7 +28,7 @@ def ld_u_to_q(u1, u2):
 
 
 def approx_transit_depth(p, b):
-    """Calculate approximate transit depth following Mandel & Agol (2002)
+    """Approximate transit depth following Mandel & Agol (2002)
 
     Parameters
     ----------
@@ -87,8 +87,8 @@ def approx_ror(depth, b):
 
 def approx_tc_error(ror, b, T14, exptime, sigma_f):
     """
-    Predict uncertainty on mid-transit time
-    See Price & Rogers 2014 (finite integration time; Carter+2008 as exptime -> 0)
+    Predicted mid-transit time uncertainty, following Price & Rogers 2014
+    (finite integration time; Carter+2008 as exptime -> 0)
 
     Parameters
     ----------
