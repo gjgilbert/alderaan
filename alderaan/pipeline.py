@@ -6,6 +6,8 @@ import os
 import sys
 import time
 
+import numpy as np
+
 import alderaan
 from alderaan.algorithms import (
     ClipOutliers,
@@ -71,30 +73,76 @@ def main(
         ),
     )
 
+    results = results_path = None
+    status = "FAILED (uncaught exception; see CRITICAL traceback above)"
     try:
-        results_path = _run(target, run_id, input_dir, output_dir, catalog, visits)
-    except KeyboardInterrupt:
-        logger.error(
-            "interrupted after %.1f min",
-            (time.perf_counter() - pipeline_start_time) / 60,
+        results, results_path = _run(
+            target, run_id, input_dir, output_dir, catalog, visits
         )
+        status = "ok"
+    except KeyboardInterrupt:
+        logger.error("interrupted; pipeline aborted")
+        status = "interrupted"
         raise
     except UnsupportedTargetError as e:
         # a known limit, not a bug: one line, no traceback
         logger.error("target not processed (unsupported): %s", e)
+        status = f"unsupported (known limit): {e}"
         raise
     except Exception:
         # the one catch-log-reraise point: the traceback reaches the log file
         logger.critical("uncaught exception; pipeline aborted", exc_info=True)
         raise
-    else:
-        logger.info(
-            "pipeline completed in %.1f min; results: %s",
-            (time.perf_counter() - pipeline_start_time) / 60,
-            results_path,
-        )
     finally:
+        logger.info(
+            "%s",
+            run_summary(
+                target,
+                run_id,
+                status,
+                time.perf_counter() - pipeline_start_time,
+                results,
+                results_path,
+            ),
+        )
         teardown_logging()
+
+
+def run_summary(target, run_id, status, elapsed_s, results=None, results_path=None):
+    """
+    End-of-run verdict block: status, data, sampler, posterior medians per planet,
+    outputs, elapsed. Data lines only if results is given (status ok). The
+    surrounding blank lines make the block stand out in the log.
+    """
+    lines = [
+        f"===== run summary: {target} (run_id {run_id}) =====",
+        f"  status:   {status}",
+    ]
+    if results is not None:
+        lc = results.litecurve
+        post = results.posteriors
+        info = post.sampler_info
+        visits = " ".join(str(v) for v in np.unique(lc.visit))
+        lines += [
+            f"  data:     {len(lc.time)} cadences, visits {visits}, "
+            f"t = {lc.t_start:.1f}-{lc.t_end:.1f} d",
+            f"  sampler:  ln Z = {info['logz'][-1]:.2f} +/- {info['logzerr'][-1]:.2f}, "
+            f"{post.neff():.0f} effective samples, {np.sum(info['ncall'])} calls",
+            "  posterior medians:",
+            f"    {'planet':<12s}{'P [d]':>12s}{'ror':>9s}{'b':>7s}{'T14 [hr]':>10s}"
+            f"  {'OMC model':<14s}{'good/all transits':>17s}",
+        ]
+        for n, tt in enumerate(results.transit_times):
+            _, period, ror, b, t14, _, _ = results.median_transit_params(n)
+            ngood = np.sum(tt.phot_coverage & tt.phot_noise)
+            name = results.meta.get(f"PLNAME{n}", str(n))
+            lines.append(
+                f"    {name:<12s}{period:>12.6f}{ror:>9.4f}{b:>7.3f}{t14 * 24:>10.3f}"
+                f"  {str(tt.model_name):<14s}{f'{ngood}/{len(tt.ttime_mod)}':>17s}"
+            )
+        lines.append(f"  results:  {results_path}")
+    lines.append(f"  elapsed:  {elapsed_s / 60:.1f} min")
+    return "\n\n" + "\n".join(lines) + "\n"
 
 
 def _run(target, run_id, input_dir, output_dir, catalog, visits):
@@ -194,4 +242,4 @@ def _run(target, run_id, input_dir, output_dir, catalog, visits):
         )
     logger.info("wrote plots to %s", plots_dir)
 
-    return results_path
+    return results, results_path

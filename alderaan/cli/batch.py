@@ -221,7 +221,8 @@ def _run_one(argv, timeout=None, launch_interval=0.0):
 def run_targets(tasks, jobs, job_timeout=None, launch_interval=0.0):
     """Run `tasks` (a list of (target, argv)) in a pool of `jobs`
 
-    Returns (failed, unsupported), two sets of targets; unsupported targets exit 3.
+    Returns (failed, unsupported), two dicts of target -> reason; unsupported
+    targets exit 3, with the reason from their stderr.
 
     On SIGINT/SIGTERM/SIGHUP, cancel the queue, terminate every running child, and
     exit 130.
@@ -232,7 +233,7 @@ def run_targets(tasks, jobs, job_timeout=None, launch_interval=0.0):
     _last_launch[0] = 0.0
 
     failures = []
-    unsupported = set()
+    unsupported = {}
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
     try:
         futures = {
@@ -245,18 +246,19 @@ def run_targets(tasks, jobs, job_timeout=None, launch_interval=0.0):
             if rc == 0:
                 logger.info("ok: %s", target)
             elif rc == 3:
-                logger.warning("UNSUPPORTED: %s (known limit; see log)", target)
-                unsupported.add(target)
+                # pipeline.main writes "... (unsupported): <reason>" to stderr
+                marker = "(unsupported): "
+                lines = [s for s in (stderr or "").splitlines() if marker in s]
+                reason = lines[-1].split(marker, 1)[1] if lines else "see log"
+                logger.warning("UNSUPPORTED: %s (known limit: %s)", target, reason)
+                unsupported[target] = reason
             else:
                 if rc == 124:
-                    logger.error(
-                        "FAILED: %s (timed out after %ss; process group killed)",
-                        target,
-                        job_timeout,
-                    )
+                    reason = f"timed out after {job_timeout}s; process group killed"
                 else:
-                    logger.error("FAILED: %s (exit %d)", target, rc)
-                failures.append((target, rc, stderr))
+                    reason = f"exit {rc}"
+                logger.error("FAILED: %s (%s)", target, reason)
+                failures.append((target, reason, stderr))
     except KeyboardInterrupt:
         _interrupted.set()
         # ignore repeat signals so the teardown completes
@@ -274,13 +276,13 @@ def run_targets(tasks, jobs, job_timeout=None, launch_interval=0.0):
     finally:
         pool.shutdown(wait=True)
 
-    for target, rc, stderr in failures:
+    for target, reason, stderr in failures:
         tail = (stderr or "").strip().splitlines()[-20:]
         if tail:
-            lines = [f"{target} (exit {rc}): last stderr lines"]
+            lines = [f"{target} ({reason}): last stderr lines"]
             lines.extend(f"  {line}" for line in tail)
             logger.error("\n".join(lines))
-    return {target for target, _, _ in failures}, unsupported
+    return {target: reason for target, reason, _ in failures}, unsupported
 
 
 def read_targets(catalog):
@@ -291,6 +293,7 @@ def read_targets(catalog):
 
 
 def main(argv=None):
+    start = time.monotonic()
     configure_runtime()
     args = build_parser().parse_args(argv)
     args.run_id = args.run_id or time.strftime("%Y%m%dT%H%M%S", time.gmtime())
@@ -354,14 +357,42 @@ def main(argv=None):
         failed, unsupported = run_targets(
             tasks, args.jobs, args.job_timeout, args.launch_interval
         )
-        logger.info(
-            "done: %d ok, %d unsupported, %d failed; per-target logs in %s",
-            len(targets) - len(failed) - len(unsupported),
-            len(unsupported),
-            len(failed),
+        summary = batch_summary(
+            args.run_id,
+            len(targets),
+            failed,
+            unsupported,
             log_dir,
+            time.monotonic() - start,
         )
+        logger.info("%s", summary)
     finally:
         teardown_logging()
 
     return 1 if failed else 0
+
+
+def batch_summary(run_id, ntargets, failed, unsupported, log_dir, elapsed_s):
+    """
+    End-of-batch verdict block: counts, each unsupported and failed target with
+    its reason, logs, elapsed. The surrounding blank lines make the block stand out
+    in the log.
+    """
+    nok = ntargets - len(failed) - len(unsupported)
+    lines = [
+        f"===== batch summary: run_id {run_id} =====",
+        f"  targets:  {ntargets} ({nok} ok, {len(unsupported)} unsupported, "
+        f"{len(failed)} failed)",
+    ]
+    for label, group in (
+        ("unsupported (known limits)", unsupported),
+        ("!!!!! FAILED !!!!!", failed),
+    ):
+        if group:
+            lines.append(f"  {label}:")
+            lines.extend(f"    {t:<10s}{reason}" for t, reason in sorted(group.items()))
+    lines += [
+        f"  logs:     {os.path.join(log_dir, f'alderaan_<target>_{run_id}.log')}",
+        f"  elapsed:  {elapsed_s / 3600:.2f} hr",
+    ]
+    return "\n\n" + "\n".join(lines) + "\n"
