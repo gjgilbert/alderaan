@@ -13,19 +13,27 @@ from alderaan.utils.astro import ld_q_to_u
 from alderaan.utils.plotting import save_and_close
 from alderaan.utils.stats import legendre_p1, weighted_percentile
 
-# dynesty run outputs kept by Posteriors: per-sample arrays, mapped to their FITS
-# SAMPLES columns (names as in legacy); niter, eff, batch_nlive go in the header
+# dynesty run outputs kept by Posteriors: per-sample arrays written as FITS
+# SAMPLES columns (with their formats); per-sample integrals rebuilt from logl
+# and logvol on load (Posteriors._integrals); batch_nlive and batch_logl_bounds
+# go in the BATCHES table; niter and eff in the SAMPLES header
 SAMPLE_COLUMNS = {
-    "logwt": "LN_WT",
-    "logl": "LN_LIKE",
-    "logz": "LN_Z",
-    "logzerr": "LN_ZERR",
-    "logvol": "LN_VOL",
-    "samples_n": "N_LIVE",
-    "ncall": "N_CALL",
-    "information": "INFO",
+    "logl": ("LN_LIKE", np.float64),
+    "logvol": ("LN_VOL", np.float64),
+    "samples_n": ("N_LIVE", np.int32),
+    "ncall": ("N_CALL", np.int32),
+    "samples_id": ("SAMP_ID", np.int32),
+    "samples_batch": ("SAMP_BATCH", np.int16),
 }
-SAMPLER_KEYS = (*SAMPLE_COLUMNS, "niter", "eff", "batch_nlive")
+INTEGRAL_KEYS = ("logwt", "logz", "logzerr", "information")
+SAMPLER_KEYS = (
+    *SAMPLE_COLUMNS,
+    *INTEGRAL_KEYS,
+    "niter",
+    "eff",
+    "batch_nlive",
+    "batch_logl_bounds",
+)
 
 
 class Posteriors:
@@ -44,8 +52,11 @@ class Posteriors:
             ndarray, one entry per sample (log weight, log likelihood, cumulative
             log evidence and its error, log prior volume, number of live points,
             likelihood calls, cumulative information in nats)
+        samples_id, samples_batch : ndarray, one entry per sample (live point
+            strand and batch; used by dynesty.utils.resample_run)
         niter, eff : number of iterations, sampling efficiency (%)
         batch_nlive : list of live points per batch
+        batch_logl_bounds : ndarray, shape (nbatch, 2); logl bounds per batch
     ref_period, ref_epoch : ndarray
         per planet; least squares linear ephemeris of the transit times the sampler
         perturbed with (C0, C1)
@@ -91,7 +102,7 @@ class Posteriors:
 
         if set(sampler_info) != set(SAMPLER_KEYS):
             raise ValueError(f"sampler_info keys must be {SAMPLER_KEYS}")
-        for k in SAMPLE_COLUMNS:
+        for k in (*SAMPLE_COLUMNS, *INTEGRAL_KEYS):
             if len(sampler_info[k]) != len(samples):
                 raise ValueError(f"sampler_info[{k!r}] must have one entry per sample")
 
@@ -138,14 +149,16 @@ class Posteriors:
         )
 
     def _to_hdus(self):
-        """SAMPLES and EPHEMERIS BinTableHDUs (used by Results.to_fits)"""
+        """SAMPLES, EPHEMERIS and BATCHES BinTableHDUs (used by Results.to_fits)"""
         info = self.sampler_info
-        # float32 parameters err by < 0.005 posterior sd; the log columns keep
+        # float32 parameters err by < 0.005 posterior sd; LN_LIKE and LN_VOL keep
         # float64 (LN_LIKE can reach ~1e12)
         samples_df = self.samples.astype(np.float32).assign(
-            **{col: info[k] for k, col in SAMPLE_COLUMNS.items()}
+            **{
+                col: np.asarray(info[k], fmt)
+                for k, (col, fmt) in SAMPLE_COLUMNS.items()
+            }
         )
-        samples_df = samples_df.astype({"N_LIVE": np.int32, "N_CALL": np.int32})
         samples_hdu = fits.BinTableHDU(
             data=samples_df.to_records(index=False), name="SAMPLES"
         )
@@ -159,10 +172,18 @@ class Posteriors:
         samples_hdu.header["LN_Z"] = info["logz"][-1]
         samples_hdu.header["LN_ZERR"] = info["logzerr"][-1]
         samples_hdu.header["INFO"] = info["information"][-1]
-        samples_hdu.header["NBATCH"] = len(info["batch_nlive"])
-        for i, nlive in enumerate(info["batch_nlive"]):
-            samples_hdu.header[f"NLIVE{i}"] = nlive
         samples_hdu.header.update(self.meta)
+
+        # a table, not header cards: the baseline batch bounds are -inf, inf
+        bounds = np.asarray(info["batch_logl_bounds"], dtype=float)
+        batches_hdu = fits.BinTableHDU.from_columns(
+            [
+                fits.Column(name="NLIVE", format="J", array=info["batch_nlive"]),
+                fits.Column(name="LOGL_MIN", format="D", array=bounds[:, 0]),
+                fits.Column(name="LOGL_MAX", format="D", array=bounds[:, 1]),
+            ],
+            name="BATCHES",
+        )
 
         ephem_hdu = fits.BinTableHDU.from_columns(
             [
@@ -181,11 +202,12 @@ class Posteriors:
             ephem_hdu.header[f"OBSMODE{i}"] = om
             ephem_hdu.header[f"SUPSAMP{i}"] = ss
 
-        return samples_hdu, ephem_hdu
+        return samples_hdu, ephem_hdu, batches_hdu
 
     @classmethod
-    def _from_hdus(cls, samples_hdu, ephem_hdu):
-        """Build from SAMPLES and EPHEMERIS tables (used by Results.from_fits)"""
+    def _from_hdus(cls, hdul):
+        """Build from the SAMPLES, EPHEMERIS, BATCHES tables of a Results file"""
+        samples_hdu, ephem_hdu = hdul["SAMPLES"], hdul["EPHEMERIS"]
         header = samples_hdu.header
         samples = pd.DataFrame(
             {
@@ -193,17 +215,33 @@ class Posteriors:
                 for k in samples_hdu.columns.names
             }
         )
+        # TEMPORARY: the 20261123 batch stores the integrals, no strands and no
+        # BATCHES table; strand -1 and NaN bounds make resample_run raise.
+        # Remove after the next batch.
+        if "BATCHES" not in hdul:
+            samples = samples.drop(columns=["LN_WT", "LN_Z", "LN_ZERR", "INFO"])
+            samples["SAMP_ID"] = -1
+            samples["SAMP_BATCH"] = -1
+            nbatch = header["NBATCH"]
+            batch_nlive = [header[f"NLIVE{i}"] for i in range(nbatch)]
+            batch_logl_bounds = np.full((nbatch, 2), np.nan)
+        else:
+            batches = hdul["BATCHES"].data
+            batch_nlive = [int(n) for n in batches["NLIVE"]]
+            batch_logl_bounds = np.column_stack(
+                [batches["LOGL_MIN"], batches["LOGL_MAX"]]
+            ).astype(float)
 
         sampler_info = {
-            k: samples.pop(col).to_numpy() for k, col in SAMPLE_COLUMNS.items()
+            k: samples.pop(col).to_numpy() for k, (col, _) in SAMPLE_COLUMNS.items()
         }
-        sampler_info["samples_n"] = sampler_info["samples_n"].astype(int)
-        sampler_info["ncall"] = sampler_info["ncall"].astype(int)
+        for k in ("samples_n", "ncall", "samples_id", "samples_batch"):
+            sampler_info[k] = sampler_info[k].astype(int)
+        sampler_info |= cls._integrals(sampler_info["logl"], sampler_info["logvol"])
         sampler_info["niter"] = header["NITER"]
         sampler_info["eff"] = header["EFF"]
-        sampler_info["batch_nlive"] = [
-            header[f"NLIVE{i}"] for i in range(header["NBATCH"])
-        ]
+        sampler_info["batch_nlive"] = batch_nlive
+        sampler_info["batch_logl_bounds"] = batch_logl_bounds
 
         ephem = ephem_hdu.data
         eh = ephem_hdu.header
@@ -222,6 +260,20 @@ class Posteriors:
             eh["T_END"],
             supersample,
         )
+
+    @staticmethod
+    def _integrals(logl, logvol):
+        """Per-sample logwt, logz, logzerr, information, as dynesty computes them"""
+        # start volume 0 (dynesty's logvol_init): ln_likelihood is never -inf
+        logwt, logz, logzvar, information = dynesty.utils.compute_integrals(
+            logl=logl, logvol=logvol
+        )
+        return {
+            "logwt": logwt,
+            "logz": logz,
+            "logzerr": np.sqrt(np.maximum(logzvar, 0)),
+            "information": information,
+        }
 
     def neff(self):
         """Number of effective samples (Kish ESS)"""
@@ -303,17 +355,20 @@ class Posteriors:
 
     def _dynesty_results(self):
         """
-        dynesty Results for dynesty.plotting
+        dynesty Results for dynesty.plotting and dynesty.utils (e.g. resample_run)
 
-        samples_u and samples_id are required by its constructor but unused by
-        these plots.
+        samples_u, samples_it and blob are not stored: samples_u holds the
+        samples (the constructor requires it) and the others zeros (resample_run
+        only copies them).
         """
         samples = self.samples.to_numpy()
+        zeros = np.zeros(len(samples), dtype=int)
         return dynesty.utils.Results(
             {
                 "samples": samples,
                 "samples_u": samples,
-                "samples_id": np.zeros(len(samples), dtype=int),
+                "samples_it": zeros,
+                "blob": zeros,
                 **self.sampler_info,
             }
         )
