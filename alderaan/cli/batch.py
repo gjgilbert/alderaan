@@ -47,7 +47,10 @@ def build_parser():
     parser.add_argument(
         "-m", "--mission", required=True, choices=["Kepler"], help="observing mission"
     )
-    parser.add_argument("--run_id", required=True, help="run identifier")
+    parser.add_argument(
+        "--run_id",
+        help="run identifier (default: batch_{UT launch stamp})",
+    )
     parser.add_argument(
         "--input_dir", type=Path, required=True, help="photometry directory"
     )
@@ -253,6 +256,7 @@ def read_targets(catalog):
 def main(argv=None):
     configure_runtime()
     args = build_parser().parse_args(argv)
+    args.run_id = args.run_id or time.strftime("batch_%Y%m%dT%H%M%S", time.gmtime())
 
     import alderaan
     from alderaan.utils.logger import setup_logging, teardown_logging

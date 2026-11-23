@@ -1,6 +1,7 @@
 """`alderaan run`: parse arguments and run the pipeline"""
 
 import argparse
+import time
 from pathlib import Path
 
 
@@ -16,7 +17,10 @@ def build_parser():
         choices=["Kepler"],
         help="observing mission",
     )
-    parser.add_argument("--run_id", required=True, help="run identifier")
+    parser.add_argument(
+        "--run_id",
+        help="run identifier (default: run_{UT launch stamp})",
+    )
     parser.add_argument(
         "--input_dir",
         type=Path,
@@ -53,6 +57,7 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    args.run_id = args.run_id or time.strftime("run_%Y%m%dT%H%M%S", time.gmtime())
 
     # deferred so --help and argument errors don't pay for the pipeline imports
     from alderaan.pipeline import main as run_pipeline
