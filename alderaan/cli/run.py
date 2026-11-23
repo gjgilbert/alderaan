@@ -22,6 +22,7 @@ Outputs, under ``{output_dir}/{run_id}/`` (NN is the planet index)::
         K00137_litecurve_raw.png
         K00137_litecurve_detrended.png
         K00137_omc_NN.png
+        K00137_folded_transit_NN.png
         K00137_dynesty_runplot.png
         K00137_dynesty_traceplot_NN.png
         K00137_dynesty_cornerplot_NN.png

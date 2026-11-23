@@ -172,6 +172,9 @@ def _run(target, mission, run_id, input_dir, output_dir, catalog, visits):
         fig_path=os.path.join(plots_dir, f"{target}_dynesty_runplot.png")
     )
     for n in range(results.npl):
+        results.plot_folded_transit(
+            n, fig_path=os.path.join(plots_dir, f"{target}_folded_transit_{n:02d}.png")
+        )
         posteriors.dynesty_traceplot(
             n,
             fig_path=os.path.join(plots_dir, f"{target}_dynesty_traceplot_{n:02d}.png"),
