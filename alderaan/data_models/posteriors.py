@@ -326,6 +326,7 @@ class Posteriors:
             color="#0d0887",
         )
         ax[0].set_title(self.target, fontsize=18)
+        fig.set_size_inches(7.2, 9)  # same as the traceplot; smaller PNG
         fig.tight_layout()
         save_and_close(fig, fig_path)
 
@@ -339,6 +340,7 @@ class Posteriors:
             dims=np.arange(5 * n, 5 * (n + 1)),
             label_kwargs={"fontsize": 14},
         )
+        fig.set_size_inches(7.2, 9)  # 0.6 x the dynesty default; smaller PNG
         self._finish_planet_plot(fig, n, fig_path)
 
         return fig
