@@ -148,12 +148,16 @@ class _GPTrendModel:
     def logp(self, x):
         """Log posterior (up to a constant) of parameter vector x"""
         p = self.unpack(x)
-        # GP hyperparameter priors are truncated at 4 sd, where celerite2 is finite
-        for name in ("log_sigma", "log_P", "log_Q0", "log_dQ"):
+        # priors on log-scale parameters are truncated at 4 sd, where celerite2,
+        # the exp ramp, and the white-noise variance stay finite
+        for name in ("log_sigma", "log_P", "log_Q0", "log_dQ", "log_tau", "log_var"):
             if name in self.priors:
                 mu, sd = self.priors[name]
-                if abs(p[name][0] - mu) > 4 * sd:
+                if np.any(np.abs(p[name] - mu) > 4 * sd):
                     return -np.inf
+        # |logit_mix| <= 20 keeps mix strictly inside (0, 1) in float64
+        if self.rotation and abs(p["logit_mix"][0]) > 20:
+            return -np.inf
         resid = self.flux[self.oot] - self._mean(p, self.oot)
         try:
             gp = self._gp(p)
