@@ -27,8 +27,9 @@ class FlagBadTransits(BaseAlg):
         """
         Per planet, a bool array over transits: True for good coverage
 
-        Good coverage: >= 50% of expected cadences are present both in transit
-        (tc +/- 0.5 T14) and near transit (tc +/- 1.5 T14).
+        Good coverage: > 50% of expected cadences are present in transit
+        (tc +/- 0.5 T14), in the window (tc +/- 1.5 T14), and near transit (the
+        window excluding in transit).
         """
         lc = self.litecurve
 
@@ -37,7 +38,8 @@ class FlagBadTransits(BaseAlg):
 
         for n, p in enumerate(self.planets):
             exptime = np.array([EXPTIME[om] for om in obsmode[n]])
-            count_expected = np.maximum(1, np.array(p.duration / exptime, dtype=int))
+            # float: thresholds scale with the window width, also for T14 < exptime
+            count_expected = p.duration / exptime
 
             ntot = len(p.transit_times.ttime_mod)
             good_coverage[n] = np.zeros(ntot, dtype="bool")
@@ -45,14 +47,15 @@ class FlagBadTransits(BaseAlg):
 
             for i, tc in enumerate(p.transit_times.ttime_mod):
                 in_transit = np.abs(lc.time - tc) / p.duration < 0.5
-                near_transit = np.abs(lc.time - tc) / p.duration < 1.5
-                n_near = np.sum(near_transit)
-                n_in_gap += n_near == 0
+                in_window = np.abs(lc.time - tc) / p.duration < 1.5
+                n_in, n_window = np.sum(in_transit), np.sum(in_window)
+                n_in_gap += n_window == 0
 
-                enough_pts_in = np.sum(in_transit) >= 0.5 * count_expected[i]
-                enough_pts_near = n_near >= 1.5 * count_expected[i]
-
-                good_coverage[n][i] = enough_pts_in and enough_pts_near
+                good_coverage[n][i] = (
+                    n_in > 0.5 * count_expected[i]
+                    and n_window > 1.5 * count_expected[i]
+                    and n_window - n_in > 1.0 * count_expected[i]
+                )
 
             n_poor = np.sum(~good_coverage[n])
             n_partial = n_poor - n_in_gap
