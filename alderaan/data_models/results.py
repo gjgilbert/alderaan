@@ -377,10 +377,7 @@ class Results:
 
         residuals = f_folded - m_folded
 
-        # bin the exposure-integrated model at each cadence exactly as the data
-        # are binned, so binned data and binned model are directly comparable
         t_binned, f_binned, f_binned_err = bin_data(t_folded, f_folded, T14 / 11)
-        _, m_binned, _ = bin_data(t_folded, f_folded - residuals, T14 / 11)
         _, r_binned, r_binned_err = bin_data(t_folded, residuals, T14 / 11)
 
         rng = np.random.default_rng(SEED)
@@ -418,7 +415,6 @@ class Results:
         ax[0].plot(t_mod * 24, (f_mod - 1) * 1e6, color=f"C{n}", lw=3)
         for f in f_mod_integrated:
             ax[0].plot(t_mod * 24, (f - 1) * 1e6, "k--", lw=2)
-        ax[0].plot(t_binned * 24, (m_binned - 1) * 1e6, "o", color=f"C{n}", ms=4)
         label_axes(
             ax[0],
             ylabel="Flux [ppm]",
@@ -451,7 +447,12 @@ class Results:
             ax[0], f"residual RMS = {int(np.std(residuals) * 1e6)} ppm", "lower right"
         )
         chi2_red = self.meta[f"CHI2RED{n}"]
-        annotate_plot(ax[0], f"reduced χ² = {chi2_red:.2f}", "lower left")
+        annotate_plot(
+            ax[0],
+            f"reduced χ² = {chi2_red:.2f}",
+            "lower left",
+            edgecolor="r" if chi2_red > 2 else "none",
+        )
         label_axes(ax[1], xlabel="Time from mid-transit [hrs]", label_size=15)
         ax[1].set_ylabel("Residuals", fontsize=12)
         fig.tight_layout()
