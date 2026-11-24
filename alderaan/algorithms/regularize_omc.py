@@ -397,7 +397,7 @@ class RegularizeOMC(BaseAlg):
 
     @staticmethod
     def _calculate_outlier_probability(
-        yobs, yerr, ymod, mask=None, maxiter=200, tol=1e-6
+        yobs, yerr, ymod, mask=None, maxiter=1000, tol=1e-6
     ):
         """
         Flag measured omc transit times that are more likely outliers than not
