@@ -169,10 +169,16 @@ class TestQuickFitTransitTimes:
         assert np.all(np.isfinite(tt.ttime_obs)) and np.all(np.isfinite(tt.ttime_err))
         assert np.all(np.abs(tt.ttime_obs - ttime_true[1]) < 4 * tt.ttime_err)
 
-    def test_low_snr_planet_gets_linear_ephemeris(self):
-        # planet 1 per-transit SNR ~ 1: not measured; planet 0 still is
-        truth = [TRUTH[0], (11.7, 111.65, 0.006, 0.4, 0.2)]
-        star, planets, litecurve, _ = _synthetic_system(truth)
+    @pytest.mark.parametrize(
+        "planet1",
+        [
+            (11.7, 111.65, 0.006, 0.4, 0.2),  # per-transit SNR ~ 1
+            (11.7, 111.65, 0.07, 0.4, 0.015),  # T14 < 1 long cadence, high SNR
+        ],
+    )
+    def test_planet_gets_linear_ephemeris(self, planet1):
+        # planet 1 is not measured; planet 0 still is
+        star, planets, litecurve, _ = _synthetic_system([TRUTH[0], planet1])
         old = planets[1].transit_times
         new_planets, _ = QuickFitTransitTimes(star, planets, litecurve).perform()
 

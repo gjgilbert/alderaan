@@ -57,7 +57,8 @@ class TransitTimes:
     model_name : str, optional
         OMC model that set ttime_mod (RegularizeOMC: 'smooth', 'poly_<k>',
         'lasso_<k>', 'sinusoid', 'matern32' or 'independent'; QuickFitTransitTimes:
-        'linear' if per-transit SNR < 2); None if not regularized
+        'linear' if per-transit SNR < 2 or T14 < 1 cadence); None if not
+        regularized
     model_dof : float, optional
         degrees of freedom of that model (effective for matern32; nonzero
         coefficients for lasso_<k>; the number of kept times for 'independent');

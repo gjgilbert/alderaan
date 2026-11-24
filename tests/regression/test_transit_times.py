@@ -108,8 +108,8 @@ class TestTTVBuffer:
             _tt().ttv_buffer()
 
     def test_linear_buffer_counts_every_transit(self):
-        # a 'linear' planet (per-transit SNR < 2) has no observed times; its
-        # ttv_scatter is the predicted timing error
+        # a 'linear' planet (per-transit SNR < 2 or T14 < 1 cadence) has no
+        # observed times; its ttv_scatter is the predicted timing error
         tt = _tt(model_name="linear", model_dof=2.0, ttv_scatter=0.003)
         tt.ttime_obs[:] = np.nan
         assert np.isclose(tt.ttv_buffer(), sigma_cutoff(20) * 0.003)

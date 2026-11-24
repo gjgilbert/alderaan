@@ -471,25 +471,31 @@ class QuickFitTransitTimes(BaseAlg):
         (floored at the predicted error) are NaN where unmeasured, and ttime_mod
         is ttime_obs where measured, else unchanged.
 
-        A planet with per-transit SNR < 2 is not measured: it gets its linear
-        ephemeris, model_name 'linear', and no observed times.
+        A planet with per-transit SNR < 2, or T14 shorter than its shortest
+        cadence, is not measured: it gets its linear ephemeris, model_name
+        'linear', and no observed times.
         """
         star = self.star
         planets = self.planets
         litecurve = self.litecurve
         npl = len(planets)
 
-        # below SNR ~ 2 a single-transit time locks onto noise: linear ephemeris,
-        # with the predicted timing error as its TTV scatter
+        # below SNR ~ 2, or with T14 shorter than one cadence, a single-transit
+        # time locks onto noise: linear ephemeris, with the predicted timing error
+        # as its TTV scatter
         tm = TransitModel(star, planets, litecurve)
-        low_snr = []
+        exptime = min(EXPTIME[om] for om in np.unique(litecurve.obsmode))
+        linear = []
         for n, p in enumerate(planets):
             snr = self._per_transit_snr(p, litecurve)
             p.meta["snr_per_transit"] = snr
-            low_snr.append(snr < 2)
-            if snr < 2:
+            linear.append(snr < 2 or p.duration < exptime)
+            if linear[n]:
                 logger.info(
-                    "planet %d: per-transit SNR = %.2f < 2; linear ephemeris", n, snr
+                    "planet %d: per-transit SNR = %.2f, T14 = %.1f min; linear",
+                    n,
+                    snr,
+                    p.duration * 24 * 60,
                 )
                 tt = p.transit_times
                 p.set_transit_times(
@@ -508,14 +514,14 @@ class QuickFitTransitTimes(BaseAlg):
                 )
 
         # Mazeh+13 / Holczer+16 cross-correlation; sibling models at linear times
-        if any(low_snr):
+        if any(linear):
             tm = TransitModel(star, planets, litecurve)
         ttime_cc = [None] * npl
         error_cc = [None] * npl
         sibling_in_window = [None] * npl
 
         for n, p in enumerate(planets):
-            if low_snr[n]:
+            if linear[n]:
                 continue
             ttime_cc[n], error_cc[n], sibling_in_window[n] = (
                 self._cross_correlation_times(tm, n)
@@ -545,7 +551,7 @@ class QuickFitTransitTimes(BaseAlg):
 
         # optimizer starting times: cross-correlation, else the previous model
         for n, p in enumerate(planets):
-            if low_snr[n]:
+            if linear[n]:
                 continue
             q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
             tt = p.transit_times
@@ -570,7 +576,7 @@ class QuickFitTransitTimes(BaseAlg):
         error_opt = [None] * npl
 
         for n, p in enumerate(planets):
-            if low_snr[n]:
+            if linear[n]:
                 continue
             tt = p.transit_times
             fit = tt.phot_coverage & tt.phot_noise & sibling_in_window[n]
@@ -579,7 +585,7 @@ class QuickFitTransitTimes(BaseAlg):
         # measured times: cross-correlation, else optimizer; ttime_mod = ttime_obs
         # where measured, else the previous model
         for n, p in enumerate(planets):
-            if low_snr[n]:
+            if linear[n]:
                 continue
             tt = p.transit_times
             good = tt.phot_coverage & tt.phot_noise
