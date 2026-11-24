@@ -198,6 +198,7 @@ def _run(target, run_id, input_dir, output_dir, catalog, visits):
             show_outliers=True,
             title=f"{target}-{n}",
             fig_path=os.path.join(plots_dir, f"{target}_omc_{n:02d}.png"),
+            snr=p.meta["snr_per_transit"],
         )
 
     # final fit: clip and detrend mask from the fitted model and final times;

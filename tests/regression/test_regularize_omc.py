@@ -651,6 +651,31 @@ class TestSelectFewTransits:
         with pytest.raises(UnsupportedTargetError, match="needs at least 3"):
             RegularizeOMC(star, planets, lc).perform(method="select")
 
+    def test_linear_planet_passes_through(self):
+        # low per-transit SNR (QuickFitTransitTimes): no measured times, kept as given
+        star, planets, lc = _system_with_omc(np.full(5, np.nan), np.full(5, np.nan))
+        tt = planets[0].transit_times
+        linear = TransitTimes(
+            "Kepler",
+            "SYN",
+            tt.index,
+            tt.ttime_obs,
+            ttime_mod=tt.ttime_mod,
+            model_name="linear",
+            model_dof=2.0,
+            ttv_scatter=0.002,
+        )
+        planets[0].set_transit_times(linear)
+        planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
+        out = planets_out[0].transit_times
+        assert (out.model_name, out.model_dof, out.ttv_scatter) == (
+            "linear",
+            2.0,
+            0.002,
+        )
+        np.testing.assert_array_equal(out.ttime_mod, linear.ttime_mod)
+        assert np.all(np.isnan(out.ttime_obs))
+
 
 @pytest.mark.slow
 class TestSelectMatern32Gate:

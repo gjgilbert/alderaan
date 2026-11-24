@@ -3,6 +3,7 @@
 import logging
 
 import numpy as np
+from astropy.stats import mad_std
 from scipy.optimize import least_squares
 
 from alderaan.algorithms.base import BaseAlg
@@ -17,6 +18,19 @@ logger = logging.getLogger(__name__)
 
 class QuickFitTransitTimes(BaseAlg):
     """Measure individual transit times for each planet"""
+
+    @staticmethod
+    def _per_transit_snr(p, lc):
+        """
+        Single-transit SNR, ror^2 sqrt(T14 / exptime) / mad_std(flux), maximum
+        over obsmodes
+        """
+        return max(
+            p.ror**2
+            * np.sqrt(p.duration / EXPTIME[om])
+            / mad_std(lc.flux[lc.obsmode == om])
+            for om in np.unique(lc.obsmode)
+        )
 
     @staticmethod
     def _construct_template(tm, planet_no, obsmode, transit_window_size):
@@ -456,19 +470,53 @@ class QuickFitTransitTimes(BaseAlg):
         measured. Each planet's TransitTimes is replaced: ttime_obs and ttime_err
         (floored at the predicted error) are NaN where unmeasured, and ttime_mod
         is ttime_obs where measured, else unchanged.
+
+        A planet with per-transit SNR < 2 is not measured: it gets its linear
+        ephemeris, model_name 'linear', and no observed times.
         """
         star = self.star
         planets = self.planets
         litecurve = self.litecurve
         npl = len(planets)
 
-        # Mazeh+13 / Holczer+16 cross-correlation
+        # below SNR ~ 2 a single-transit time locks onto noise: linear ephemeris,
+        # with the predicted timing error as its TTV scatter
         tm = TransitModel(star, planets, litecurve)
+        low_snr = []
+        for n, p in enumerate(planets):
+            snr = self._per_transit_snr(p, litecurve)
+            p.meta["snr_per_transit"] = snr
+            low_snr.append(snr < 2)
+            if snr < 2:
+                logger.info(
+                    "planet %d: per-transit SNR = %.2f < 2; linear ephemeris", n, snr
+                )
+                tt = p.transit_times
+                p.set_transit_times(
+                    TransitTimes(
+                        tt.mission,
+                        tt.target,
+                        tt.index,
+                        ttime_obs=np.full(len(tt.index), np.nan),
+                        ttime_mod=tt.linear_ephemeris(),
+                        phot_coverage=tt.phot_coverage,
+                        phot_noise=tt.phot_noise,
+                        model_name="linear",
+                        model_dof=2.0,
+                        ttv_scatter=np.median(self._predicted_tc_error(tm, n)),
+                    )
+                )
+
+        # Mazeh+13 / Holczer+16 cross-correlation; sibling models at linear times
+        if any(low_snr):
+            tm = TransitModel(star, planets, litecurve)
         ttime_cc = [None] * npl
         error_cc = [None] * npl
         sibling_in_window = [None] * npl
 
         for n, p in enumerate(planets):
+            if low_snr[n]:
+                continue
             ttime_cc[n], error_cc[n], sibling_in_window[n] = (
                 self._cross_correlation_times(tm, n)
             )
@@ -497,6 +545,8 @@ class QuickFitTransitTimes(BaseAlg):
 
         # optimizer starting times: cross-correlation, else the previous model
         for n, p in enumerate(planets):
+            if low_snr[n]:
+                continue
             q = ~np.isnan(ttime_cc[n]) & ~np.isnan(error_cc[n])
             tt = p.transit_times
             p.set_transit_times(
@@ -520,6 +570,8 @@ class QuickFitTransitTimes(BaseAlg):
         error_opt = [None] * npl
 
         for n, p in enumerate(planets):
+            if low_snr[n]:
+                continue
             tt = p.transit_times
             fit = tt.phot_coverage & tt.phot_noise & sibling_in_window[n]
             ttime_opt[n], error_opt[n] = self._optimize_times(tm, n, overlap, fit)
@@ -527,6 +579,8 @@ class QuickFitTransitTimes(BaseAlg):
         # measured times: cross-correlation, else optimizer; ttime_mod = ttime_obs
         # where measured, else the previous model
         for n, p in enumerate(planets):
+            if low_snr[n]:
+                continue
             tt = p.transit_times
             good = tt.phot_coverage & tt.phot_noise
             tc_error_pred = self._predicted_tc_error(tm, n)

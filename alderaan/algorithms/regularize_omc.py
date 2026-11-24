@@ -565,9 +565,9 @@ class RegularizeOMC(BaseAlg):
 
         close = np.zeros((npl, npl), dtype=bool)
         for i in range(npl):
-            df = 1 / np.ptp(tlin[i][mask[i]])
             for j in range(i + 1, npl):
                 if candidate[i] is not None and candidate[j] is not None:
+                    df = 1 / np.ptp(tlin[i][mask[i]])
                     if np.abs(candidate[i] - candidate[j]) < df:
                         close[i, j] = True
                         close[j, i] = True
@@ -1148,12 +1148,14 @@ class RegularizeOMC(BaseAlg):
         # fit measured times with good photometry (FlagBadTransits) only; the rest
         # are returned unmeasured and filled by the model
         tts = [p.transit_times for p in self.planets]
+        # low per-transit SNR (QuickFitTransitTimes): kept as given
+        linear = [tt.model_name == "linear" for tt in tts]
         measured = [
             tt.phot_coverage & tt.phot_noise & np.isfinite(tt.ttime_obs) for tt in tts
         ]
         for n, m in enumerate(measured):
             # 1-2 transit planets need special handling (not yet implemented)
-            if np.sum(m) < 3:
+            if np.sum(m) < 3 and not linear[n]:
                 raise UnsupportedTargetError(
                     f"planet {n}: {np.sum(m)} measured transit times; "
                     "RegularizeOMC needs at least 3"
@@ -1180,6 +1182,10 @@ class RegularizeOMC(BaseAlg):
                 period = [None] * npl
             fits, model = [], []
             for n in range(npl):
+                if linear[n]:
+                    fits.append(None)
+                    model.append("linear")
+                    continue
                 logger.info("planet %d: OMC model selection", n)
                 fits.append(
                     {
@@ -1198,9 +1204,16 @@ class RegularizeOMC(BaseAlg):
             if check_periodic:
                 logger.info("periodic TTV search after outlier rejection")
                 period2 = self._periodic_signals(
-                    tlin, omc, [fits[n][model[n]]["inlier"] for n in range(npl)]
+                    tlin,
+                    omc,
+                    [
+                        unclipped[n] if linear[n] else fits[n][model[n]]["inlier"]
+                        for n in range(npl)
+                    ],
                 )
                 for n in range(npl):
+                    if linear[n]:
+                        continue
                     logger.info("planet %d: periodic TTV recheck", n)
                     period[n] = self._recheck_sinusoid(
                         tlin[n],
@@ -1217,6 +1230,9 @@ class RegularizeOMC(BaseAlg):
         # vetting subtracts the other planets' transits at their input times
         regularized = []
         for n, tt in enumerate(tts):
+            if linear[n]:
+                regularized.append(tt)
+                continue
             if method == "smooth":
                 label, inlier, dof = "smooth", unclipped[n], None
                 pred = self._smooth(tt.index, omc[n], inlier)

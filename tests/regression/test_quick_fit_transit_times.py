@@ -168,3 +168,17 @@ class TestQuickFitTransitTimes:
         tt = new_planets[1].transit_times
         assert np.all(np.isfinite(tt.ttime_obs)) and np.all(np.isfinite(tt.ttime_err))
         assert np.all(np.abs(tt.ttime_obs - ttime_true[1]) < 4 * tt.ttime_err)
+
+    def test_low_snr_planet_gets_linear_ephemeris(self):
+        # planet 1 per-transit SNR ~ 1: not measured; planet 0 still is
+        truth = [TRUTH[0], (11.7, 111.65, 0.006, 0.4, 0.2)]
+        star, planets, litecurve, _ = _synthetic_system(truth)
+        old = planets[1].transit_times
+        new_planets, _ = QuickFitTransitTimes(star, planets, litecurve).perform()
+
+        tt = new_planets[1].transit_times
+        assert tt.model_name == "linear"
+        assert np.all(np.isnan(tt.ttime_obs))
+        np.testing.assert_allclose(tt.ttime_mod, old.linear_ephemeris())
+        assert tt.ttv_scatter > 0
+        assert np.all(np.isfinite(new_planets[0].transit_times.ttime_obs))
