@@ -215,22 +215,11 @@ class Posteriors:
                 for k in samples_hdu.columns.names
             }
         )
-        # TEMPORARY: the 20261123 batch stores the integrals, no strands and no
-        # BATCHES table; strand -1 and NaN bounds make resample_run raise.
-        # Remove after the next batch.
-        if "BATCHES" not in hdul:
-            samples = samples.drop(columns=["LN_WT", "LN_Z", "LN_ZERR", "INFO"])
-            samples["SAMP_ID"] = -1
-            samples["SAMP_BATCH"] = -1
-            nbatch = header["NBATCH"]
-            batch_nlive = [header[f"NLIVE{i}"] for i in range(nbatch)]
-            batch_logl_bounds = np.full((nbatch, 2), np.nan)
-        else:
-            batches = hdul["BATCHES"].data
-            batch_nlive = [int(n) for n in batches["NLIVE"]]
-            batch_logl_bounds = np.column_stack(
-                [batches["LOGL_MIN"], batches["LOGL_MAX"]]
-            ).astype(float)
+        batches = hdul["BATCHES"].data
+        batch_nlive = [int(n) for n in batches["NLIVE"]]
+        batch_logl_bounds = np.column_stack(
+            [batches["LOGL_MIN"], batches["LOGL_MAX"]]
+        ).astype(float)
 
         sampler_info = {
             k: samples.pop(col).to_numpy() for k, (col, _) in SAMPLE_COLUMNS.items()

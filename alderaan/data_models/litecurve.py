@@ -93,11 +93,8 @@ class LiteCurve:
             hdu = hdul["LITECURVE"]
             h = hdu.header
             arrays = {k: hdu.data[k.upper()] for k in FIELDS}
-            # TEMPORARY: read the 20261123 batch, whose OBSMODE column is strings;
-            # remove after the next batch
-            if "NOBSMODE" in h:
-                names = np.array([h[f"OBSMODE{i}"] for i in range(h["NOBSMODE"])])
-                arrays["obsmode"] = names[arrays["obsmode"]]
+            names = np.array([h[f"OBSMODE{i}"] for i in range(h["NOBSMODE"])])
+            arrays["obsmode"] = names[arrays["obsmode"]]
             lc = cls(
                 hdu.header["MISSION"],
                 hdu.header["TARGET"],
