@@ -280,15 +280,19 @@ class Results:
         flux = self.litecurve.flux
         obsmode = self.litecurve.obsmode
 
-        t_folded, f_folded, om_folded = [], [], []
+        t_folded, f_folded, e_folded, om_folded = [], [], [], []
+        n_transit = 0
         for tc in self.median_transit_times(n):
             use = np.abs(time - tc) / T14 < 1.5
+            n_transit += np.any(use)
             t_folded.append(time[use] - tc)
             f_folded.append(flux[use])
+            e_folded.append(self.litecurve.error[use])
             om_folded.append(obsmode[use])
 
         t_folded = np.hstack(t_folded)
         f_folded = np.hstack(f_folded)
+        e_folded = np.hstack(e_folded)
         om_folded = np.hstack(om_folded)
 
         # exposure integration as sampled (TransitModel.supersample)
@@ -326,23 +330,72 @@ class Results:
         )
 
         fig, ax = plt.subplots(
-            2, 1, figsize=(12, 6), sharex=True, gridspec_kw={"height_ratios": [2, 1]}
+            2, 1, figsize=(8, 4), sharex=True, gridspec_kw={"height_ratios": [2, 1]}
         )
 
-        ax[0].plot(t_folded[inds] * 24, f_folded[inds], "o", color="lightgrey")
-        ax[0].errorbar(t_binned * 24, f_binned, f_binned_err, fmt="o", color="k", ms=3)
-        ax[0].plot(t_mod * 24, f_mod, color=f"C{n}", lw=3)
-        for f in f_mod_integrated:
-            ax[0].plot(t_mod * 24, f, "k--", lw=2)
-        ax[0].plot(t_binned * 24, m_binned, "o", color=f"C{n}", ms=4)
-        label_axes(ax[0], ylabel="Flux", title=f"{self.target} - Planet {n}")
+        # empty bins: open circles on the unbinned model (top) and on zero (bottom)
+        empty = np.isnan(f_binned)
+        f_empty = transit_flux(t_binned[empty], *params)
 
-        ax[1].plot(t_folded[inds] * 24, residuals[inds], ".", color="lightgrey")
-        ax[1].errorbar(t_binned * 24, r_binned, r_binned_err, fmt="o", color="k", ms=3)
+        # flux plotted as ppm offset from 1, residuals in ppm
+        ax[0].plot(
+            t_folded[inds] * 24,
+            (f_folded[inds] - 1) * 1e6,
+            "o",
+            color="lightgrey",
+            ms=3,
+        )
+        ax[0].errorbar(
+            t_binned * 24,
+            (f_binned - 1) * 1e6,
+            f_binned_err * 1e6,
+            fmt="o",
+            color="k",
+            ms=5,
+        )
+        ax[0].plot(
+            t_binned[empty] * 24, (f_empty - 1) * 1e6, "o", mfc="none", mec="k", ms=5
+        )
+        ax[0].plot(t_mod * 24, (f_mod - 1) * 1e6, color=f"C{n}", lw=3)
+        for f in f_mod_integrated:
+            ax[0].plot(t_mod * 24, (f - 1) * 1e6, "k--", lw=2)
+        ax[0].plot(t_binned * 24, (m_binned - 1) * 1e6, "o", color=f"C{n}", ms=4)
+        label_axes(
+            ax[0],
+            ylabel="Flux [ppm]",
+            title=f"{self.target} - Planet {n}",
+            label_size=15,
+            title_size=16,
+        )
+
+        ax[1].plot(
+            t_folded[inds] * 24, residuals[inds] * 1e6, ".", color="lightgrey", ms=3
+        )
+        ax[1].errorbar(
+            t_binned * 24, r_binned * 1e6, r_binned_err * 1e6, fmt="o", color="k", ms=5
+        )
+        ax[1].plot(
+            t_binned[empty] * 24, np.zeros(empty.sum()), "o", mfc="none", mec="k", ms=5
+        )
         ax[1].axhline(0, color="k", ls="--", lw=2)
         ax[1].set_xlim(t_folded.min() * 24, t_folded.max() * 24)
-        annotate_plot(ax[1], f"RMS = {int(np.std(residuals) * 1e6)} ppm", "lower left")
-        label_axes(ax[1], xlabel="Time from mid-transit [hrs]")
+
+        # headroom above the data for the top annotations; residuals symmetric
+        lo, hi = ax[0].get_ylim()
+        ax[0].set_ylim(lo, hi + 0.25 * (hi - lo))
+        ymax = np.max(np.abs(ax[1].get_ylim()))
+        ax[1].set_ylim(-ymax, ymax)
+
+        # dof: the 7 parameters of this planet's model (C0, C1, ror, b, T14, q1, q2)
+        chi2_red = np.sum((residuals / e_folded) ** 2) / (len(residuals) - 7)
+        annotate_plot(ax[0], f"N_transit = {n_transit}", "upper left")
+        annotate_plot(ax[0], f"P = {params[1]:.2f} d", "upper right")
+        annotate_plot(
+            ax[0], f"residual RMS = {int(np.std(residuals) * 1e6)} ppm", "lower right"
+        )
+        annotate_plot(ax[0], f"reduced χ² = {chi2_red:.2f}", "lower left")
+        label_axes(ax[1], xlabel="Time from mid-transit [hrs]", label_size=15)
+        ax[1].set_ylabel("Residuals", fontsize=12)
         fig.tight_layout()
         save_and_close(fig, fig_path)
 
