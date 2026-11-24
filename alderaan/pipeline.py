@@ -228,6 +228,7 @@ def _run(target, run_id, input_dir, output_dir, catalog, visits):
     results.meta.update(litecurve.meta)
     for n, p in enumerate(planets):
         results.meta[f"PLNAME{n}"] = p.meta["PLNAME"]
+    results.meta.update(results.reduced_chi2())
     results_path = os.path.join(results_dir, f"{target}_results.fits")
     results.to_fits(results_path)
 
