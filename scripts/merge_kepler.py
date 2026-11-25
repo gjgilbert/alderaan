@@ -11,8 +11,11 @@ Each DR entry is also compared with the Lissauer+2024 entry, and
 inconsistencies are written to REPORT.
 
 Disposition (alderaan_disp): FP = false positive, PC = planet candidate
-(transit to model; includes Lissauer+2024 M, mass > 13 M_Jup), A = ambiguous.
-From the Lissauer+2024 disposition (F -> FP, P or M -> PC, S or R -> A).
+(transit to model; includes Lissauer+2024 M, mass > 13 M_Jup, unless OVERRIDES
+gives FP for an RV mass > 25 M_Jup), A = ambiguous.
+From the Lissauer+2024 disposition (F -> FP, P or M -> PC, S or R -> A), except
+FP if DR24 and DR25 are both F and Lissauer+2024 is F, S, or R, and A -> FP if
+S/N < 5.9 (the lowest Lissauer+2024 S/N of a P).
 Differences from the DR25 supplemental disposition are written to REPORT.
 
 Stellar parameters (Teff [K], logg [cgs], [Fe/H], mass, radius, density) are
@@ -454,6 +457,12 @@ def designate(merged, status):
     if not lissauer.isin(LISSAUER_DISP).all():
         raise ValueError(f"{LISSAUER}: unexpected status letter")
     merged["alderaan_disp"] = lissauer.map(LISSAUER_DISP)
+    # DR25 (third letter), DR24 (fourth letter), and Lissauer+2024 all agree: FP
+    dr_fp = (status.str[2] == "F") & (status.str[3] == "F")
+    merged.loc[dr_fp & lissauer.isin(["F", "S", "R"]), "alderaan_disp"] = "FP"
+    # A below the lowest Lissauer+2024 S/N of a P: FP
+    snr = pd.to_numeric(merged["koi_model_snr"], errors="coerce")
+    merged.loc[(merged["alderaan_disp"] == "A") & (snr < 5.9), "alderaan_disp"] = "FP"
 
     # (DR25supp, Lissauer) -> number of KOIs, for KOIs where they differ
     changes = pd.Series(list(zip(supp, lissauer)))[(supp != lissauer).values]
@@ -680,13 +689,15 @@ def write_report(tables, lissauer, merged, kepid_rows, alias_rows, param_rows, c
         "",
         "## ALDERAAN disposition",
         "",
-        f"- `alderaan_disp`: FP {(disp == 'FP').sum()}, PC (incl. M) "
+        f"- `alderaan_disp`: FP {(disp == 'FP').sum()}, PC "
         f"{(disp == 'PC').sum()}, A (ambiguous) {(disp == 'A').sum()}",
         "",
         "`alderaan_disp` is from the Lissauer+2024 disposition (first letter of",
-        "`status`): F -> FP, P or M -> PC, S or R -> A (ambiguous). Letters:",
-        "F false positive, P planet/candidate, M mass > 13 M_Jup, S S/N < 7.1,",
-        "R radius too large.",
+        "`status`): F -> FP, P or M -> PC, S or R -> A (ambiguous), except FP if",
+        "DR25 and DR24 (third and fourth letters) are both F and Lissauer+2024 is",
+        "F, S, or R, and A -> FP if S/N < 5.9 (the lowest Lissauer+2024 S/N of a P).",
+        "Letters: F false positive, P planet/candidate, M mass",
+        "> 13 M_Jup, S S/N < 7.1, R radius too large.",
         "",
         f"### Lissauer+2024 changes from DR25supp ({changes.sum()})",
         "",
