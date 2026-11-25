@@ -16,3 +16,5 @@ K03411.01,,,,,,,,,,,,,FP,"Lissauer+2024 M (RV mass > 13 M_Jup); alderaan: PC if 
 K03787.01,,,,,,,,,,,,,FP,"Lissauer+2024 M (RV mass > 13 M_Jup); alderaan: PC if M2 < 25 M_Jup, else FP; M2 = 0.14 +/- 0.01 M_Sun = 147 +/- 10 M_Jup, Santerne+2016 (A&A 587, A64; SOPHIE); low-mass EB"
 K03811.01,,,,,,,,,,,,,FP,"Lissauer+2024 M (RV mass > 13 M_Jup); alderaan: PC if M2 < 25 M_Jup, else FP; SB2, secondary-only EB (q = 0.770), Santerne+2016 (A&A 587, A64; SOPHIE); stellar companion"
 K05745.01,,,,,,,,,,,,,FP,"Lissauer+2024 M (RV mass > 13 M_Jup); alderaan: PC if M2 < 25 M_Jup, else FP; SB2, secondary-only EB (q = 0.911), Santerne+2016 (A&A 587, A64; SOPHIE); stellar companion"
+K00820.01,,,,,,,3899,169,-169,1.688,0.117,-0.117,,"depth, duration from DR24: DR25 duration 35.5 h is unphysical at P = 4.64 d (DR22, DR24, and Lissauer+2024 give 1.7 h)"
+K05156.01,,,,,,,,,,,,,FP,"marked FP: duration 12.6 h at P = 1.68 d is unphysical (DR22, the only DR entry; Lissauer+2024 gives 0 h)"
