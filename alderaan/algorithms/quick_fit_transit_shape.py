@@ -108,8 +108,10 @@ class QuickFitTransitShape(BaseAlg):
                 logp_final,
                 result.message,
             )
+            if fix is fix_r_b_T14:
+                converged = result.success
             if not result.success:
-                logger.warning(
+                logger.debug(
                     "shape fit, optimizing [%s] did not converge (%s)",
                     ", ".join(var_names[~fix[:5]]),
                     result.message,
@@ -127,7 +129,7 @@ class QuickFitTransitShape(BaseAlg):
             niter,
         )
 
-        return theta
+        return theta, converged
 
     def _update_planets(self, theta):
         """Set each planet's ror, b, and T14 from theta"""
@@ -152,15 +154,19 @@ class QuickFitTransitShape(BaseAlg):
         tm.trim(self.make_transit_mask(rel_size=3.0, abs_size=2 / 24, phot_only=True))
 
         best_logp, best_theta = -np.inf, None
+        any_converged = False
         # b = sin(22.5 deg), sin(45 deg), sin(60 deg)
         for b in (0.38, 0.71, 0.87):
             logger.info("shape fit from b = %.2f", b)
-            theta = self._optimize(tm, self._theta_start(tm, b))
+            theta, converged = self._optimize(tm, self._theta_start(tm, b))
+            any_converged |= converged
             logp = tm.ln_likelihood(theta)
             # ln_likelihood returns -1e300 if not finite
             if logp > max(best_logp, -1e299):
                 best_logp, best_theta = logp, theta
 
+        if not any_converged:
+            logger.warning("shape fit: [r, b, T14] did not converge from any start")
         if best_theta is None:
             raise ValueError("shape fit: no start reached a finite likelihood")
         self._update_planets(best_theta)
