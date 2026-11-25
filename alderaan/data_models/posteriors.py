@@ -289,14 +289,15 @@ class Posteriors:
         for label in self.samples.columns:
             x = self.samples[label].to_numpy()
             avg = np.sum(weights * x)
+            pct = weighted_percentile(x, [50, 2.5, 15.9, 84.1, 97.5], w=weights)
             rows[label] = {
                 "mean": avg,
                 "stdev": np.sqrt(np.sum(weights * (x - avg) ** 2)),
-                "median": weighted_percentile(x, 50, w=weights),
-                "CI_2.5": weighted_percentile(x, 2.5, w=weights),
-                "CI_16": weighted_percentile(x, 15.9, w=weights),
-                "CI_84": weighted_percentile(x, 84.1, w=weights),
-                "CI_97.5": weighted_percentile(x, 97.5, w=weights),
+                "median": pct[0],
+                "CI_2.5": pct[1],
+                "CI_16": pct[2],
+                "CI_84": pct[3],
+                "CI_97.5": pct[4],
             }
 
         return pd.DataFrame.from_dict(rows, orient="index")

@@ -45,6 +45,7 @@ class Results:
         self.transit_times = transit_times
         self.litecurve = litecurve
         self.meta = {}  # FITS header cards, written to PRIMARY
+        self._summary = None  # set on the first summary() call
 
         components = []
         if posteriors is not None:
@@ -148,8 +149,15 @@ class Results:
         return results
 
     def summary(self):
-        """Posterior summary statistics (see Posteriors.summary)"""
-        return self.posteriors.summary()
+        """
+        Posterior summary statistics (see Posteriors.summary)
+
+        Computed on the first call and cached; posteriors must not be replaced
+        or modified after that.
+        """
+        if self._summary is None:
+            self._summary = self.posteriors.summary()
+        return self._summary
 
     def planet_samples(self, n):
         """Physical posterior samples for planet n (see Posteriors.planet_samples)"""
@@ -280,17 +288,25 @@ class Results:
             om: exposure_offsets(EXPTIME[om], self.posteriors.supersample[om])
             for om in np.unique(lc.obsmode)
         }
+        in_obsmode = {om: lc.obsmode == om for om in offsets}
+        if np.any(np.diff(lc.time) < 0):
+            raise ValueError("litecurve.time must be sorted")
+        # cadences near each transit: a superset of every mask below
+        half = 1.5 * T14 + max(EXPTIME[om] for om in offsets)
+        ttimes = self.median_transit_times(n)
+        lo = np.searchsorted(lc.time, ttimes - 2 * half)
+        hi = np.searchsorted(lc.time, ttimes + 2 * half)
 
         model = np.ones_like(lc.flux)
         window = np.zeros(len(lc.time), dtype=bool)
-        for tc in self.median_transit_times(n):
-            dt = lc.time - tc
-            window |= np.abs(dt) < 1.5 * T14
+        for tc, i, j in zip(ttimes, lo, hi):
+            dt = lc.time[i:j] - tc
+            window[i:j] |= np.abs(dt) < 1.5 * T14
             for om, offs in offsets.items():
                 # beyond the window too, so the model returns to 1 for short T14
-                q = (lc.obsmode == om) & (np.abs(dt) < 1.5 * T14 + EXPTIME[om])
+                q = in_obsmode[om][i:j] & (np.abs(dt) < 1.5 * T14 + EXPTIME[om])
                 if q.any():
-                    model[q] = transit_flux(dt[q], *params, exptime_offsets=offs)
+                    model[i:j][q] = transit_flux(dt[q], *params, exptime_offsets=offs)
 
         return model, window
 
