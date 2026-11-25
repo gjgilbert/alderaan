@@ -213,27 +213,18 @@ class DetrendVisits(BaseAlg):
         )
 
     @staticmethod
-    def _identify_breaks(cadno, flux, mask, gap_tolerance, jump_tolerance):
+    def _identify_breaks(cadno, mask, gap_tolerance):
         """
         Segment ID (0..n_seg-1) per cadence of one visit
 
-        The visit splits at time gaps of more than gap_tolerance cadences and at
-        flux jumps (> jump_tolerance sigma, outside the mask; mask is True near
-        transit). Breaks within gap_tolerance cadences of the previous candidate
-        break, the visit start, or the end are dropped. A segment with no
-        unmasked cadences is merged into a neighbor.
+        The visit splits at time gaps of more than gap_tolerance cadences. Breaks
+        within gap_tolerance cadences of the previous break, the visit start, or
+        the end are dropped. A segment with no unmasked cadences (mask is True near
+        transit) is merged into a neighbor.
         """
-        # first cadence after each gap in time
-        gap_locs = np.where(np.diff(cadno) > gap_tolerance)[0] + 1
-
-        # first cadence after each jump in flux
-        jumps = np.pad(np.diff(flux), (1, 0), "constant", constant_values=(0, 0))
-        jump_size = np.abs(jumps - np.median(jumps)) / mad_std(jumps)
-        jump_locs = np.where(~mask & (jump_size > jump_tolerance))[0]
-
-        # candidate segment starts; drop those too close to the previous or the end
-        starts = np.unique(np.hstack([gap_locs, jump_locs]))
-        starts = starts[(starts > 0) & (starts < len(cadno))]
+        # candidate segment starts: first cadence after each gap in time;
+        # drop those too close to the previous or the end
+        starts = np.where(np.diff(cadno) > gap_tolerance)[0] + 1
         too_close = np.diff(np.hstack([0, starts])) < gap_tolerance
         if len(starts) and len(cadno) - starts[-1] < gap_tolerance:
             too_close[-1] = True
@@ -488,7 +479,7 @@ class DetrendVisits(BaseAlg):
         """
         Detrend one visit; returns the predicted trend (same length as time)
 
-        Segments (split at gaps and flux jumps) each have their own mean and
+        Segments (split at time gaps) each have their own mean and
         share one GP: RotationTerm if the star is periodic, else SHOTerm.
         """
         exptime = EXPTIME[obsmode]
@@ -500,9 +491,7 @@ class DetrendVisits(BaseAlg):
         )
         logger.debug("gap tolerance = %d cadences", gap_tolerance)
 
-        seg_id = self._identify_breaks(
-            cadno, flux, mask, gap_tolerance, jump_tolerance=5.0
-        )
+        seg_id = self._identify_breaks(cadno, mask, gap_tolerance)
         # ramp origin per segment, from all cadences, so fit and prediction agree
         seg_t0 = np.array([time[seg_id == i].min() for i in range(seg_id.max() + 1)])
 

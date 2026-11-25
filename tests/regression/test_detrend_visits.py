@@ -90,33 +90,21 @@ def _synthetic_system(seed=0):
 
 class TestIdentifyBreaks:
     @staticmethod
-    def _series(n=1000, seed=0):
-        rng = np.random.default_rng(seed)
-        return np.arange(n), 1 + 1e-4 * rng.standard_normal(n), np.zeros(n, bool)
+    def _series(n=1000):
+        return np.arange(n), np.zeros(n, bool)
 
     def test_time_gap_splits_segments(self):
-        cadno, flux, mask = self._series()
+        cadno, mask = self._series()
         cadno[500:] += 50
-        seg_id = DetrendVisits._identify_breaks(cadno, flux, mask, 13, 5.0)
+        seg_id = DetrendVisits._identify_breaks(cadno, mask, 13)
         np.testing.assert_array_equal(seg_id, np.arange(len(cadno)) >= 500)
 
-    def test_flux_jump_splits_segments_outside_transit_mask_only(self):
-        cadno, flux, mask = self._series()
-        flux[300:] += 0.01
-
-        seg_id = DetrendVisits._identify_breaks(cadno, flux, mask, 13, 5.0)
-        np.testing.assert_array_equal(seg_id, np.arange(len(cadno)) >= 300)
-
-        mask[295:305] = True
-        seg_id = DetrendVisits._identify_breaks(cadno, flux, mask, 13, 5.0)
-        assert not seg_id.any()
-
     def test_fully_masked_segment_merges_into_previous(self):
-        cadno, flux, mask = self._series()
+        cadno, mask = self._series()
         cadno[500:] += 50
         cadno[530:] += 50
         mask[500:530] = True
-        seg_id = DetrendVisits._identify_breaks(cadno, flux, mask, 13, 5.0)
+        seg_id = DetrendVisits._identify_breaks(cadno, mask, 13)
         np.testing.assert_array_equal(seg_id, np.arange(len(cadno)) >= 530)
 
 
