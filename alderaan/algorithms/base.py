@@ -8,6 +8,7 @@ from copy import deepcopy
 import numpy as np
 
 from alderaan.data_models import LiteCurve, Planet, Star
+from alderaan.errors import UnsupportedTargetError
 
 
 def _log_perform(perform):
@@ -72,7 +73,13 @@ class BaseAlg:
         self.star = deepcopy(star)
 
     def make_transit_mask(
-        self, rel_size=0.0, abs_size=0.0, buffer=0.0, time=None, phot_only=False
+        self,
+        rel_size=0.0,
+        abs_size=0.0,
+        buffer=0.0,
+        time=None,
+        phot_only=False,
+        max_period_fraction=None,
     ):
         """
         Mask cadences near a transit of any planet
@@ -96,6 +103,9 @@ class BaseAlg:
             mask only transits with good photometry (TransitTimes.phot_coverage
             and phot_noise), e.g. to select the photometry a fit uses
             (default False: every transit)
+        max_period_fraction : float
+            raise UnsupportedTargetError if a window is wider than this fraction
+            of the planet's period (default None: no limit)
 
         Returns
         -------
@@ -117,6 +127,11 @@ class BaseAlg:
             half_width = 0.5 * (
                 np.max([rel_size[n] * p.duration, abs_size[n]]) + buffer[n]
             )
+            if max_period_fraction and 2 * half_width > max_period_fraction * p.period:
+                raise UnsupportedTargetError(
+                    f"planet {n}: transit mask width {2 * half_width:.3f} d exceeds "
+                    f"{max_period_fraction:.3g} of the period ({p.period:.3f} d)"
+                )
             tt = p.transit_times
             phot = tt.phot_coverage & tt.phot_noise
             ttime = tt.ttime_mod[phot] if phot_only else tt.ttime_mod

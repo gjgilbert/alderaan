@@ -464,6 +464,7 @@ class DetrendVisits(BaseAlg):
                     for u, p in zip(usp, self.planets)
                 ],
                 time=time,
+                max_period_fraction=1 / 3,
             )
         else:
             # full width = max(3 x T14, 2 x (exptime + 1 hour))
@@ -472,6 +473,7 @@ class DetrendVisits(BaseAlg):
                 abs_size=np.where(usp, 0.0, 2 * (exptime + 1 / 24)),
                 buffer=np.where(usp, exptime, 0.0),
                 time=time,
+                max_period_fraction=1 / 3,
             )
         return mask
 
