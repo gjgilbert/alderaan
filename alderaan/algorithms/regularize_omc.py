@@ -188,31 +188,38 @@ class RegularizeOMC(BaseAlg):
         w = 1 / yerr[mask] ** 2
         prior_prec = np.array([1 / 10**2, 1 / 10**2, 1 / amp_sd**2, 1 / amp_sd**2])
 
-        freqs = 1 / ttv_period + df * np.linspace(-3, 3, 3001)
-        freqs = freqs[freqs > 0]
+        # if the posterior is narrower than the grid step, refine about the peak
+        center, grid = 1 / ttv_period, df * np.linspace(-3, 3, 3001)
+        for _ in range(2):
+            freqs = center + grid
+            freqs = freqs[freqs > 0]
 
-        log_post = np.zeros(len(freqs))
-        preds = np.zeros((len(freqs), len(xtime)))
-        levs = np.zeros((len(freqs), np.sum(mask)))
-        for i, f in enumerate(freqs):
-            phase = 2 * np.pi * f * xtime
-            X = np.column_stack([np.ones_like(x), x, np.sin(phase), np.cos(phase)])
-            A = X[mask].T @ (w[:, None] * X[mask]) + np.diag(prior_prec)
-            b = X[mask].T @ (w * yobs[mask])
-            C = np.linalg.solve(A, b)
-            # log marginal likelihood over the linear coefficients, up to a
-            # constant in f, plus the log prior on f
-            log_post[i] = (
-                0.5 * b @ C
-                - 0.5 * np.linalg.slogdet(A)[1]
-                - 0.5 * ((f - 1 / ttv_period) / df) ** 2
-            )
-            preds[i] = X @ C
-            levs[i] = w * np.sum(X[mask] * np.linalg.solve(A, X[mask].T).T, axis=1)
+            log_post = np.zeros(len(freqs))
+            preds = np.zeros((len(freqs), len(xtime)))
+            levs = np.zeros((len(freqs), np.sum(mask)))
+            for i, f in enumerate(freqs):
+                phase = 2 * np.pi * f * xtime
+                X = np.column_stack([np.ones_like(x), x, np.sin(phase), np.cos(phase)])
+                A = X[mask].T @ (w[:, None] * X[mask]) + np.diag(prior_prec)
+                b = X[mask].T @ (w * yobs[mask])
+                C = np.linalg.solve(A, b)
+                # log marginal likelihood over the linear coefficients, up to a
+                # constant in f, plus the log prior on f
+                log_post[i] = (
+                    0.5 * b @ C
+                    - 0.5 * np.linalg.slogdet(A)[1]
+                    - 0.5 * ((f - 1 / ttv_period) / df) ** 2
+                )
+                preds[i] = X @ C
+                levs[i] = w * np.sum(X[mask] * np.linalg.solve(A, X[mask].T).T, axis=1)
 
-        weights = np.exp(log_post - log_post.max())
-        weights /= weights.sum()
-        n_eff = 1 / np.sum(weights**2)
+            weights = np.exp(log_post - log_post.max())
+            weights /= weights.sum()
+            n_eff = 1 / np.sum(weights**2)
+            if n_eff >= 5:
+                break
+            center, grid = freqs[np.argmax(weights)], grid / 100
+
         if n_eff < 5:
             logger.warning(
                 "sinusoid OMC model: frequency grid under-resolves the posterior "
