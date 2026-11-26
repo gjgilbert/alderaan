@@ -35,6 +35,7 @@ def main(
     catalog,
     visits=None,
     log_level="INFO",
+    append_log=False,
 ):
     """
     Run the ALDERAAN pipeline on one target (see `alderaan run --help`)
@@ -51,7 +52,11 @@ def main(
         )
 
     log_path = setup_logging(
-        os.path.join(output_dir, run_id, "logs"), target, run_id, log_level
+        os.path.join(output_dir, run_id, "logs"),
+        target,
+        run_id,
+        log_level,
+        append=append_log,
     )
 
     logger.info("alderaan %s (git %s)", alderaan.__version__, alderaan.git_hash())

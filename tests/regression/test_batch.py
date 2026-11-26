@@ -1,7 +1,15 @@
 import sys
 import time
 
-from alderaan.cli.batch import batch_summary, read_targets, run_targets
+import pytest
+
+from alderaan.cli.batch import (
+    batch_summary,
+    main,
+    read_done,
+    read_targets,
+    run_targets,
+)
 
 
 def _exit_task(tag, code, sleep=0.0):
@@ -16,6 +24,36 @@ class TestReadTargets:
             "planet_name,koi_id\nK00005.01,K00005\nK00002.01,K00002\nK00005.02,K00005\n"
         )
         assert read_targets(catalog) == ["K00005", "K00002"]
+
+
+class TestResume:
+    def test_read_done_ok_and_unsupported(self, tmp_path):
+        log = tmp_path / "batch.log"
+        prefix = "2026-11-26T02:25:29.100Z"
+        log.write_text(
+            f"{prefix} INFO     alderaan.cli.batch: argv: alderaan batch\n"
+            f"{prefix} INFO     alderaan.cli.batch: ok: K00087\n"
+            f"{prefix} WARNING  alderaan.cli.batch: UNSUPPORTED: K00099 "
+            "(known limit: planet 0: 2 good transits (< 3))\n"
+            f"{prefix} ERROR    alderaan.cli.batch: FAILED: K00100 (exit 1)\n"
+        )
+        ok, unsupported = read_done(log)
+        assert ok == {"K00087"}
+        assert unsupported == {"K00099": "planet 0: 2 good transits (< 3)"}
+
+    @pytest.mark.parametrize(
+        "extra",
+        [
+            ["--resume"],  # no --run_id
+            ["--resume", "--run_id", "r", "--catalog", "c.csv"],
+            [],  # no --catalog
+        ],
+    )
+    def test_invalid_resume_arguments(self, tmp_path, extra):
+        base = ["-m", "Kepler", "--input_dir", str(tmp_path), "--output_dir"]
+        with pytest.raises(SystemExit) as e:
+            main(base + [str(tmp_path)] + extra)
+        assert e.value.code == 2
 
 
 class TestRunTargets:

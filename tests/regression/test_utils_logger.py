@@ -35,6 +35,21 @@ class TestLogging:
         assert "DEBUG" in text
         assert "alderaan.some_module: debug message" in text
 
+    def test_existing_log_fails_unless_append(self, tmp_path, root_logger):
+        log_path = setup_logging(str(tmp_path), "K00137", "test")
+        logging.getLogger("alderaan").info("first run")
+        teardown_logging()
+
+        with pytest.raises(FileExistsError):
+            setup_logging(str(tmp_path), "K00137", "test")
+
+        setup_logging(str(tmp_path), "K00137", "test", append=True)
+        logging.getLogger("alderaan").info("resumed run")
+        teardown_logging()
+
+        text = open(log_path).read()
+        assert "first run" in text and "resumed run" in text
+
     def test_captures_warnings(self, tmp_path, root_logger):
         log_path = setup_logging(str(tmp_path), "K00137", "test")
         warnings.warn("careful", UserWarning, stacklevel=1)
