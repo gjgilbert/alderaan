@@ -188,31 +188,38 @@ class RegularizeOMC(BaseAlg):
         w = 1 / yerr[mask] ** 2
         prior_prec = np.array([1 / 10**2, 1 / 10**2, 1 / amp_sd**2, 1 / amp_sd**2])
 
-        freqs = 1 / ttv_period + df * np.linspace(-3, 3, 3001)
-        freqs = freqs[freqs > 0]
+        # if the posterior is narrower than the grid step, refine about the peak
+        center, grid = 1 / ttv_period, df * np.linspace(-3, 3, 3001)
+        for _ in range(2):
+            freqs = center + grid
+            freqs = freqs[freqs > 0]
 
-        log_post = np.zeros(len(freqs))
-        preds = np.zeros((len(freqs), len(xtime)))
-        levs = np.zeros((len(freqs), np.sum(mask)))
-        for i, f in enumerate(freqs):
-            phase = 2 * np.pi * f * xtime
-            X = np.column_stack([np.ones_like(x), x, np.sin(phase), np.cos(phase)])
-            A = X[mask].T @ (w[:, None] * X[mask]) + np.diag(prior_prec)
-            b = X[mask].T @ (w * yobs[mask])
-            C = np.linalg.solve(A, b)
-            # log marginal likelihood over the linear coefficients, up to a
-            # constant in f, plus the log prior on f
-            log_post[i] = (
-                0.5 * b @ C
-                - 0.5 * np.linalg.slogdet(A)[1]
-                - 0.5 * ((f - 1 / ttv_period) / df) ** 2
-            )
-            preds[i] = X @ C
-            levs[i] = w * np.sum(X[mask] * np.linalg.solve(A, X[mask].T).T, axis=1)
+            log_post = np.zeros(len(freqs))
+            preds = np.zeros((len(freqs), len(xtime)))
+            levs = np.zeros((len(freqs), np.sum(mask)))
+            for i, f in enumerate(freqs):
+                phase = 2 * np.pi * f * xtime
+                X = np.column_stack([np.ones_like(x), x, np.sin(phase), np.cos(phase)])
+                A = X[mask].T @ (w[:, None] * X[mask]) + np.diag(prior_prec)
+                b = X[mask].T @ (w * yobs[mask])
+                C = np.linalg.solve(A, b)
+                # log marginal likelihood over the linear coefficients, up to a
+                # constant in f, plus the log prior on f
+                log_post[i] = (
+                    0.5 * b @ C
+                    - 0.5 * np.linalg.slogdet(A)[1]
+                    - 0.5 * ((f - 1 / ttv_period) / df) ** 2
+                )
+                preds[i] = X @ C
+                levs[i] = w * np.sum(X[mask] * np.linalg.solve(A, X[mask].T).T, axis=1)
 
-        weights = np.exp(log_post - log_post.max())
-        weights /= weights.sum()
-        n_eff = 1 / np.sum(weights**2)
+            weights = np.exp(log_post - log_post.max())
+            weights /= weights.sum()
+            n_eff = 1 / np.sum(weights**2)
+            if n_eff >= 5:
+                break
+            center, grid = freqs[np.argmax(weights)], grid / 100
+
         if n_eff < 5:
             logger.warning(
                 "sinusoid OMC model: frequency grid under-resolves the posterior "
@@ -397,7 +404,7 @@ class RegularizeOMC(BaseAlg):
 
     @staticmethod
     def _calculate_outlier_probability(
-        yobs, yerr, ymod, mask=None, maxiter=200, tol=1e-6
+        yobs, yerr, ymod, mask=None, maxiter=1000, tol=1e-6
     ):
         """
         Flag measured omc transit times that are more likely outliers than not
@@ -565,9 +572,9 @@ class RegularizeOMC(BaseAlg):
 
         close = np.zeros((npl, npl), dtype=bool)
         for i in range(npl):
-            df = 1 / np.ptp(tlin[i][mask[i]])
             for j in range(i + 1, npl):
                 if candidate[i] is not None and candidate[j] is not None:
+                    df = 1 / np.ptp(tlin[i][mask[i]])
                     if np.abs(candidate[i] - candidate[j]) < df:
                         close[i, j] = True
                         close[j, i] = True
@@ -1148,12 +1155,14 @@ class RegularizeOMC(BaseAlg):
         # fit measured times with good photometry (FlagBadTransits) only; the rest
         # are returned unmeasured and filled by the model
         tts = [p.transit_times for p in self.planets]
+        # low per-transit SNR (QuickFitTransitTimes): kept as given
+        linear = [tt.model_name == "linear" for tt in tts]
         measured = [
             tt.phot_coverage & tt.phot_noise & np.isfinite(tt.ttime_obs) for tt in tts
         ]
         for n, m in enumerate(measured):
             # 1-2 transit planets need special handling (not yet implemented)
-            if np.sum(m) < 3:
+            if np.sum(m) < 3 and not linear[n]:
                 raise UnsupportedTargetError(
                     f"planet {n}: {np.sum(m)} measured transit times; "
                     "RegularizeOMC needs at least 3"
@@ -1180,6 +1189,10 @@ class RegularizeOMC(BaseAlg):
                 period = [None] * npl
             fits, model = [], []
             for n in range(npl):
+                if linear[n]:
+                    fits.append(None)
+                    model.append("linear")
+                    continue
                 logger.info("planet %d: OMC model selection", n)
                 fits.append(
                     {
@@ -1198,9 +1211,16 @@ class RegularizeOMC(BaseAlg):
             if check_periodic:
                 logger.info("periodic TTV search after outlier rejection")
                 period2 = self._periodic_signals(
-                    tlin, omc, [fits[n][model[n]]["inlier"] for n in range(npl)]
+                    tlin,
+                    omc,
+                    [
+                        unclipped[n] if linear[n] else fits[n][model[n]]["inlier"]
+                        for n in range(npl)
+                    ],
                 )
                 for n in range(npl):
+                    if linear[n]:
+                        continue
                     logger.info("planet %d: periodic TTV recheck", n)
                     period[n] = self._recheck_sinusoid(
                         tlin[n],
@@ -1217,6 +1237,9 @@ class RegularizeOMC(BaseAlg):
         # vetting subtracts the other planets' transits at their input times
         regularized = []
         for n, tt in enumerate(tts):
+            if linear[n]:
+                regularized.append(tt)
+                continue
             if method == "smooth":
                 label, inlier, dof = "smooth", unclipped[n], None
                 pred = self._smooth(tt.index, omc[n], inlier)

@@ -44,6 +44,9 @@ def _system(duration=0.125, depth=4e-3, t_max=60.0, seed=42):
     theta[2], theta[3] = p.ror, p.impact
     rng = np.random.default_rng(seed)
     lc.flux = tm.model_flux(theta) + rng.normal(0, NOISE, npts)
+    # quiet star: DetrendVisits rms before and after detrending are equal
+    for v in (1, 2):
+        lc.meta[f"RMSRAW{v}"] = lc.meta[f"RMSDET{v}"] = NOISE
 
     return star, [p], lc
 
@@ -94,6 +97,21 @@ class TestTransitModel:
         assert lc.cadno[dip] not in lc_out.cadno
         kept = np.isin(lc.cadno[in_transit], lc_out.cadno)
         assert kept.sum() == in_transit.sum() - 1
+
+    @pytest.mark.parametrize("variable", [False, True])
+    def test_sigma_grows_with_stellar_variability(self, variable):
+        # 8 sigma in transit: an outlier on a quiet star (sigma x 1.08), kept on
+        # a variable star with rms ratio 7 (sigma x 3.0)
+        star, planets, lc = _system()
+        in_transit = _in_transit(planets, lc)
+        dip = np.flatnonzero(in_transit)[len(np.flatnonzero(in_transit)) // 2]
+        lc.flux[dip] -= 8 * NOISE
+        if variable:
+            lc.meta["RMSRAW1"] = lc.meta["RMSRAW2"] = 7 * NOISE
+
+        _, lc_out = ClipOutliers(star, planets, lc).perform(method="transit_model")
+
+        assert (lc.cadno[dip] in lc_out.cadno) == variable
 
 
 class TestLocalTrend:

@@ -198,6 +198,7 @@ def _run(target, run_id, input_dir, output_dir, catalog, visits):
             show_outliers=True,
             title=f"{target}-{n}",
             fig_path=os.path.join(plots_dir, f"{target}_omc_{n:02d}.png"),
+            snr=p.meta["snr_per_transit"],
         )
 
     # final fit: clip and detrend mask from the fitted model and final times;
@@ -228,6 +229,7 @@ def _run(target, run_id, input_dir, output_dir, catalog, visits):
     results.meta.update(litecurve.meta)
     for n, p in enumerate(planets):
         results.meta[f"PLNAME{n}"] = p.meta["PLNAME"]
+    results.meta.update(results.reduced_chi2())
     results_path = os.path.join(results_dir, f"{target}_results.fits")
     results.to_fits(results_path)
 

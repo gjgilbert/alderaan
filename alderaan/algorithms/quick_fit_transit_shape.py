@@ -53,7 +53,7 @@ class QuickFitTransitShape(BaseAlg):
             bounds.append([-np.inf, np.inf])
             bounds.append([1e-5, 0.99])
             bounds.append([0.0, 1.0])
-            bounds.append([0.01 * p.duration, min(3 * p.duration, 0.49 * p.period)])
+            bounds.append([0.01 * p.duration, min(3 * p.duration, p.period / 3)])
 
         bounds.append([0.0, 1.0])
         bounds.append([0.0, 1.0])
@@ -108,8 +108,10 @@ class QuickFitTransitShape(BaseAlg):
                 logp_final,
                 result.message,
             )
+            if fix is fix_C0_C1:
+                converged = result.success
             if not result.success:
-                logger.warning(
+                logger.debug(
                     "shape fit, optimizing [%s] did not converge (%s)",
                     ", ".join(var_names[~fix[:5]]),
                     result.message,
@@ -127,7 +129,7 @@ class QuickFitTransitShape(BaseAlg):
             niter,
         )
 
-        return theta
+        return theta, converged
 
     def _update_planets(self, theta):
         """Set each planet's ror, b, and T14 from theta"""
@@ -146,21 +148,36 @@ class QuickFitTransitShape(BaseAlg):
         Fit the shape to good-photometry transits; set each planet's ror, b, T14
 
         Uses cadences within max(3 x T14, 2 hours) of transits with phot_coverage
-        and phot_noise. Raises ValueError if no start reaches a finite likelihood.
+        and phot_noise (2 x T14 if that exceeds 1/3 of the period). Raises
+        ValueError if no start reaches a finite likelihood.
         """
         tm = TransitModel(self.star, self.planets, self.litecurve)
-        tm.trim(self.make_transit_mask(rel_size=3.0, abs_size=2 / 24, phot_only=True))
+        # 2 x T14 where max(3 x T14, 2 hours) would exceed 1/3 of an orbit
+        wide = np.array(
+            [max(3 * p.duration, 2 / 24) > p.period / 3 for p in self.planets]
+        )
+        tm.trim(
+            self.make_transit_mask(
+                rel_size=np.where(wide, 2.0, 3.0),
+                abs_size=np.where(wide, 0.0, 2 / 24),
+                phot_only=True,
+            )
+        )
 
         best_logp, best_theta = -np.inf, None
+        any_converged = False
         # b = sin(22.5 deg), sin(45 deg), sin(60 deg)
         for b in (0.38, 0.71, 0.87):
             logger.info("shape fit from b = %.2f", b)
-            theta = self._optimize(tm, self._theta_start(tm, b))
+            theta, converged = self._optimize(tm, self._theta_start(tm, b))
+            any_converged |= converged
             logp = tm.ln_likelihood(theta)
             # ln_likelihood returns -1e300 if not finite
             if logp > max(best_logp, -1e299):
                 best_logp, best_theta = logp, theta
 
+        if not any_converged:
+            logger.warning("shape fit: [r, b, T14] did not converge from any start")
         if best_theta is None:
             raise ValueError("shape fit: no start reached a finite likelihood")
         self._update_planets(best_theta)

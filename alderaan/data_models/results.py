@@ -45,6 +45,7 @@ class Results:
         self.transit_times = transit_times
         self.litecurve = litecurve
         self.meta = {}  # FITS header cards, written to PRIMARY
+        self._summary = None  # set on the first summary() call
 
         components = []
         if posteriors is not None:
@@ -148,8 +149,15 @@ class Results:
         return results
 
     def summary(self):
-        """Posterior summary statistics (see Posteriors.summary)"""
-        return self.posteriors.summary()
+        """
+        Posterior summary statistics (see Posteriors.summary)
+
+        Computed on the first call and cached; posteriors must not be replaced
+        or modified after that.
+        """
+        if self._summary is None:
+            self._summary = self.posteriors.summary()
+        return self._summary
 
     def planet_samples(self, n):
         """Physical posterior samples for planet n (see Posteriors.planet_samples)"""
@@ -261,6 +269,77 @@ class Results:
 
         return ax.figure
 
+    def _planet_model(self, n):
+        """
+        Median model flux of planet n at every litecurve cadence, and its window
+
+        Returns
+        -------
+        model : ndarray
+            median model flux, integrated over each obsmode's exposure as sampled;
+            1 away from transits
+        window : ndarray
+            True within 1.5 T14 of a median transit time (the folded window)
+        """
+        lc = self.litecurve
+        params = self.median_transit_params(n)
+        T14 = params[4]
+        offsets = {
+            om: exposure_offsets(EXPTIME[om], self.posteriors.supersample[om])
+            for om in np.unique(lc.obsmode)
+        }
+        in_obsmode = {om: lc.obsmode == om for om in offsets}
+        if np.any(np.diff(lc.time) < 0):
+            raise ValueError("litecurve.time must be sorted")
+        # cadences near each transit: a superset of every mask below
+        half = 1.5 * T14 + max(EXPTIME[om] for om in offsets)
+        ttimes = self.median_transit_times(n)
+        lo = np.searchsorted(lc.time, ttimes - 2 * half)
+        hi = np.searchsorted(lc.time, ttimes + 2 * half)
+
+        model = np.ones_like(lc.flux)
+        window = np.zeros(len(lc.time), dtype=bool)
+        for tc, i, j in zip(ttimes, lo, hi):
+            dt = lc.time[i:j] - tc
+            window[i:j] |= np.abs(dt) < 1.5 * T14
+            for om, offs in offsets.items():
+                # beyond the window too, so the model returns to 1 for short T14
+                q = in_obsmode[om][i:j] & (np.abs(dt) < 1.5 * T14 + EXPTIME[om])
+                if q.any():
+                    model[i:j][q] = transit_flux(dt[q], *params, exptime_offsets=offs)
+
+        return model, window
+
+    def reduced_chi2(self):
+        """
+        Quicklook reduced chi2: {"CHI2RED": star, "CHI2RED{n}": planet n}
+
+        Residuals of the median model, with litecurve.error, in the 1.5 T14
+        windows of _planet_model. Planet models add as in TransitModel. The star
+        value uses the union of windows, dof = N - (5 npl + 2); planet n's value
+        divides the sibling models out of its window, dof = N - 7. A value is
+        None (an undefined FITS card) if dof <= 0. Keys are FITS header cards
+        for meta.
+        """
+        lc = self.litecurve
+        models, windows = zip(*[self._planet_model(n) for n in range(self.npl)])
+        total = 1 + np.sum([m - 1 for m in models], axis=0)
+
+        union = np.any(windows, axis=0)
+        chi2 = np.sum(((lc.flux - total) / lc.error)[union] ** 2)
+        dof = union.sum() - (5 * self.npl + 2)
+        out = {"CHI2RED": float(chi2 / dof) if dof > 0 else None}
+
+        for n, (model, window) in enumerate(zip(models, windows)):
+            sibling = total - (model - 1)
+            # (flux / sibling - model) / (error / sibling)
+            resid = (lc.flux - sibling * model) / lc.error
+            chi2 = np.sum(resid[window] ** 2)
+            dof = window.sum() - 7
+            out[f"CHI2RED{n}"] = float(chi2 / dof) if dof > 0 else None
+
+        return out
+
     def plot_folded_transit(self, n, max_pts=1000, fig_path=None):
         """
         Plot folded photometry of planet n with the median model and residuals
@@ -276,19 +355,27 @@ class Results:
         params = self.median_transit_params(n)
         T14 = params[4]
 
+        # sibling planet models divided out, as in reduced_chi2
+        models = [self._planet_model(m)[0] for m in range(self.npl)]
+        sibling = 1 + np.sum([models[m] - 1 for m in range(self.npl) if m != n], axis=0)
+
         time = self.litecurve.time
-        flux = self.litecurve.flux
+        flux = self.litecurve.flux / sibling
         obsmode = self.litecurve.obsmode
 
-        t_folded, f_folded, om_folded = [], [], []
+        t_folded, f_folded, m_folded, om_folded = [], [], [], []
+        n_transit = 0
         for tc in self.median_transit_times(n):
             use = np.abs(time - tc) / T14 < 1.5
+            n_transit += np.any(use)
             t_folded.append(time[use] - tc)
             f_folded.append(flux[use])
+            m_folded.append(models[n][use])
             om_folded.append(obsmode[use])
 
         t_folded = np.hstack(t_folded)
         f_folded = np.hstack(f_folded)
+        m_folded = np.hstack(m_folded)
         om_folded = np.hstack(om_folded)
 
         # exposure integration as sampled (TransitModel.supersample)
@@ -307,17 +394,9 @@ class Results:
             if supersample[om] > 1
         ]
 
-        residuals = np.empty_like(f_folded)
-        for om, offsets in exptime_offsets.items():
-            q = om_folded == om
-            residuals[q] = f_folded[q] - transit_flux(
-                t_folded[q], *params, exptime_offsets=offsets
-            )
+        residuals = f_folded - m_folded
 
-        # bin the exposure-integrated model at each cadence exactly as the data
-        # are binned, so binned data and binned model are directly comparable
         t_binned, f_binned, f_binned_err = bin_data(t_folded, f_folded, T14 / 11)
-        _, m_binned, _ = bin_data(t_folded, f_folded - residuals, T14 / 11)
         _, r_binned, r_binned_err = bin_data(t_folded, residuals, T14 / 11)
 
         rng = np.random.default_rng(SEED)
@@ -326,23 +405,75 @@ class Results:
         )
 
         fig, ax = plt.subplots(
-            2, 1, figsize=(12, 6), sharex=True, gridspec_kw={"height_ratios": [2, 1]}
+            2, 1, figsize=(8, 4), sharex=True, gridspec_kw={"height_ratios": [2, 1]}
         )
 
-        ax[0].plot(t_folded[inds] * 24, f_folded[inds], "o", color="lightgrey")
-        ax[0].errorbar(t_binned * 24, f_binned, f_binned_err, fmt="o", color="k", ms=3)
-        ax[0].plot(t_mod * 24, f_mod, color=f"C{n}", lw=3)
-        for f in f_mod_integrated:
-            ax[0].plot(t_mod * 24, f, "k--", lw=2)
-        ax[0].plot(t_binned * 24, m_binned, "o", color=f"C{n}", ms=4)
-        label_axes(ax[0], ylabel="Flux", title=f"{self.target} - Planet {n}")
+        # empty bins: open circles on the unbinned model (top) and on zero (bottom)
+        empty = np.isnan(f_binned)
+        f_empty = transit_flux(t_binned[empty], *params)
 
-        ax[1].plot(t_folded[inds] * 24, residuals[inds], ".", color="lightgrey")
-        ax[1].errorbar(t_binned * 24, r_binned, r_binned_err, fmt="o", color="k", ms=3)
+        # flux plotted as ppm offset from 1, residuals in ppm
+        ax[0].plot(
+            t_folded[inds] * 24,
+            (f_folded[inds] - 1) * 1e6,
+            "o",
+            color="lightgrey",
+            ms=3,
+        )
+        ax[0].errorbar(
+            t_binned * 24,
+            (f_binned - 1) * 1e6,
+            f_binned_err * 1e6,
+            fmt="o",
+            color="k",
+            ms=5,
+        )
+        ax[0].plot(
+            t_binned[empty] * 24, (f_empty - 1) * 1e6, "o", mfc="none", mec="k", ms=5
+        )
+        ax[0].plot(t_mod * 24, (f_mod - 1) * 1e6, color=f"C{n}", lw=3)
+        for f in f_mod_integrated:
+            ax[0].plot(t_mod * 24, (f - 1) * 1e6, "k--", lw=2)
+        label_axes(
+            ax[0],
+            ylabel="Flux [ppm]",
+            title=f"{self.target} - Planet {n}",
+            label_size=15,
+            title_size=16,
+        )
+
+        ax[1].plot(
+            t_folded[inds] * 24, residuals[inds] * 1e6, ".", color="lightgrey", ms=3
+        )
+        ax[1].errorbar(
+            t_binned * 24, r_binned * 1e6, r_binned_err * 1e6, fmt="o", color="k", ms=5
+        )
+        ax[1].plot(
+            t_binned[empty] * 24, np.zeros(empty.sum()), "o", mfc="none", mec="k", ms=5
+        )
         ax[1].axhline(0, color="k", ls="--", lw=2)
         ax[1].set_xlim(t_folded.min() * 24, t_folded.max() * 24)
-        annotate_plot(ax[1], f"RMS = {int(np.std(residuals) * 1e6)} ppm", "lower left")
-        label_axes(ax[1], xlabel="Time from mid-transit [hrs]")
+
+        # headroom above the data for the top annotations; residuals symmetric
+        lo, hi = ax[0].get_ylim()
+        ax[0].set_ylim(lo, hi + 0.25 * (hi - lo))
+        ymax = np.max(np.abs(ax[1].get_ylim()))
+        ax[1].set_ylim(-ymax, ymax)
+
+        annotate_plot(ax[0], f"N_transit = {n_transit}", "upper left")
+        annotate_plot(ax[0], f"P = {params[1]:.2f} d", "upper right")
+        annotate_plot(
+            ax[0], f"residual RMS = {int(np.std(residuals) * 1e6)} ppm", "lower right"
+        )
+        chi2_red = self.meta[f"CHI2RED{n}"]
+        annotate_plot(
+            ax[0],
+            "reduced χ² = n/a" if chi2_red is None else f"reduced χ² = {chi2_red:.2f}",
+            "lower left",
+            edgecolor="r" if chi2_red is None or chi2_red > 2 else "none",
+        )
+        label_axes(ax[1], xlabel="Time from mid-transit [hrs]", label_size=15)
+        ax[1].set_ylabel("Residuals", fontsize=12)
         fig.tight_layout()
         save_and_close(fig, fig_path)
 

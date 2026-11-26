@@ -56,7 +56,8 @@ class TransitTimes:
         affects only the OMC fit; default all True
     model_name : str, optional
         OMC model that set ttime_mod (RegularizeOMC: 'smooth', 'poly_<k>',
-        'lasso_<k>', 'sinusoid', 'matern32' or 'independent'); None if not
+        'lasso_<k>', 'sinusoid', 'matern32' or 'independent'; QuickFitTransitTimes:
+        'linear' if per-transit SNR < 2 or T14 < 1 cadence); None if not
         regularized
     model_dof : float, optional
         degrees of freedom of that model (effective for matern32; nonzero
@@ -65,7 +66,8 @@ class TransitTimes:
     ttv_scatter : float, optional
         robust scatter (mad_std, days) of kept observed times about the OMC
         model (for 'independent', the matern32 GP that fills unmeasured epochs);
-        set by RegularizeOMC; None if not regularized
+        set by RegularizeOMC ('linear': the median predicted timing error, set by
+        QuickFitTransitTimes); None if not regularized
 
     Attributes
     ----------
@@ -152,6 +154,9 @@ class TransitTimes:
         if self.ttv_scatter is None:
             raise ValueError("ttv_scatter not set; regularize the transit times first")
         kept = self.kept_ttv & np.isfinite(self.ttime_obs)
+        # 'linear' has no observed times; ttv_scatter is the predicted timing error
+        if self.model_name == "linear":
+            kept = self.kept_ttv
         return sigma_cutoff(np.sum(kept)) * self.ttv_scatter
 
     def clip(self, t_min, t_max):
@@ -174,12 +179,19 @@ class TransitTimes:
         )
 
     def plot_omc(
-        self, show_outliers=False, color="C0", title=None, ax=None, fig_path=None
+        self,
+        show_outliers=False,
+        color="C0",
+        title=None,
+        ax=None,
+        fig_path=None,
+        snr=None,
     ):
         """
         Plot observed and modeled O-C (minutes) about linear_ephemeris()
 
-        Returns the Figure.
+        Returns the Figure. A 'linear' model (not measured) shows every transit on
+        the model with error ttv_scatter, and snr in a red box.
 
         Parameters
         ----------
@@ -195,14 +207,22 @@ class TransitTimes:
         fig_path : str, optional
             save the figure here, closing it unless ax was given; default leaves
             it open
+        snr : float, optional
+            per-transit SNR, annotated for a 'linear' model
         """
         new_figure = ax is None
         if new_figure:
             _, ax = plt.subplots(1, 1, figsize=(8, 3))
 
-        omc_obs = (self.ttime_obs - self.linear_ephemeris()) * 24 * 60
+        ttime_obs, ttime_err = self.ttime_obs, self.ttime_err
+        if self.model_name == "linear":
+            # not measured: every transit on the model, at the predicted error
+            ttime_obs = self.ttime_mod
+            ttime_err = np.full(len(self.index), self.ttv_scatter)
+
+        omc_obs = (ttime_obs - self.linear_ephemeris()) * 24 * 60
         omc_mod = (self.ttime_mod - self.linear_ephemeris()) * 24 * 60
-        obs = np.isfinite(self.ttime_obs)
+        obs = np.isfinite(ttime_obs)
         flag = ~self.kept_ttv
         good = obs & ~flag
 
@@ -212,17 +232,20 @@ class TransitTimes:
             1.1 * np.max(np.abs(omc_obs[good]), initial=0),
             1.1 * np.max(np.abs(omc_mod)),
         )
+        if self.model_name == "linear":
+            # no scatter to show: scale to the predicted error
+            yrange = max(yrange, 1.5 * self.ttv_scatter * 24 * 60)
         ax.set_ylim(-yrange, yrange)
 
-        ax.plot(self.ttime_obs[good], omc_obs[good], "o", c="lightgrey")
+        ax.plot(ttime_obs[good], omc_obs[good], "o", c="lightgrey")
         if show_outliers:
             on = obs & flag & (np.abs(omc_obs) <= yrange)
-            ax.plot(self.ttime_obs[on], omc_obs[on], "rx")
+            ax.plot(ttime_obs[on], omc_obs[on], "rx")
             for sign, marker in [(1, "^"), (-1, "v")]:
                 off = obs & flag & (sign * omc_obs > yrange)
                 # on the axis edge, above the corner annotations
                 ax.plot(
-                    self.ttime_obs[off],
+                    ttime_obs[off],
                     np.full(np.sum(off), sign * yrange),
                     marker,
                     ls="none",
@@ -239,7 +262,7 @@ class TransitTimes:
         t0, t1 = self.ttime_mod[0], self.ttime_mod[-1]
         span = t1 - t0
         ax.set_xlim(t0 - 0.02 * span, t1 + 0.08 * span)
-        err = np.median(self.ttime_err[good]) * 24 * 60 if np.any(good) else np.nan
+        err = np.median(ttime_err[good]) * 24 * 60 if np.any(good) else np.nan
         if np.isfinite(err):
             ax.errorbar(t1 + 0.05 * span, 0, yerr=err, fmt="o", c="grey", capsize=3)
 
@@ -249,8 +272,11 @@ class TransitTimes:
         annotate_plot(ax, f"residual RMS = {rms:.1f} min", "lower right")
         if self.model_name is not None:
             annotate_plot(ax, f"model = {self.model_name}", "upper left")
-        if self.model_dof is not None and np.sum(good) > self.model_dof:
-            chi2 = np.sum((resid / (self.ttime_err[good] * 24 * 60)) ** 2)
+        if self.model_name == "linear":
+            if snr is not None:
+                annotate_plot(ax, f"per-transit SNR = {snr:.2f}", "lower left", "r")
+        elif self.model_dof is not None and np.sum(good) > self.model_dof:
+            chi2 = np.sum((resid / (ttime_err[good] * 24 * 60)) ** 2)
             chi2_red = chi2 / (np.sum(good) - self.model_dof)
             annotate_plot(ax, f"reduced χ² = {chi2_red:.2f}", "lower left")
         label_axes(ax, "Time [BKJD]", "O-C [min]", title, label_size=15, title_size=16)

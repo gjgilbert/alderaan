@@ -122,6 +122,23 @@ class TestFits:
         )
 
 
+class TestSummary:
+    def test_computed_once(self, make_posteriors, monkeypatch):
+        """summary() is cached: the median helpers reuse one Posteriors.summary"""
+        post = make_posteriors()
+        res = Results(posteriors=post, transit_times=_transit_times())
+        expected = post.summary()
+
+        calls = []
+        compute = post.summary
+        monkeypatch.setattr(post, "summary", lambda: calls.append(1) or compute())
+        res.median_transit_params(0)
+        res.median_transit_times(1)
+
+        assert len(calls) == 1
+        pd.testing.assert_frame_equal(res.summary(), expected)
+
+
 class TestMedianModel:
     def test_median_transit_times_agree_with_planet_samples(self, make_posteriors):
         """With every sample at the same (C0, C1), the median transit times lie on

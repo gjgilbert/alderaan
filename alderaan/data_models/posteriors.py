@@ -215,22 +215,11 @@ class Posteriors:
                 for k in samples_hdu.columns.names
             }
         )
-        # TEMPORARY: the 20261123 batch stores the integrals, no strands and no
-        # BATCHES table; strand -1 and NaN bounds make resample_run raise.
-        # Remove after the next batch.
-        if "BATCHES" not in hdul:
-            samples = samples.drop(columns=["LN_WT", "LN_Z", "LN_ZERR", "INFO"])
-            samples["SAMP_ID"] = -1
-            samples["SAMP_BATCH"] = -1
-            nbatch = header["NBATCH"]
-            batch_nlive = [header[f"NLIVE{i}"] for i in range(nbatch)]
-            batch_logl_bounds = np.full((nbatch, 2), np.nan)
-        else:
-            batches = hdul["BATCHES"].data
-            batch_nlive = [int(n) for n in batches["NLIVE"]]
-            batch_logl_bounds = np.column_stack(
-                [batches["LOGL_MIN"], batches["LOGL_MAX"]]
-            ).astype(float)
+        batches = hdul["BATCHES"].data
+        batch_nlive = [int(n) for n in batches["NLIVE"]]
+        batch_logl_bounds = np.column_stack(
+            [batches["LOGL_MIN"], batches["LOGL_MAX"]]
+        ).astype(float)
 
         sampler_info = {
             k: samples.pop(col).to_numpy() for k, (col, _) in SAMPLE_COLUMNS.items()
@@ -300,14 +289,15 @@ class Posteriors:
         for label in self.samples.columns:
             x = self.samples[label].to_numpy()
             avg = np.sum(weights * x)
+            pct = weighted_percentile(x, [50, 2.5, 15.9, 84.1, 97.5], w=weights)
             rows[label] = {
                 "mean": avg,
                 "stdev": np.sqrt(np.sum(weights * (x - avg) ** 2)),
-                "median": weighted_percentile(x, 50, w=weights),
-                "CI_2.5": weighted_percentile(x, 2.5, w=weights),
-                "CI_16": weighted_percentile(x, 15.9, w=weights),
-                "CI_84": weighted_percentile(x, 84.1, w=weights),
-                "CI_97.5": weighted_percentile(x, 97.5, w=weights),
+                "median": pct[0],
+                "CI_2.5": pct[1],
+                "CI_16": pct[2],
+                "CI_84": pct[3],
+                "CI_97.5": pct[4],
             }
 
         return pd.DataFrame.from_dict(rows, orient="index")

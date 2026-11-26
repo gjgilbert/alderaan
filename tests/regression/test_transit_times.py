@@ -1,5 +1,8 @@
 """Tests for the TransitTimes data model. Synthetic transit times only."""
 
+import warnings
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 from astropy.io import fits
@@ -103,6 +106,16 @@ class TestTTVBuffer:
     def test_buffer_requires_scatter(self):
         with pytest.raises(ValueError, match="ttv_scatter"):
             _tt().ttv_buffer()
+
+    def test_linear_buffer_counts_every_transit(self):
+        # a 'linear' planet (per-transit SNR < 2 or T14 < 1 cadence) has no
+        # observed times; its ttv_scatter is the predicted timing error
+        tt = _tt(model_name="linear", model_dof=2.0, ttv_scatter=0.003)
+        tt.ttime_obs[:] = np.nan
+        assert np.isclose(tt.ttv_buffer(), sigma_cutoff(20) * 0.003)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            plt.close(tt.plot_omc(snr=1.0))
 
 
 class TestClip:

@@ -92,13 +92,16 @@ class TestCoverage:
 
         assert 8 not in _run(star, planets, lc, "phot_coverage")
 
-    def test_keeps_transit_with_partial_baseline_coverage(self):
-        # transit fully sampled; one side of the out-of-transit baseline missing
+    def test_flags_transit_with_sparse_baseline_coverage(self):
+        # transit fully sampled; baseline thinned to 1 in 3: the window passes
+        # (> 50%) but near transit (window excluding in transit) fails (< 50%)
         star, planets, lc = _system()
         tc = _tc(planets, 8)
-        lc.select(~((lc.time > tc + 0.5 * DURATION) & (lc.time < tc + 1.5 * DURATION)))
+        dt = np.abs(lc.time - tc)
+        near = (dt >= 0.5 * DURATION) & (dt < 1.5 * DURATION)
+        lc.select(~near | (np.cumsum(near) % 3 == 0))
 
-        assert 8 in _run(star, planets, lc, "phot_coverage")
+        assert 8 not in _run(star, planets, lc, "phot_coverage")
 
 
 class TestNoise:

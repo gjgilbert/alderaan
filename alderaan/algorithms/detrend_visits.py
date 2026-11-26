@@ -213,27 +213,18 @@ class DetrendVisits(BaseAlg):
         )
 
     @staticmethod
-    def _identify_breaks(cadno, flux, mask, gap_tolerance, jump_tolerance):
+    def _identify_breaks(cadno, mask, gap_tolerance):
         """
         Segment ID (0..n_seg-1) per cadence of one visit
 
-        The visit splits at time gaps of more than gap_tolerance cadences and at
-        flux jumps (> jump_tolerance sigma, outside the mask; mask is True near
-        transit). Breaks within gap_tolerance cadences of the previous candidate
-        break, the visit start, or the end are dropped. A segment with no
-        unmasked cadences is merged into a neighbor.
+        The visit splits at time gaps of more than gap_tolerance cadences. Breaks
+        within gap_tolerance cadences of the previous break, the visit start, or
+        the end are dropped. A segment with no unmasked cadences (mask is True near
+        transit) is merged into a neighbor.
         """
-        # first cadence after each gap in time
-        gap_locs = np.where(np.diff(cadno) > gap_tolerance)[0] + 1
-
-        # first cadence after each jump in flux
-        jumps = np.pad(np.diff(flux), (1, 0), "constant", constant_values=(0, 0))
-        jump_size = np.abs(jumps - np.median(jumps)) / mad_std(jumps)
-        jump_locs = np.where(~mask & (jump_size > jump_tolerance))[0]
-
-        # candidate segment starts; drop those too close to the previous or the end
-        starts = np.unique(np.hstack([gap_locs, jump_locs]))
-        starts = starts[(starts > 0) & (starts < len(cadno))]
+        # candidate segment starts: first cadence after each gap in time;
+        # drop those too close to the previous or the end
+        starts = np.where(np.diff(cadno) > gap_tolerance)[0] + 1
         too_close = np.diff(np.hstack([0, starts])) < gap_tolerance
         if len(starts) and len(cadno) - starts[-1] < gap_tolerance:
             too_close[-1] = True
@@ -460,6 +451,14 @@ class DetrendVisits(BaseAlg):
         exptime = EXPTIME[obsmode]
         # at short periods the general masks leave the GP too little data
         usp = np.array([p.period < 3 and p.ror < 0.05 for p in self.planets])
+        # each window covers at most 1/3 of an orbit, and never less than T14
+        max_width = np.array([p.period / 3 for p in self.planets])
+        for n, p in enumerate(self.planets):
+            if p.duration > max_width[n]:
+                raise ValueError(
+                    f"planet {n}: T14 ({p.duration:.3f} d) exceeds 1/3 of the "
+                    f"period ({p.period:.3f} d)"
+                )
 
         # tight: as narrow as possible, for the best detrending;
         # wide: cautious, well clear of transits
@@ -473,6 +472,7 @@ class DetrendVisits(BaseAlg):
                     for u, p in zip(usp, self.planets)
                 ],
                 time=time,
+                max_width=max_width,
             )
         else:
             # full width = max(3 x T14, 2 x (exptime + 1 hour))
@@ -481,6 +481,7 @@ class DetrendVisits(BaseAlg):
                 abs_size=np.where(usp, 0.0, 2 * (exptime + 1 / 24)),
                 buffer=np.where(usp, exptime, 0.0),
                 time=time,
+                max_width=max_width,
             )
         return mask
 
@@ -488,7 +489,7 @@ class DetrendVisits(BaseAlg):
         """
         Detrend one visit; returns the predicted trend (same length as time)
 
-        Segments (split at gaps and flux jumps) each have their own mean and
+        Segments (split at time gaps) each have their own mean and
         share one GP: RotationTerm if the star is periodic, else SHOTerm.
         """
         exptime = EXPTIME[obsmode]
@@ -500,9 +501,7 @@ class DetrendVisits(BaseAlg):
         )
         logger.debug("gap tolerance = %d cadences", gap_tolerance)
 
-        seg_id = self._identify_breaks(
-            cadno, flux, mask, gap_tolerance, jump_tolerance=5.0
-        )
+        seg_id = self._identify_breaks(cadno, mask, gap_tolerance)
         # ramp origin per segment, from all cadences, so fit and prediction agree
         seg_t0 = np.array([time[seg_id == i].min() for i in range(seg_id.max() + 1)])
 
@@ -536,7 +535,9 @@ class DetrendVisits(BaseAlg):
         -------
         litecurve : LiteCurve
             flux and error divided by the trend; meta DTKERNEL and DTNOMP give
-            the GP kernel and nominal period (days)
+            the GP kernel and nominal period (days); RMSRAW<v> and RMSDET<v> give
+            the flux std of visit v outside the transit mask, before and after
+            detrending
         """
         if method not in ("wide_mask", "tight_mask"):
             raise ValueError(
@@ -567,6 +568,10 @@ class DetrendVisits(BaseAlg):
                     100 * np.mean(masks[v]),
                 )
         periodic, nominal_period = self._nominal_period(lc, masks)
+        mask = np.zeros(len(lc.time), dtype=bool)
+        for v in visits:
+            mask[in_visit[v]] = masks[v]
+        rms_raw = lc.visit_rms(mask)
 
         for v in visits:
             use = in_visit[v]
@@ -585,4 +590,7 @@ class DetrendVisits(BaseAlg):
 
         lc.meta["DTKERNEL"] = "RotationTerm" if periodic else "SHOTerm"
         lc.meta["DTNOMP"] = float(nominal_period)
+        for v, rms in lc.visit_rms(mask).items():
+            lc.meta[f"RMSRAW{v}"] = rms_raw[v]
+            lc.meta[f"RMSDET{v}"] = rms
         return self.planets, lc

@@ -36,7 +36,7 @@ def label_axes(ax, xlabel=None, ylabel=None, title=None, label_size=20, title_si
     ax.tick_params(labelsize=12)
 
 
-def annotate_plot(ax, text, loc="upper right"):
+def annotate_plot(ax, text, loc="upper right", edgecolor="none"):
     """Write text flush in an axes corner, fontsize 12 on a white background"""
     x, y, ha, va = _CORNERS[loc]
     ax.text(
@@ -47,7 +47,7 @@ def annotate_plot(ax, text, loc="upper right"):
         ha=ha,
         va=va,
         fontsize=12,
-        bbox={"facecolor": "w", "edgecolor": "none", "pad": 2},
+        bbox={"facecolor": "w", "edgecolor": edgecolor, "pad": 2},
     )
 
 

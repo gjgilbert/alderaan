@@ -113,7 +113,9 @@ class ClipOutliers(BaseAlg):
                 exptime for ultra-short-period planets, P < 3 d and ror < 0.05);
                 a second pass clips upper outliers everywhere, in transit too
             'transit_model' : clip (detrended) flux about the transit model, at
-                the sigma beyond which one outlier is expected per visit (>= 5)
+                the sigma beyond which one outlier is expected per visit (>= 5),
+                raised for variable stars with deep transits, where detrending
+                and model errors in transit are not outliers
         """
         if method not in ("local_trend", "transit_model"):
             raise ValueError(
@@ -158,6 +160,12 @@ class ClipOutliers(BaseAlg):
 
             elif method == "transit_model":
                 sigma = sigma_cutoff(int(np.sum(use)), sigma_min=5.0)
+                rms = lc.meta[f"RMSDET{v}"]
+                stellar_variability = lc.meta[f"RMSRAW{v}"] / rms
+                snr_approx = max(p.ror**2 for p in self.planets) / rms
+                sigma *= np.sqrt(
+                    1 + (0.01 * min(stellar_variability, 10) * snr_approx) ** 2
+                )
                 logger.debug("visit %d: transit-model clipping at %.1f sigma", v, sigma)
                 keep[use] = ~sigma_clip(
                     lc.flux[use] - f_mod[use],

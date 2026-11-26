@@ -97,6 +97,19 @@ class TestSelectAndReset:
             lc.reset(raw)
 
 
+def test_visit_rms_excludes_masked_cadences():
+    lc = _lc()
+    lc.flux[10] += 1.0  # visit 4
+    mask = np.zeros(len(lc.time), dtype=bool)
+    mask[10] = True
+
+    assert lc.visit_rms() == {
+        4: pytest.approx(np.std(lc.flux[:50])),
+        5: pytest.approx(np.std(lc.flux[50:])),
+    }
+    assert lc.visit_rms(mask)[4] == pytest.approx(np.std(np.delete(lc.flux[:50], 10)))
+
+
 class TestObsmodeAt:
     def test_nearest_cadence_with_ties_earlier(self):
         lc = LiteCurve(

@@ -93,11 +93,8 @@ class LiteCurve:
             hdu = hdul["LITECURVE"]
             h = hdu.header
             arrays = {k: hdu.data[k.upper()] for k in FIELDS}
-            # TEMPORARY: read the 20261123 batch, whose OBSMODE column is strings;
-            # remove after the next batch
-            if "NOBSMODE" in h:
-                names = np.array([h[f"OBSMODE{i}"] for i in range(h["NOBSMODE"])])
-                arrays["obsmode"] = names[arrays["obsmode"]]
+            names = np.array([h[f"OBSMODE{i}"] for i in range(h["NOBSMODE"])])
+            arrays["obsmode"] = names[arrays["obsmode"]]
             lc = cls(
                 hdu.header["MISSION"],
                 hdu.header["TARGET"],
@@ -220,6 +217,14 @@ class LiteCurve:
         """Keep only cadences where mask is True (in place)"""
         for k in FIELDS:
             setattr(self, k, getattr(self, k)[mask])
+
+    def visit_rms(self, mask=None):
+        """Flux std of each visit, excluding cadences where mask is True"""
+        use = np.ones(len(self.time), dtype=bool) if mask is None else ~mask
+        return {
+            int(v): float(np.std(self.flux[use & (self.visit == v)]))
+            for v in np.unique(self.visit)
+        }
 
     def _nearest_cadence(self, times):
         """Index of the cadence nearest each time (ties go earlier)"""
