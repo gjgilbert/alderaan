@@ -144,12 +144,7 @@ class QuickFitTransitTimes(BaseAlg):
         exptime_ioff = tm.exptime_offsets[obsmode]
 
         # STEP 0: data near this transit
-        in_transit = np.abs(lc.time - tc) < duration / 2
         in_window = np.abs(lc.time - tc) < transit_window_size / 2
-
-        if np.sum(in_transit) == 0:
-            logger.debug("transit at %.3f not fit: no in-transit data", tc)
-            return np.nan, np.nan
 
         _t = lc.time[in_window]
         _f_obs = lc.flux[in_window]
@@ -241,7 +236,7 @@ class QuickFitTransitTimes(BaseAlg):
 
         The data window around each transit is rel_window_size * T14 +
         abs_window_size_buffer (days) wide; transits with a sibling transit
-        inside the window are skipped.
+        inside the window or no in-transit data (data gap) are skipped.
 
         Returns
         -------
@@ -278,8 +273,17 @@ class QuickFitTransitTimes(BaseAlg):
         ttime = np.full(ntransit, np.nan)
         ttime_err = np.full(ntransit, np.nan)
         logger.debug("planet %d: cross-correlation fit", planet_no)
+        # no in-transit data: the transit falls in a data gap
+        in_gap = np.array(
+            [
+                not np.any(np.abs(tm.litecurve.time - tc) < p.duration / 2)
+                for tc in p.transit_times.ttime_mod
+            ],
+            dtype=bool,
+        )
+
         for i, tc in enumerate(p.transit_times.ttime_mod):
-            if sibling_in_window[i]:
+            if sibling_in_window[i] or in_gap[i]:
                 continue
 
             obsmode = transit_obsmode[i]
@@ -294,15 +298,24 @@ class QuickFitTransitTimes(BaseAlg):
             )
 
         nfit = int(np.sum(~np.isnan(ttime)))
-        logger.log(
-            logging.WARNING if nfit < 0.5 * ntransit else logging.INFO,
+        nattempt = int(np.sum(~sibling_in_window & ~in_gap))
+        logger.info(
             "planet %d: cross-correlation fit %d of %d transits "
-            "(%d skipped: sibling in window)",
+            "(%d skipped: sibling in window; %d skipped: in data gap)",
             planet_no,
             nfit,
             ntransit,
             np.sum(sibling_in_window),
+            np.sum(in_gap & ~sibling_in_window),
         )
+        if nattempt - nfit > 0.5 * nattempt:
+            logger.warning(
+                "planet %d: cross-correlation fit failed for %d of %d attempted "
+                "transits",
+                planet_no,
+                nattempt - nfit,
+                nattempt,
+            )
 
         return ttime, ttime_err, sibling_in_window
 
