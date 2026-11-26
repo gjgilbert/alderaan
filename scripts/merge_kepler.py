@@ -327,10 +327,10 @@ def load_berger_2020():
     if t["KIC"].duplicated().any():
         raise ValueError(f"{BERGER_2020}: duplicate KIC")
     t = t.set_index(t["KIC"].astype(str))
-    log = t["iso_rho"]
-    t["iso_rho"] = 10**log
-    for s in ["_err1", "_err2"]:
-        t["iso_rho" + s] = 10 ** (log + t["iso_rho" + s]) - t["iso_rho"]
+    # errors are log10 of the absolute upper and lower errors, not dex offsets
+    t["iso_rho"] = 10 ** t["iso_rho"]
+    for s, sign in [("_err1", 1), ("_err2", -1)]:
+        t["iso_rho" + s] = sign * 10 ** t["iso_rho" + s]
     stars = t[[c.replace("star_", "iso_") for c in STAR_COLUMNS]]
     stars.columns = STAR_COLUMNS
     return stars
