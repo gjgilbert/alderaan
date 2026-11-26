@@ -317,8 +317,9 @@ class Results:
         Residuals of the median model, with litecurve.error, in the 1.5 T14
         windows of _planet_model. Planet models add as in TransitModel. The star
         value uses the union of windows, dof = N - (5 npl + 2); planet n's value
-        divides the sibling models out of its window, dof = N - 7. Keys are FITS
-        header cards for meta.
+        divides the sibling models out of its window, dof = N - 7. A value is
+        None (an undefined FITS card) if dof <= 0. Keys are FITS header cards
+        for meta.
         """
         lc = self.litecurve
         models, windows = zip(*[self._planet_model(n) for n in range(self.npl)])
@@ -326,14 +327,16 @@ class Results:
 
         union = np.any(windows, axis=0)
         chi2 = np.sum(((lc.flux - total) / lc.error)[union] ** 2)
-        out = {"CHI2RED": float(chi2 / (union.sum() - (5 * self.npl + 2)))}
+        dof = union.sum() - (5 * self.npl + 2)
+        out = {"CHI2RED": float(chi2 / dof) if dof > 0 else None}
 
         for n, (model, window) in enumerate(zip(models, windows)):
             sibling = total - (model - 1)
             # (flux / sibling - model) / (error / sibling)
             resid = (lc.flux - sibling * model) / lc.error
             chi2 = np.sum(resid[window] ** 2)
-            out[f"CHI2RED{n}"] = float(chi2 / (window.sum() - 7))
+            dof = window.sum() - 7
+            out[f"CHI2RED{n}"] = float(chi2 / dof) if dof > 0 else None
 
         return out
 
@@ -465,9 +468,9 @@ class Results:
         chi2_red = self.meta[f"CHI2RED{n}"]
         annotate_plot(
             ax[0],
-            f"reduced χ² = {chi2_red:.2f}",
+            "reduced χ² = n/a" if chi2_red is None else f"reduced χ² = {chi2_red:.2f}",
             "lower left",
-            edgecolor="r" if chi2_red > 2 else "none",
+            edgecolor="r" if chi2_red is None or chi2_red > 2 else "none",
         )
         label_axes(ax[1], xlabel="Time from mid-transit [hrs]", label_size=15)
         ax[1].set_ylabel("Residuals", fontsize=12)

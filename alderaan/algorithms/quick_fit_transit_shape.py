@@ -108,7 +108,7 @@ class QuickFitTransitShape(BaseAlg):
                 logp_final,
                 result.message,
             )
-            if fix is fix_r_b_T14:
+            if fix is fix_C0_C1:
                 converged = result.success
             if not result.success:
                 logger.debug(
