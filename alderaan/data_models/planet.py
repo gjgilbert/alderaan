@@ -3,6 +3,7 @@
 __all__ = ["Planet"]
 
 import numpy as np
+from astropy.io import fits
 
 
 class Planet:
@@ -34,7 +35,7 @@ class Planet:
 
         self.static_period = None
         self.static_epoch = None
-        self.meta = {}  # FITS header cards (see pipeline._run)
+        self.meta = fits.Header()  # read-only tracking cards; not written
 
     @property
     def period(self):

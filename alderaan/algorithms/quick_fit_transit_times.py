@@ -20,7 +20,7 @@ class QuickFitTransitTimes(BaseAlg):
     """Measure individual transit times for each planet"""
 
     @staticmethod
-    def _per_transit_snr(p, lc):
+    def per_transit_snr(p, lc):
         """
         Single-transit SNR, ror^2 sqrt(T14 / exptime) / mad_std(flux), maximum
         over obsmodes
@@ -500,8 +500,7 @@ class QuickFitTransitTimes(BaseAlg):
         exptime = min(EXPTIME[om] for om in np.unique(litecurve.obsmode))
         linear = []
         for n, p in enumerate(planets):
-            snr = self._per_transit_snr(p, litecurve)
-            p.meta["snr_per_transit"] = snr
+            snr = self.per_transit_snr(p, litecurve)
             linear.append(snr < 2 or p.duration < exptime)
             if linear[n]:
                 logger.info(

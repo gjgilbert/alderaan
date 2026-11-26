@@ -362,11 +362,11 @@ def load_kepler_data(target, input_dir, catalog_path, visits=None):
             )
 
     litecurve.meta.update(
-        KOI_ID=star.koi_id,
-        KIC_ID=star.kic_id,
-        CATALOG=os.path.basename(catalog_path),
-        VISITS=",".join(str(v) for v in loaded),
-        TIMESYS="BKJD",  # BJD - 2454833
+        KOIID=(star.koi_id, "KOI ID"),
+        KICID=(star.kic_id, "Kepler Input Catalog ID"),
+        CATALOG=(os.path.basename(catalog_path), "planet catalog"),
+        VISITS=(",".join(str(v) for v in loaded), "Kepler quarters loaded"),
+        TIMESYS=("BKJD", "BJD - 2454833"),
     )
 
     catalog = drop_few_transit_planets(catalog, litecurve)
@@ -387,7 +387,7 @@ def load_kepler_data(target, input_dir, catalog_path, visits=None):
                 "Kepler", target, row.period, row.epoch, t_min, t_max
             )
         )
-        p.meta["PLNAME"] = row.planet_name
+        p.meta["PLNAME"] = (row.planet_name, "planet name")
         planets.append(p)
 
     holczer_transit_times = parse_holczer16_catalog(ttv_filepath, star.koi_id)

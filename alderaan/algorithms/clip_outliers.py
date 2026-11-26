@@ -1,5 +1,6 @@
 """Clip flux outliers visit-by-visit"""
 
+import copy
 import logging
 
 import numpy as np
@@ -101,7 +102,7 @@ class ClipOutliers(BaseAlg):
         keep[idx] = True
         return keep
 
-    def perform(self, method):
+    def perform(self, method, raw_litecurve=None):
         """
         Remove outlier cadences from each visit; flux is unchanged
 
@@ -116,6 +117,9 @@ class ClipOutliers(BaseAlg):
                 the sigma beyond which one outlier is expected per visit (>= 5),
                 raised for variable stars with deep transits, where detrending
                 and model errors in transit are not outliers
+        raw_litecurve : LiteCurve, optional
+            raw photometry containing every cadence; required for
+            'transit_model', which compares raw and detrended RMS out of transit
         """
         if method not in ("local_trend", "transit_model"):
             raise ValueError(
@@ -125,9 +129,26 @@ class ClipOutliers(BaseAlg):
         lc = self.litecurve
         visits = np.unique(lc.visit)
 
+        # same mask as the DetrendVisits wide mask
+        transit_mask = np.zeros(len(lc.time), dtype=bool)
+        usp = np.array([p.period < 3 and p.ror < 0.05 for p in self.planets])
+        for v in visits:
+            in_visit = lc.visit == v
+            exptime = EXPTIME[lc.obsmode[in_visit][0]]
+            transit_mask[in_visit] = self.make_transit_mask(
+                rel_size=np.where(usp, 2.0, 3.0),
+                abs_size=np.where(usp, 0.0, 2 * (exptime + 1 / 24)),
+                buffer=np.where(usp, exptime, 0.0),
+                time=lc.time[in_visit],
+            )
+
         if method == "transit_model":
             tm = TransitModel(self.star, self.planets, lc)
             f_mod = tm.model_flux(tm.theta_initial())
+            raw = copy.deepcopy(lc)
+            raw.reset(raw_litecurve)
+            rms_raw = raw.visit_rms(transit_mask)
+            rms_det = lc.visit_rms(transit_mask)
 
         keep = np.ones(len(lc.time), dtype=bool)
         for v in visits:
@@ -136,21 +157,12 @@ class ClipOutliers(BaseAlg):
 
             if method == "local_trend":
                 logger.info("visit %d: clip about local trend", v)
-                # same mask as the DetrendVisits wide mask
-                exptime = EXPTIME[lc.obsmode[use][0]]
-                usp = np.array([p.period < 3 and p.ror < 0.05 for p in self.planets])
-                transit_mask = self.make_transit_mask(
-                    rel_size=np.where(usp, 2.0, 3.0),
-                    abs_size=np.where(usp, 0.0, 2 * (exptime + 1 / 24)),
-                    buffer=np.where(usp, exptime, 0.0),
-                    time=lc.time[use],
-                )
                 keep[use] = self._clip_outliers(
                     lc.flux[use],
                     sigma_upper=5,
                     sigma_lower=5,
                     kernel_size=13,
-                    mask=transit_mask,
+                    mask=transit_mask[use],
                 )
                 # second pass: upper outliers only, including in transit
                 use = (lc.visit == v) & keep
@@ -160,8 +172,8 @@ class ClipOutliers(BaseAlg):
 
             elif method == "transit_model":
                 sigma = sigma_cutoff(int(np.sum(use)), sigma_min=5.0)
-                rms = lc.meta[f"RMSDET{v}"]
-                stellar_variability = lc.meta[f"RMSRAW{v}"] / rms
+                rms = rms_det[v]
+                stellar_variability = rms_raw[v] / rms
                 snr_approx = max(p.ror**2 for p in self.planets) / rms
                 sigma *= np.sqrt(
                     1 + (0.01 * min(stellar_variability, 10) * snr_approx) ** 2

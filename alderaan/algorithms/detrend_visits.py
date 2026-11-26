@@ -588,9 +588,10 @@ class DetrendVisits(BaseAlg):
             lc.flux[use] /= pred
             lc.error[use] /= pred
 
-        lc.meta["DTKERNEL"] = "RotationTerm" if periodic else "SHOTerm"
-        lc.meta["DTNOMP"] = float(nominal_period)
+        kernel = "RotationTerm" if periodic else "SHOTerm"
+        lc.meta["DTKERNEL"] = (kernel, "detrending GP kernel")
+        lc.meta["DTNOMP"] = (float(nominal_period), "[d] detrending nominal period")
         for v, rms in lc.visit_rms(mask).items():
-            lc.meta[f"RMSRAW{v}"] = rms_raw[v]
-            lc.meta[f"RMSDET{v}"] = rms
+            lc.meta[f"RMSRAW{v}"] = (rms_raw[v], f"visit {v} raw RMS out of transit")
+            lc.meta[f"RMSDET{v}"] = (rms, f"visit {v} detrended RMS out of transit")
         return self.planets, lc

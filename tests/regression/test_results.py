@@ -73,9 +73,10 @@ class TestFits:
             transit_times=_transit_times(),
             litecurve=_litecurve(),
         )
-        res.meta = {"RUN_ID": "r1", "PLNAME0": "K00137.01"}
-        res.litecurve.meta = {"DTKERNEL": "SHOTerm", "DTNOMP": 2.5}
-        res.posteriors.meta = {"SEED": 7, "LDPRIOR": False}
+        res.litecurve.meta.update(RUNID=("r1", "run"), DTNOMP=(2.5, "[d] period"))
+        res.meta.update(res.litecurve.meta)
+        res.meta.update(PLNAME0=("K00137.01", "name"), CHI2RED=(None, "blank"))
+        res.posteriors.meta.update(SEED=(7, "seed"), LDU1=(None, "blank"))
         path = str(tmp_path / "results.fits")
         lc_path = str(tmp_path / "detrended.fits")
         res.to_fits(path)
@@ -83,10 +84,11 @@ class TestFits:
 
         out = Results.from_fits(path, lc_path)
         assert (out.mission, out.target, out.npl) == (res.mission, res.target, res.npl)
+        # meta round-trips with comments; None is a blank card
         assert out.meta == res.meta
         assert out.litecurve.meta == res.litecurve.meta
+        assert out.posteriors.meta == res.posteriors.meta
         samples_header = fits.getheader(path, "SAMPLES")
-        assert (samples_header["SEED"], samples_header["LDPRIOR"]) == (7, False)
 
         p_in, p_out = res.posteriors, out.posteriors
         pd.testing.assert_frame_equal(p_out.samples, p_in.samples)
@@ -96,8 +98,8 @@ class TestFits:
         info = p_in.sampler_info
         assert samples_header["NCALL"] == np.sum(info["ncall"])
         assert np.isclose(samples_header["NEFF"], p_in.neff())
-        assert samples_header["LN_Z"] == info["logz"][-1]
-        assert samples_header["LN_ZERR"] == info["logzerr"][-1]
+        assert samples_header["LNZ"] == info["logz"][-1]
+        assert samples_header["LNZERR"] == info["logzerr"][-1]
         assert samples_header["INFO"] == info["information"][-1]
         assert_array_equal(p_out.ref_period, p_in.ref_period)
         assert_array_equal(p_out.ref_epoch, p_in.ref_epoch)
@@ -109,6 +111,23 @@ class TestFits:
             assert_array_equal(tt_out.index, tt_in.index)
             assert_array_equal(tt_out.ttime_mod, tt_in.ttime_mod)
         assert_array_equal(out.litecurve.flux, res.litecurve.flux)
+
+    def test_warns_if_litecurve_cards_disagree(self, tmp_path, caplog):
+        res = Results(transit_times=_transit_times(), litecurve=_litecurve())
+        res.litecurve.meta["RUNID"] = "r1"
+        res.meta.update(res.litecurve.meta)
+        path = str(tmp_path / "results.fits")
+        lc_path = str(tmp_path / "detrended.fits")
+        res.to_fits(path)
+        res.litecurve.to_fits(lc_path)
+
+        Results.from_fits(path, lc_path)
+        assert "disagree" not in caplog.text
+
+        res.litecurve.meta["RUNID"] = "r2"
+        res.litecurve.to_fits(lc_path)
+        Results.from_fits(path, lc_path)
+        assert "disagree on RUNID" in caplog.text
 
     def test_round_trip_transit_times_only(self, tmp_path):
         res = Results(transit_times=_transit_times())

@@ -1,5 +1,7 @@
 """Tests for alderaan.algorithms.clip_outliers.ClipOutliers"""
 
+import copy
+
 import numpy as np
 import pytest
 
@@ -44,9 +46,6 @@ def _system(duration=0.125, depth=4e-3, t_max=60.0, seed=42):
     theta[2], theta[3] = p.ror, p.impact
     rng = np.random.default_rng(seed)
     lc.flux = tm.model_flux(theta) + rng.normal(0, NOISE, npts)
-    # quiet star: DetrendVisits rms before and after detrending are equal
-    for v in (1, 2):
-        lc.meta[f"RMSRAW{v}"] = lc.meta[f"RMSDET{v}"] = NOISE
 
     return star, [p], lc
 
@@ -73,7 +72,8 @@ def test_removes_outliers_and_keeps_transits(method):
     in_transit = _in_transit(planets, lc)
     bad = _inject_outliers(lc, in_transit)
 
-    _, lc_out = ClipOutliers(star, planets, lc).perform(method=method)
+    # quiet star: raw and detrended photometry are the same
+    _, lc_out = ClipOutliers(star, planets, lc).perform(method=method, raw_litecurve=lc)
 
     assert not np.any(np.isin(bad, lc_out.cadno))
     # few clean cadences are lost, and none in transit
@@ -92,7 +92,9 @@ class TestTransitModel:
         dip = np.flatnonzero(in_transit)[len(np.flatnonzero(in_transit)) // 2]
         lc.flux[dip] -= 30 * NOISE
 
-        _, lc_out = ClipOutliers(star, planets, lc).perform(method="transit_model")
+        _, lc_out = ClipOutliers(star, planets, lc).perform(
+            method="transit_model", raw_litecurve=lc
+        )
 
         assert lc.cadno[dip] not in lc_out.cadno
         kept = np.isin(lc.cadno[in_transit], lc_out.cadno)
@@ -106,10 +108,14 @@ class TestTransitModel:
         in_transit = _in_transit(planets, lc)
         dip = np.flatnonzero(in_transit)[len(np.flatnonzero(in_transit)) // 2]
         lc.flux[dip] -= 8 * NOISE
+        raw = copy.deepcopy(lc)
         if variable:
-            lc.meta["RMSRAW1"] = lc.meta["RMSRAW2"] = 7 * NOISE
+            # raw rms 7 x NOISE: sinusoid std sqrt(48) x NOISE added to the noise
+            raw.flux += np.sqrt(96) * NOISE * np.sin(2 * np.pi * raw.time)
 
-        _, lc_out = ClipOutliers(star, planets, lc).perform(method="transit_model")
+        _, lc_out = ClipOutliers(star, planets, lc).perform(
+            method="transit_model", raw_litecurve=raw
+        )
 
         assert (lc.cadno[dip] in lc_out.cadno) == variable
 
