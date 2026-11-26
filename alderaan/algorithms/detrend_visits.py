@@ -451,6 +451,14 @@ class DetrendVisits(BaseAlg):
         exptime = EXPTIME[obsmode]
         # at short periods the general masks leave the GP too little data
         usp = np.array([p.period < 3 and p.ror < 0.05 for p in self.planets])
+        # each window covers at most 1/3 of an orbit, and never less than T14
+        max_width = np.array([p.period / 3 for p in self.planets])
+        for n, p in enumerate(self.planets):
+            if p.duration > max_width[n]:
+                raise ValueError(
+                    f"planet {n}: T14 ({p.duration:.3f} d) exceeds 1/3 of the "
+                    f"period ({p.period:.3f} d)"
+                )
 
         # tight: as narrow as possible, for the best detrending;
         # wide: cautious, well clear of transits
@@ -464,7 +472,7 @@ class DetrendVisits(BaseAlg):
                     for u, p in zip(usp, self.planets)
                 ],
                 time=time,
-                max_period_fraction=1 / 3,
+                max_width=max_width,
             )
         else:
             # full width = max(3 x T14, 2 x (exptime + 1 hour))
@@ -473,7 +481,7 @@ class DetrendVisits(BaseAlg):
                 abs_size=np.where(usp, 0.0, 2 * (exptime + 1 / 24)),
                 buffer=np.where(usp, exptime, 0.0),
                 time=time,
-                max_period_fraction=1 / 3,
+                max_width=max_width,
             )
         return mask
 

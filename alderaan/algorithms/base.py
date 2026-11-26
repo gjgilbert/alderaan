@@ -8,7 +8,6 @@ from copy import deepcopy
 import numpy as np
 
 from alderaan.data_models import LiteCurve, Planet, Star
-from alderaan.errors import UnsupportedTargetError
 
 
 def _log_perform(perform):
@@ -79,12 +78,13 @@ class BaseAlg:
         buffer=0.0,
         time=None,
         phot_only=False,
-        max_period_fraction=None,
+        max_width=np.inf,
     ):
         """
         Mask cadences near a transit of any planet
 
-        Each masked window has full width max(rel_size * T14, abs_size) + buffer
+        Each masked window has full width
+        min(max(rel_size * T14, abs_size) + buffer, max_width)
 
         Parameters
         ----------
@@ -103,9 +103,9 @@ class BaseAlg:
             mask only transits with good photometry (TransitTimes.phot_coverage
             and phot_noise), e.g. to select the photometry a fit uses
             (default False: every transit)
-        max_period_fraction : float
-            raise UnsupportedTargetError if a window is wider than this fraction
-            of the planet's period (default None: no limit)
+        max_width : float or array-like
+            cap on the full width in days; one value for all planets or one per
+            planet (default inf: no cap)
 
         Returns
         -------
@@ -115,6 +115,7 @@ class BaseAlg:
         rel_size = np.broadcast_to(rel_size, self.npl)
         abs_size = np.broadcast_to(abs_size, self.npl)
         buffer = np.broadcast_to(buffer, self.npl)
+        max_width = np.broadcast_to(max_width, self.npl)
         if np.any((rel_size == 0) & (abs_size == 0)):
             raise ValueError("either rel_size or abs_size must be nonzero")
 
@@ -124,14 +125,10 @@ class BaseAlg:
         mask = np.zeros((self.npl, len(time)), dtype=int)
 
         for n, p in enumerate(self.planets):
-            half_width = 0.5 * (
-                np.max([rel_size[n] * p.duration, abs_size[n]]) + buffer[n]
+            half_width = 0.5 * min(
+                np.max([rel_size[n] * p.duration, abs_size[n]]) + buffer[n],
+                max_width[n],
             )
-            if max_period_fraction and 2 * half_width > max_period_fraction * p.period:
-                raise UnsupportedTargetError(
-                    f"planet {n}: transit mask width {2 * half_width:.3f} d exceeds "
-                    f"{max_period_fraction:.3g} of the period ({p.period:.3f} d)"
-                )
             tt = p.transit_times
             phot = tt.phot_coverage & tt.phot_noise
             ttime = tt.ttime_mod[phot] if phot_only else tt.ttime_mod

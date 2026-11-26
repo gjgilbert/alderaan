@@ -148,10 +148,21 @@ class QuickFitTransitShape(BaseAlg):
         Fit the shape to good-photometry transits; set each planet's ror, b, T14
 
         Uses cadences within max(3 x T14, 2 hours) of transits with phot_coverage
-        and phot_noise. Raises ValueError if no start reaches a finite likelihood.
+        and phot_noise (2 x T14 if that exceeds 1/3 of the period). Raises
+        ValueError if no start reaches a finite likelihood.
         """
         tm = TransitModel(self.star, self.planets, self.litecurve)
-        tm.trim(self.make_transit_mask(rel_size=3.0, abs_size=2 / 24, phot_only=True))
+        # 2 x T14 where max(3 x T14, 2 hours) would exceed 1/3 of an orbit
+        wide = np.array(
+            [max(3 * p.duration, 2 / 24) > p.period / 3 for p in self.planets]
+        )
+        tm.trim(
+            self.make_transit_mask(
+                rel_size=np.where(wide, 2.0, 3.0),
+                abs_size=np.where(wide, 0.0, 2 / 24),
+                phot_only=True,
+            )
+        )
 
         best_logp, best_theta = -np.inf, None
         any_converged = False

@@ -175,7 +175,8 @@ class SampleTransitModel(BaseAlg):
         Sample the transit model on transits with good photometry
 
         Uses cadences within max(3 x T14, 2 hours) of every transit with
-        phot_coverage and phot_noise, at ttime_mod, whether or not its time was
+        phot_coverage and phot_noise (2 x T14 if that exceeds 1/3 of the
+        period), at ttime_mod, whether or not its time was
         measured or kept.
 
         Returns
@@ -185,7 +186,17 @@ class SampleTransitModel(BaseAlg):
             darkening prior (LDPRIOR, and LD_U1, LD_U2 if set)
         """
         tm = TransitModel(self.star, self.planets, self.litecurve)
-        tm.trim(self.make_transit_mask(rel_size=3.0, abs_size=2 / 24, phot_only=True))
+        # 2 x T14 where max(3 x T14, 2 hours) would exceed 1/3 of an orbit
+        wide = np.array(
+            [max(3 * p.duration, 2 / 24) > p.period / 3 for p in self.planets]
+        )
+        tm.trim(
+            self.make_transit_mask(
+                rel_size=np.where(wide, 2.0, 3.0),
+                abs_size=np.where(wide, 0.0, 2 / 24),
+                phot_only=True,
+            )
+        )
 
         results, settings = self._sample(tm)
         self._log_posterior_summary(results, tm)
