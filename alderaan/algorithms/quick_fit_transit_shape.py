@@ -53,7 +53,7 @@ class QuickFitTransitShape(BaseAlg):
             bounds.append([-np.inf, np.inf])
             bounds.append([1e-5, 0.99])
             bounds.append([0.0, 1.0])
-            bounds.append([0.01 * p.duration, min(3 * p.duration, 0.49 * p.period)])
+            bounds.append([0.01 * p.duration, min(3 * p.duration, p.period / 3)])
 
         bounds.append([0.0, 1.0])
         bounds.append([0.0, 1.0])
