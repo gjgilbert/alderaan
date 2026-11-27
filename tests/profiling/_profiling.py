@@ -145,7 +145,10 @@ def run_step(step, state):
     star, planets, litecurve, raw = state
     if step.reset:
         litecurve.reset(raw)  # detrend raw photometry for surviving cadences
-    result = step.cls(star, planets, litecurve).perform(**step.kwargs)
+    kwargs = dict(step.kwargs)
+    if step.name == "clip_transit_model":
+        kwargs["raw_litecurve"] = raw
+    result = step.cls(star, planets, litecurve).perform(**kwargs)
     if step.cls is SampleTransitModel:
         return result
     planets, litecurve = result
