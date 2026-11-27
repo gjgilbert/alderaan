@@ -70,7 +70,8 @@ def _inject_outliers(lc, in_transit, n=20, amp=30 * NOISE, seed=1):
 def test_removes_outliers_and_keeps_transits(method):
     star, planets, lc = _system()
     in_transit = _in_transit(planets, lc)
-    bad = _inject_outliers(lc, in_transit)
+    # few enough (< 0.3% of out-of-mask cadences per visit) not to skip rejection
+    bad = _inject_outliers(lc, in_transit, n=4)
 
     # quiet star: raw and detrended photometry are the same
     _, lc_out = ClipOutliers(star, planets, lc).perform(method=method, raw_litecurve=lc)
@@ -121,18 +122,21 @@ class TestTransitModel:
 
 
 class TestLocalTrend:
-    def test_removes_upward_spike_inside_transit(self):
+    @pytest.mark.parametrize("nspike", [1, 2])
+    def test_in_transit_rate_limit(self, nspike):
+        # < 100 in-transit cadences in the visit: one cosmic ray in transit is
+        # rejected; two are > 1% and > 1 cadence, so that visit rejects nothing
         star, planets, lc = _system()
         in_transit = _in_transit(planets, lc)
-        spike = np.flatnonzero(in_transit)[len(np.flatnonzero(in_transit)) // 2]
-        # cosmic ray: brighter than the out-of-transit baseline
-        lc.flux[spike] += 100 * NOISE
+        in_visit = np.flatnonzero(in_transit & (lc.visit == 1))
+        assert len(in_visit) < 100
+        spikes = in_visit[[len(in_visit) // 4, 3 * len(in_visit) // 4]][:nspike]
+        lc.flux[spikes] += 100 * NOISE
 
         _, lc_out = ClipOutliers(star, planets, lc).perform(method="local_trend")
 
-        assert lc.cadno[spike] not in lc_out.cadno
-        kept = np.isin(lc.cadno[in_transit], lc_out.cadno)
-        assert kept.sum() == in_transit.sum() - 1
+        kept = np.isin(lc.cadno[spikes], lc_out.cadno)
+        assert np.all(kept) if nspike == 2 else not np.any(kept)
 
     def test_keeps_cadences_bordering_a_long_transit(self):
         # T14 = 8 hr is longer than the 13-cadence (6.4 hr) smoothing kernel
