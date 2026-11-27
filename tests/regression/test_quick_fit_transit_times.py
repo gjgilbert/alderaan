@@ -7,13 +7,16 @@ high-SNR short cadence transits are measured by cross-correlation; transits
 with a sibling in the window (e.g. a USP sibling) go to the optimizer.
 """
 
+import warnings
+
 import numpy as np
 import pytest
 
 from alderaan.algorithms import QuickFitTransitTimes
+from alderaan.algorithms import quick_fit_transit_times as qft
 from alderaan.constants import EXPTIME
 from alderaan.data_models import LiteCurve, Planet, Star, TransitTimes
-from alderaan.transit_model import exposure_offsets, transit_flux
+from alderaan.transit_model import TransitModel, exposure_offsets, transit_flux
 from alderaan.utils.astro import approx_transit_depth
 
 LC = "long cadence"
@@ -131,6 +134,33 @@ class TestQuickFitTransitTimes:
         assert np.isnan(new.ttime_obs[3]) and np.isnan(new.ttime_err[3])
         assert new.ttime_mod[3] == tt.ttime_mod[3]
         assert np.sum(np.isnan(new.ttime_obs)) == 1
+
+    def test_rank_deficient_parabola_is_not_measured(self, monkeypatch, caplog):
+        # every chi-square parabola fit raises RankWarning: no transit is measured,
+        # each rejection is logged at INFO and no warning escapes
+        polyfit = qft.robust_polyfit
+
+        def _rank_deficient(x, y, deg):
+            if deg == 2:
+                warnings.warn(
+                    "poorly conditioned", np.exceptions.RankWarning, stacklevel=2
+                )
+            return polyfit(x, y, deg)
+
+        monkeypatch.setattr(qft, "robust_polyfit", _rank_deficient)
+        star, planets, litecurve, _ = _synthetic_system(TRUTH[:1])
+        ntransit = len(planets[0].transit_times.index)
+        tm = TransitModel(star, planets, litecurve)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", np.exceptions.RankWarning)
+            with caplog.at_level("INFO", logger=qft.__name__):
+                ttime, _, _ = QuickFitTransitTimes(
+                    star, planets, litecurve
+                )._cross_correlation_times(tm, 0)
+
+        assert np.all(np.isnan(ttime))
+        assert caplog.text.count("poorly conditioned") == ntransit
 
     def test_high_snr_transits_measured_by_cross_correlation(self):
         # short cadence (no supersampling) at per-transit SNR ~ 500, the highest

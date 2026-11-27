@@ -1,6 +1,7 @@
 """Fit individual transit times by cross-correlation and optimization"""
 
 import logging
+import warnings
 
 import numpy as np
 from astropy.stats import mad_std
@@ -115,7 +116,8 @@ class QuickFitTransitTimes(BaseAlg):
 
         Divides out a linear out-of-transit trend, slides the template across a
         grid of trial transit times, then fits a parabola to chi-square near its
-        minimum.
+        minimum. The fit is rejected if the parabola fit is rank-deficient, not
+        convex, or has its minimum out of bounds.
 
         Parameters
         ----------
@@ -206,7 +208,14 @@ class QuickFitTransitTimes(BaseAlg):
             logger.debug("transit at %.3f not fit: too few chisq points", tc)
             return np.nan, np.nan
 
-        quad_coeffs = robust_polyfit(tc_fit, x2_fit, 2)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", np.exceptions.RankWarning)
+            try:
+                quad_coeffs = robust_polyfit(tc_fit, x2_fit, 2)
+            except np.exceptions.RankWarning as e:
+                logger.info("transit at %.3f not fit: %s", tc, e)
+                return np.nan, np.nan
+
         quad_model = np.polyval(quad_coeffs, tc_fit)
         qtc_min = -quad_coeffs[1] / (2 * quad_coeffs[0])
 
