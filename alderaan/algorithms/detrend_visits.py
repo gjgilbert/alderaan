@@ -454,7 +454,8 @@ class DetrendVisits(BaseAlg):
         # each window covers at most 1/3 of an orbit, and never less than T14
         max_width = np.array([p.period / 3 for p in self.planets])
         for n, p in enumerate(self.planets):
-            if p.duration > max_width[n]:
+            # tolerance: T14 fit at the P/3 bound, then P refit slightly lower
+            if p.duration > max_width[n] * (1 + 1e-3):
                 raise ValueError(
                     f"planet {n}: T14 ({p.duration:.3f} d) exceeds 1/3 of the "
                     f"period ({p.period:.3f} d)"
