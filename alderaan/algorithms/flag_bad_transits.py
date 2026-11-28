@@ -29,7 +29,8 @@ class FlagBadTransits(BaseAlg):
 
         Good coverage: > 50% of expected cadences are present in transit
         (tc +/- 0.5 T14), in the window (tc +/- 1.5 T14), and near transit (the
-        window excluding in transit).
+        window excluding in transit). If T14 < 2 exptime, good coverage is any data
+        in the window (tc +/- 1.5 max(T14, exptime)).
         """
         lc = self.litecurve
 
@@ -38,7 +39,7 @@ class FlagBadTransits(BaseAlg):
 
         for n, p in enumerate(self.planets):
             exptime = np.array([EXPTIME[om] for om in obsmode[n]])
-            # float: thresholds scale with the window width, also for T14 < exptime
+            # float: thresholds scale with the window width
             count_expected = p.duration / exptime
 
             ntot = len(p.transit_times.ttime_mod)
@@ -47,14 +48,19 @@ class FlagBadTransits(BaseAlg):
 
             for i, tc in enumerate(p.transit_times.ttime_mod):
                 in_transit = np.abs(lc.time - tc) / p.duration < 0.5
-                in_window = np.abs(lc.time - tc) / p.duration < 1.5
+                in_window = np.abs(lc.time - tc) < 1.5 * max(p.duration, exptime[i])
                 n_in, n_window = np.sum(in_transit), np.sum(in_window)
                 n_in_gap += n_window == 0
 
+                # T14 < 2 cadences: too few cadences for a coverage fraction
                 good_coverage[n][i] = (
-                    n_in > 0.5 * count_expected[i]
-                    and n_window > 1.5 * count_expected[i]
-                    and n_window - n_in > 1.0 * count_expected[i]
+                    n_window > 0
+                    if p.duration < 2 * exptime[i]
+                    else (
+                        n_in > 0.5 * count_expected[i]
+                        and n_window > 1.5 * count_expected[i]
+                        and n_window - n_in > 1.0 * count_expected[i]
+                    )
                 )
 
             n_poor = np.sum(~good_coverage[n])
@@ -63,7 +69,9 @@ class FlagBadTransits(BaseAlg):
             # partial coverage within observed data can come from the pipeline
             # (e.g. clipping in the transit window), so only it warns
             logger.log(
-                logging.WARNING if n_partial > 0.2 * ntot else logging.INFO,
+                logging.WARNING
+                if n_partial > 0.2 * ntot and ntot >= 10
+                else logging.INFO,
                 "planet %d: %d of %d transits lack coverage "
                 "(%d in data gaps, %d partially covered)",
                 n,
@@ -82,8 +90,8 @@ class FlagBadTransits(BaseAlg):
         A transit fails if its flux rms (MAD) in a window of full width
         max(rel_size * T14, abs_size) is > sigma_cut from the median over transits
         of the same obsmode, or if the window has no cadences. Transits that
-        overlap another planet (same tolerances) and obsmodes with < 8 measured
-        transits are not checked.
+        overlap another planet (same tolerances), obsmodes with < 8 measured
+        transits, and obsmodes with T14 < 2 exptime are not checked.
         """
         if rel_size == 0 and abs_size == 0:
             raise ValueError("either rel_size or abs_size must be nonzero")
@@ -119,6 +127,11 @@ class FlagBadTransits(BaseAlg):
                         n,
                         om,
                         np.sum(measured),
+                    )
+                    continue
+                if p.duration < 2 * EXPTIME[om]:
+                    logger.info(
+                        "planet %d (%s): T14 < 2 cadences; noise check skipped", n, om
                     )
                     continue
 

@@ -35,6 +35,7 @@ def main(
     catalog,
     visits=None,
     log_level="INFO",
+    append_log=False,
 ):
     """
     Run the ALDERAAN pipeline on one target (see `alderaan run --help`)
@@ -51,7 +52,11 @@ def main(
         )
 
     log_path = setup_logging(
-        os.path.join(output_dir, run_id, "logs"), target, run_id, log_level
+        os.path.join(output_dir, run_id, "logs"),
+        target,
+        run_id,
+        log_level,
+        append=append_log,
     )
 
     logger.info("alderaan %s (git %s)", alderaan.__version__, alderaan.git_hash())
@@ -165,6 +170,12 @@ def _run(target, run_id, input_dir, output_dir, catalog, visits):
 
     # data i/o (Kepler only; main() rejects other missions)
     star, planets, litecurve = load_kepler_data(target, input_dir, catalog, visits)
+    provenance = dict(
+        RUNID=(run_id, "ALDERAAN run ID"),
+        VERSION=(alderaan.__version__, "ALDERAAN version"),
+        GITHASH=(alderaan.git_hash(), "ALDERAAN git commit"),
+    )
+    litecurve.meta.update(provenance)
 
     raw_litecurve = copy.deepcopy(litecurve)
 
@@ -198,28 +209,26 @@ def _run(target, run_id, input_dir, output_dir, catalog, visits):
             show_outliers=True,
             title=f"{target}-{n}",
             fig_path=os.path.join(plots_dir, f"{target}_omc_{n:02d}.png"),
-            snr=p.meta["snr_per_transit"],
+            snr=QuickFitTransitTimes.per_transit_snr(p, litecurve),
         )
 
     # final fit: clip and detrend mask from the fitted model and final times;
     # re-flag so the sampler's flags are judged on the photometry it fits
     planets, litecurve = ClipOutliers(star, planets, litecurve).perform(
-        method="transit_model"
+        method="transit_model", raw_litecurve=raw_litecurve
     )
     litecurve.reset(raw_litecurve)
     planets, litecurve = DetrendVisits(star, planets, litecurve).perform(
         method="tight_mask"
     )
     planets, litecurve = FlagBadTransits(star, planets, litecurve).perform()
-    litecurve.meta.update(
-        RUN_ID=run_id, VERSION=alderaan.__version__, GIT_HASH=alderaan.git_hash()
-    )
     litecurve.to_fits(os.path.join(results_dir, f"{target}_detrended.fits"))
     litecurve.plot(
         mark_times=[p.transit_times.ttime_mod for p in planets],
         fig_path=os.path.join(plots_dir, f"{target}_litecurve_detrended.png"),
     )
     posteriors = SampleTransitModel(star, planets, litecurve).perform()
+    posteriors.meta.update(provenance)
 
     results = Results(
         posteriors=posteriors,
@@ -228,8 +237,9 @@ def _run(target, run_id, input_dir, output_dir, catalog, visits):
     )
     results.meta.update(litecurve.meta)
     for n, p in enumerate(planets):
-        results.meta[f"PLNAME{n}"] = p.meta["PLNAME"]
-    results.meta.update(results.reduced_chi2())
+        results.meta[f"PLNAME{n}"] = (p.meta["PLNAME"], f"planet {n} name")
+    for k, chi2 in results.reduced_chi2().items():
+        results.meta[k] = (chi2, "reduced chi2 of the median model")
     results_path = os.path.join(results_dir, f"{target}_results.fits")
     results.to_fits(results_path)
 

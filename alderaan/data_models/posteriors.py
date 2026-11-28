@@ -90,7 +90,7 @@ class Posteriors:
         self.t_start = float(t_start)
         self.t_end = float(t_end)
         self.supersample = {str(om): int(ss) for om, ss in supersample.items()}
-        self.meta = {}  # FITS header cards, written to SAMPLES; not read back
+        self.meta = fits.Header()  # read-only tracking cards, written to SAMPLES
 
         if len(self.ref_epoch) != self.npl:
             raise ValueError("ref_epoch must have one entry per planet")
@@ -162,17 +162,18 @@ class Posteriors:
         samples_hdu = fits.BinTableHDU(
             data=samples_df.to_records(index=False), name="SAMPLES"
         )
-        samples_hdu.header["MISSION"] = self.mission
-        samples_hdu.header["TARGET"] = self.target
-        samples_hdu.header["NITER"] = info["niter"]
-        samples_hdu.header["EFF"] = info["eff"]
+        h = samples_hdu.header
+        h["MISSION"] = (self.mission, "observing mission")
+        h["TARGET"] = (self.target, "target ID")
+        h["NITER"] = (info["niter"], "dynesty iterations")
+        h["EFF"] = (info["eff"], "[%] dynesty sampling efficiency")
         # convergence summary (derived from the columns; not read back)
-        samples_hdu.header["NCALL"] = int(np.sum(info["ncall"]))
-        samples_hdu.header["NEFF"] = self.neff()
-        samples_hdu.header["LN_Z"] = info["logz"][-1]
-        samples_hdu.header["LN_ZERR"] = info["logzerr"][-1]
-        samples_hdu.header["INFO"] = info["information"][-1]
-        samples_hdu.header.update(self.meta)
+        h["NCALL"] = (int(np.sum(info["ncall"])), "likelihood calls")
+        h["NEFF"] = (self.neff(), "effective sample size")
+        h["LNZ"] = (info["logz"][-1], "ln evidence")
+        h["LNZERR"] = (info["logzerr"][-1], "ln evidence error")
+        h["INFO"] = (info["information"][-1], "[nat] information")
+        h.update(self.meta)
 
         # a table, not header cards: the baseline batch bounds are -inf, inf
         bounds = np.asarray(info["batch_logl_bounds"], dtype=float)
@@ -193,14 +194,15 @@ class Posteriors:
             ],
             name="EPHEMERIS",
         )
-        ephem_hdu.header["MISSION"] = self.mission
-        ephem_hdu.header["TARGET"] = self.target
-        ephem_hdu.header["T_START"] = self.t_start
-        ephem_hdu.header["T_END"] = self.t_end
-        ephem_hdu.header["NOBSMODE"] = len(self.supersample)
+        h = ephem_hdu.header
+        h["MISSION"] = (self.mission, "observing mission")
+        h["TARGET"] = (self.target, "target ID")
+        h["TSTART"] = (self.t_start, "[d] start of data span")
+        h["TSTOP"] = (self.t_end, "[d] end of data span")
+        h["NOBSMODE"] = (len(self.supersample), "number of obsmodes")
         for i, (om, ss) in enumerate(self.supersample.items()):
-            ephem_hdu.header[f"OBSMODE{i}"] = om
-            ephem_hdu.header[f"SUPSAMP{i}"] = ss
+            h[f"OBSMODE{i}"] = (om, f"obsmode {i}")
+            h[f"SUPSAMP{i}"] = (ss, f"model supersampling of obsmode {i}")
 
         return samples_hdu, ephem_hdu, batches_hdu
 
@@ -238,17 +240,22 @@ class Posteriors:
             eh[f"OBSMODE{i}"]: eh[f"SUPSAMP{i}"] for i in range(eh["NOBSMODE"])
         }
 
-        return cls(
+        posteriors = cls(
             header["MISSION"],
             header["TARGET"],
             samples,
             sampler_info,
             ephem["REF_PERIOD"],
             ephem["REF_EPOCH"],
-            eh["T_START"],
-            eh["T_END"],
+            eh["TSTART"],
+            eh["TSTOP"],
             supersample,
         )
+        # meta: the SAMPLES cards that _to_hdus does not write itself
+        written = "EXTNAME MISSION TARGET NITER EFF NCALL NEFF LNZ LNZERR INFO".split()
+        cards = header.copy(strip=True).cards
+        posteriors.meta = fits.Header([c for c in cards if c.keyword not in written])
+        return posteriors
 
     @staticmethod
     def _integrals(logl, logvol):

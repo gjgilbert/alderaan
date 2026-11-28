@@ -44,7 +44,7 @@ class Results:
         self.posteriors = posteriors
         self.transit_times = transit_times
         self.litecurve = litecurve
-        self.meta = {}  # FITS header cards, written to PRIMARY
+        self.meta = fits.Header()  # read-only tracking cards, written to PRIMARY
         self._summary = None  # set on the first summary() call
 
         components = []
@@ -89,9 +89,9 @@ class Results:
         set. The litecurve is not written; use LiteCurve.to_fits.
         """
         primary_hdu = fits.PrimaryHDU()
-        primary_hdu.header["MISSION"] = self.mission
-        primary_hdu.header["TARGET"] = self.target
-        primary_hdu.header["NPL"] = self.npl
+        primary_hdu.header["MISSION"] = (self.mission, "observing mission")
+        primary_hdu.header["TARGET"] = (self.target, "target ID")
+        primary_hdu.header["NPL"] = (self.npl, "number of planets")
         primary_hdu.header.update(self.meta)
 
         # component HDU builders are private to data_models; Results owns the file
@@ -122,8 +122,11 @@ class Results:
         logger.info("reading %s", results_filepath)
         with fits.open(results_filepath) as hdul:
             npl = hdul[0].header["NPL"]
-            skip = ("SIMPLE", "BITPIX", "NAXIS", "EXTEND", "MISSION", "TARGET", "NPL")
-            meta = {k: v for k, v in hdul[0].header.items() if k not in skip}
+            # meta: the PRIMARY cards that to_fits does not write itself
+            cards = hdul[0].header.copy(strip=True).cards
+            meta = fits.Header(
+                [c for c in cards if c.keyword not in ("MISSION", "TARGET", "NPL")]
+            )
 
             if "SAMPLES" in hdul:
                 posteriors = Posteriors._from_hdus(hdul)
@@ -141,6 +144,15 @@ class Results:
             litecurve = None
         else:
             litecurve = LiteCurve.from_fits(detrended_filepath)
+            # the results PRIMARY carries copies of the litecurve cards
+            differ = [k for k in litecurve.meta if meta.get(k) != litecurve.meta[k]]
+            if differ:
+                logger.warning(
+                    "%s and %s disagree on %s",
+                    results_filepath,
+                    detrended_filepath,
+                    ", ".join(differ),
+                )
 
         results = cls(
             posteriors=posteriors, transit_times=transit_times, litecurve=litecurve
@@ -318,7 +330,7 @@ class Results:
         windows of _planet_model. Planet models add as in TransitModel. The star
         value uses the union of windows, dof = N - (5 npl + 2); planet n's value
         divides the sibling models out of its window, dof = N - 7. A value is
-        None (an undefined FITS card) if dof <= 0. Keys are FITS header cards
+        None (a blank FITS card) if dof <= 0. Keys are FITS header cards
         for meta.
         """
         lc = self.litecurve
@@ -465,7 +477,7 @@ class Results:
         annotate_plot(
             ax[0], f"residual RMS = {int(np.std(residuals) * 1e6)} ppm", "lower right"
         )
-        chi2_red = self.meta[f"CHI2RED{n}"]
+        chi2_red = self.reduced_chi2()[f"CHI2RED{n}"]
         annotate_plot(
             ax[0],
             "reduced χ² = n/a" if chi2_red is None else f"reduced χ² = {chi2_red:.2f}",

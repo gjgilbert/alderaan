@@ -1,6 +1,7 @@
 """Fit individual transit times by cross-correlation and optimization"""
 
 import logging
+import warnings
 
 import numpy as np
 from astropy.stats import mad_std
@@ -20,7 +21,7 @@ class QuickFitTransitTimes(BaseAlg):
     """Measure individual transit times for each planet"""
 
     @staticmethod
-    def _per_transit_snr(p, lc):
+    def per_transit_snr(p, lc):
         """
         Single-transit SNR, ror^2 sqrt(T14 / exptime) / mad_std(flux), maximum
         over obsmodes
@@ -115,7 +116,8 @@ class QuickFitTransitTimes(BaseAlg):
 
         Divides out a linear out-of-transit trend, slides the template across a
         grid of trial transit times, then fits a parabola to chi-square near its
-        minimum.
+        minimum. The fit is rejected if the parabola fit is rank-deficient, not
+        convex, or has its minimum out of bounds.
 
         Parameters
         ----------
@@ -144,12 +146,7 @@ class QuickFitTransitTimes(BaseAlg):
         exptime_ioff = tm.exptime_offsets[obsmode]
 
         # STEP 0: data near this transit
-        in_transit = np.abs(lc.time - tc) < duration / 2
         in_window = np.abs(lc.time - tc) < transit_window_size / 2
-
-        if np.sum(in_transit) == 0:
-            logger.debug("transit at %.3f not fit: no in-transit data", tc)
-            return np.nan, np.nan
 
         _t = lc.time[in_window]
         _f_obs = lc.flux[in_window]
@@ -211,7 +208,14 @@ class QuickFitTransitTimes(BaseAlg):
             logger.debug("transit at %.3f not fit: too few chisq points", tc)
             return np.nan, np.nan
 
-        quad_coeffs = robust_polyfit(tc_fit, x2_fit, 2)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", np.exceptions.RankWarning)
+            try:
+                quad_coeffs = robust_polyfit(tc_fit, x2_fit, 2)
+            except np.exceptions.RankWarning as e:
+                logger.info("transit at %.3f not fit: %s", tc, e)
+                return np.nan, np.nan
+
         quad_model = np.polyval(quad_coeffs, tc_fit)
         qtc_min = -quad_coeffs[1] / (2 * quad_coeffs[0])
 
@@ -240,8 +244,8 @@ class QuickFitTransitTimes(BaseAlg):
         Fit transit times using the Mazeh+13 / Holczer+16 cross-correlation method
 
         The data window around each transit is rel_window_size * T14 +
-        abs_window_size_buffer (days) wide; transits with a sibling transit
-        inside the window are skipped.
+        abs_window_size_buffer (days) wide. Skipped: sibling in window, data gap,
+        poor phot_coverage.
 
         Returns
         -------
@@ -278,8 +282,18 @@ class QuickFitTransitTimes(BaseAlg):
         ttime = np.full(ntransit, np.nan)
         ttime_err = np.full(ntransit, np.nan)
         logger.debug("planet %d: cross-correlation fit", planet_no)
+        # no in-transit data: the transit falls in a data gap
+        in_gap = np.array(
+            [
+                not np.any(np.abs(tm.litecurve.time - tc) < p.duration / 2)
+                for tc in p.transit_times.ttime_mod
+            ],
+            dtype=bool,
+        )
+        poor_coverage = ~p.transit_times.phot_coverage & ~in_gap
+
         for i, tc in enumerate(p.transit_times.ttime_mod):
-            if sibling_in_window[i]:
+            if sibling_in_window[i] or in_gap[i] or poor_coverage[i]:
                 continue
 
             obsmode = transit_obsmode[i]
@@ -294,15 +308,26 @@ class QuickFitTransitTimes(BaseAlg):
             )
 
         nfit = int(np.sum(~np.isnan(ttime)))
-        logger.log(
-            logging.WARNING if nfit < 0.5 * ntransit else logging.INFO,
+        nattempt = int(np.sum(~sibling_in_window & ~in_gap & ~poor_coverage))
+        logger.info(
             "planet %d: cross-correlation fit %d of %d transits "
-            "(%d skipped: sibling in window)",
+            "(%d skipped: sibling in window; %d skipped: in data gap; "
+            "%d skipped: poor coverage)",
             planet_no,
             nfit,
             ntransit,
             np.sum(sibling_in_window),
+            np.sum(in_gap & ~sibling_in_window),
+            np.sum(poor_coverage & ~sibling_in_window),
         )
+        if nattempt - nfit > 0.5 * nattempt:
+            logger.warning(
+                "planet %d: cross-correlation fit failed for %d of %d attempted "
+                "transits",
+                planet_no,
+                nattempt - nfit,
+                nattempt,
+            )
 
         return ttime, ttime_err, sibling_in_window
 
@@ -471,8 +496,8 @@ class QuickFitTransitTimes(BaseAlg):
         (floored at the predicted error) are NaN where unmeasured, and ttime_mod
         is ttime_obs where measured, else unchanged.
 
-        A planet with per-transit SNR < 2, or T14 shorter than its shortest
-        cadence, is not measured: it gets its linear ephemeris, model_name
+        A planet with per-transit SNR < 2, or T14 shorter than 2 of its shortest
+        cadences, is not measured: it gets its linear ephemeris, model_name
         'linear', and no observed times.
         """
         star = self.star
@@ -480,16 +505,15 @@ class QuickFitTransitTimes(BaseAlg):
         litecurve = self.litecurve
         npl = len(planets)
 
-        # below SNR ~ 2, or with T14 shorter than one cadence, a single-transit
+        # below SNR ~ 2, or with T14 shorter than 2 cadences, a single-transit
         # time locks onto noise: linear ephemeris, with the predicted timing error
         # as its TTV scatter
         tm = TransitModel(star, planets, litecurve)
         exptime = min(EXPTIME[om] for om in np.unique(litecurve.obsmode))
         linear = []
         for n, p in enumerate(planets):
-            snr = self._per_transit_snr(p, litecurve)
-            p.meta["snr_per_transit"] = snr
-            linear.append(snr < 2 or p.duration < exptime)
+            snr = self.per_transit_snr(p, litecurve)
+            linear.append(snr < 2 or p.duration < 2 * exptime)
             if linear[n]:
                 logger.info(
                     "planet %d: per-transit SNR = %.2f, T14 = %.1f min; linear",

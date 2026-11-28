@@ -204,8 +204,13 @@ class SampleTransitModel(BaseAlg):
         posteriors = Posteriors.from_dynesty(
             self.litecurve.mission, self.litecurve.target, results, tm
         )
-        posteriors.meta.update({k.upper(): v for k, v in settings.items()})
-        posteriors.meta["LDPRIOR"] = self.star.ld_prior
-        if self.star.ld_prior:
-            posteriors.meta.update(LD_U1=self.star.u1, LD_U2=self.star.u2)
+        ld_prior = self.star.ld_prior
+        posteriors.meta.update(
+            SEED=(settings["seed"], "dynesty random seed"),
+            BOUND=(settings["bound"], "dynesty bounding method"),
+            SAMPLE=(settings["sample"], "dynesty sampling method"),
+            LDPRIOR=(ld_prior, "limb darkening prior on LDU1, LDU2"),
+            LDU1=(self.star.u1 if ld_prior else None, "limb darkening prior u1"),
+            LDU2=(self.star.u2 if ld_prior else None, "limb darkening prior u2"),
+        )
         return posteriors

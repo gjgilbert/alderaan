@@ -24,6 +24,12 @@ Example::
         --jobs 64 \\
         --run_id my_run  # optional; default UT launch stamp
 
+Resume an interrupted batch (same --run_id, --input_dir, --output_dir; uses the
+run's catalog copy; skips targets the batch log records as ok or UNSUPPORTED)::
+
+    alderaan batch -m Kepler --resume --run_id my_run \\
+        --input_dir /path/to/kepler/lightcurves --output_dir /path/to/outputs
+
 Every target writes the same files as `alderaan run`, all under one run
 directory ``{output_dir}/{run_id}/``::
 
@@ -45,6 +51,7 @@ import argparse
 import concurrent.futures
 import logging
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -94,9 +101,15 @@ def build_parser():
     parser.add_argument(
         "--catalog",
         type=Path,
-        required=True,
         help="planet catalog in the format of "
-        "reference/alderaan/kepler_merged_alderaan.csv; every koi_id is run",
+        "reference/alderaan/kepler_merged_alderaan.csv; every koi_id is run "
+        "(required unless --resume)",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue run --run_id with its catalog copy; skip targets logged "
+        "ok or UNSUPPORTED",
     )
     parser.add_argument(
         "--jobs",
@@ -303,11 +316,36 @@ def read_targets(catalog):
     return pd.read_csv(catalog, usecols=["koi_id"]).koi_id.drop_duplicates().tolist()
 
 
+def read_done(batch_log):
+    """
+    Targets a batch log records as done
+
+    Returns (ok, unsupported): a set of targets logged ok, and a dict of
+    target -> reason for targets logged UNSUPPORTED. FileNotFoundError if
+    batch_log does not exist.
+    """
+    ok, unsupported = set(), {}
+    with open(batch_log, encoding="utf-8") as f:
+        for line in f:
+            if m := re.search(r"alderaan\.cli\.batch: ok: (\S+)$", line):
+                ok.add(m.group(1))
+            elif m := re.search(r"UNSUPPORTED: (\S+) \(known limit: (.*)\)$", line):
+                unsupported[m.group(1)] = m.group(2)
+    return ok, unsupported
+
+
 def main(argv=None):
     """Run every catalog target; return exit code 1 if any failed, else 0"""
     start = time.monotonic()
     configure_runtime()
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.resume and args.run_id is None:
+        parser.error("--resume requires --run_id")
+    if args.resume and args.catalog is not None:
+        parser.error("--resume uses the run's catalog copy; omit --catalog")
+    if not args.resume and args.catalog is None:
+        parser.error("--catalog is required unless --resume")
     args.run_id = args.run_id or time.strftime("%Y%m%dT%H%M%S", time.gmtime())
 
     import alderaan
@@ -315,9 +353,18 @@ def main(argv=None):
 
     input_dir = str(args.input_dir.resolve())
     output_dir = str(args.output_dir.resolve())
-    catalog = str(args.catalog.resolve())
     log_dir = os.path.join(output_dir, args.run_id, "logs")
-    log_path = setup_logging(log_dir, "batch", args.run_id, "INFO")
+    if args.resume:
+        catalog = os.path.join(
+            output_dir, args.run_id, f"alderaan_batch_{args.run_id}.csv"
+        )
+        done_ok, done_unsupported = read_done(
+            os.path.join(log_dir, f"alderaan_batch_{args.run_id}.log")
+        )
+    else:
+        catalog = str(args.catalog.resolve())
+        done_ok, done_unsupported = set(), {}
+    log_path = setup_logging(log_dir, "batch", args.run_id, "INFO", append=args.resume)
 
     try:
         targets = read_targets(catalog)
@@ -332,13 +379,25 @@ def main(argv=None):
             args.launch_interval,
         )
         logger.info("batch log: %s", log_path)
-        catalog_copy = os.path.join(
-            output_dir,
-            args.run_id,
-            f"alderaan_batch_{args.run_id}{args.catalog.suffix}",
-        )
-        shutil.copyfile(catalog, catalog_copy)
-        logger.info("catalog copy: %s", catalog_copy)
+        if args.resume:
+            todo = [
+                t for t in targets if t not in done_ok and t not in done_unsupported
+            ]
+            logger.info(
+                "resume: %d ok, %d unsupported already done; %d to run",
+                len(done_ok),
+                len(done_unsupported),
+                len(todo),
+            )
+        else:
+            todo = targets
+            catalog_copy = os.path.join(
+                output_dir,
+                args.run_id,
+                f"alderaan_batch_{args.run_id}{args.catalog.suffix}",
+            )
+            shutil.copyfile(catalog, catalog_copy)
+            logger.info("catalog copy: %s", catalog_copy)
 
         tasks = [
             (
@@ -362,13 +421,15 @@ def main(argv=None):
                     catalog,
                     "--log_level",
                     args.log_level,
-                ],
+                ]
+                + (["--append_log"] if args.resume else []),
             )
-            for t in targets
+            for t in todo
         ]
         failed, unsupported = run_targets(
             tasks, args.jobs, args.job_timeout, args.launch_interval
         )
+        unsupported = done_unsupported | unsupported
         summary = batch_summary(
             args.run_id,
             len(targets),

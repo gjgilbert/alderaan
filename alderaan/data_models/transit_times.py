@@ -293,14 +293,11 @@ class TransitTimes:
             for k in FIELDS
         ]
         hdu = fits.BinTableHDU.from_columns(columns, name=f"TTIMES_{n:02d}")
-        hdu.header["MISSION"] = self.mission
-        hdu.header["TARGET"] = self.target
-        if self.model_name is not None:
-            hdu.header["OMCMODEL"] = self.model_name
-        if self.model_dof is not None:
-            hdu.header["OMCDOF"] = self.model_dof
-        if self.ttv_scatter is not None:
-            hdu.header["TTVSCAT"] = self.ttv_scatter
+        hdu.header["MISSION"] = (self.mission, "observing mission")
+        hdu.header["TARGET"] = (self.target, "target ID")
+        hdu.header["OMCMODEL"] = (self.model_name, "selected O-C model")
+        hdu.header["OMCDOF"] = (self.model_dof, "O-C model degrees of freedom")
+        hdu.header["TTVSCAT"] = (self.ttv_scatter, "[d] TTV scatter about O-C model")
         return hdu
 
     @classmethod
@@ -311,7 +308,7 @@ class TransitTimes:
             hdu.header["MISSION"],
             hdu.header["TARGET"],
             **{k: data[k.upper()] for k in FIELDS},
-            model_name=hdu.header.get("OMCMODEL"),
-            model_dof=hdu.header.get("OMCDOF"),
-            ttv_scatter=hdu.header.get("TTVSCAT"),
+            model_name=hdu.header["OMCMODEL"],
+            model_dof=hdu.header["OMCDOF"],
+            ttv_scatter=hdu.header["TTVSCAT"],
         )

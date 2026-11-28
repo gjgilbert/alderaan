@@ -39,9 +39,9 @@ _installed_handlers = []
 _warning_filters = []  # catch_warnings context restoring filters at teardown
 
 
-def setup_logging(log_dir, target, run_id, level="INFO"):
+def setup_logging(log_dir, target, run_id, level="INFO", append=False):
     """
-    Log to the console (stderr) and to a new file for this run
+    Log to the console (stderr) and to a new file for this run (or append to it)
 
     Parameters
     ----------
@@ -51,6 +51,8 @@ def setup_logging(log_dir, target, run_id, level="INFO"):
     run_id : str
     level : str
         console level: DEBUG, INFO, WARNING, or ERROR; the file records DEBUG
+    append : bool
+        append to an existing log file; default False fails if the file exists
 
     Returns
     -------
@@ -61,7 +63,7 @@ def setup_logging(log_dir, target, run_id, level="INFO"):
 
     os.makedirs(log_dir, exist_ok=True)
     file_handler = _open_file_handler(
-        os.path.join(log_dir, f"alderaan_{target}_{run_id}.log")
+        os.path.join(log_dir, f"alderaan_{target}_{run_id}.log"), append
     )
 
     formatter = logging.Formatter(LOG_FORMAT, datefmt=LOG_DATEFMT)
@@ -104,7 +106,7 @@ def teardown_logging():
     logging.captureWarnings(False)
 
 
-def _open_file_handler(path):
-    """Open a new UTF-8 log file; FileExistsError if path exists"""
+def _open_file_handler(path, append=False):
+    """Open a UTF-8 log file; unless append, FileExistsError if path exists"""
     # exclusive create: fail loudly rather than share or overwrite a log file
-    return logging.FileHandler(path, mode="x", encoding="utf-8")
+    return logging.FileHandler(path, mode="a" if append else "x", encoding="utf-8")

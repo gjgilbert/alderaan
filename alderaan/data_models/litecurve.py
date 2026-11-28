@@ -67,7 +67,7 @@ class LiteCurve:
     ):
         self.mission = mission
         self.target = target
-        self.meta = {}  # FITS header cards, written to PRIMARY
+        self.meta = fits.Header()  # read-only tracking cards, written to PRIMARY
 
         self.time = np.asarray(time, dtype=float)
         self.t_start = float(self.time.min() if t_start is None else t_start)
@@ -96,14 +96,17 @@ class LiteCurve:
             names = np.array([h[f"OBSMODE{i}"] for i in range(h["NOBSMODE"])])
             arrays["obsmode"] = names[arrays["obsmode"]]
             lc = cls(
-                hdu.header["MISSION"],
-                hdu.header["TARGET"],
+                h["MISSION"],
+                h["TARGET"],
                 **arrays,
-                t_start=hdu.header["T_START"],
-                t_end=hdu.header["T_END"],
+                t_start=h["TSTART"],
+                t_end=h["TSTOP"],
             )
-            skip = ("SIMPLE", "BITPIX", "NAXIS", "EXTEND", "MISSION", "TARGET", "NPL")
-            lc.meta = {k: v for k, v in hdul[0].header.items() if k not in skip}
+            # meta: the PRIMARY cards that to_fits does not write itself
+            cards = hdul[0].header.copy(strip=True).cards
+            lc.meta = fits.Header(
+                [c for c in cards if c.keyword not in ("MISSION", "TARGET")]
+            )
         return lc
 
     @classmethod
@@ -270,12 +273,12 @@ class LiteCurve:
         Write PRIMARY (MISSION, TARGET, meta) and a LITECURVE table
 
         The table has one upper-case column per per-cadence array (formats in
-        FIELDS) and header cards MISSION, TARGET, T_START, T_END. OBSMODE is
+        FIELDS) and header cards MISSION, TARGET, TSTART, TSTOP. OBSMODE is
         stored as a code: OBSMODEi names code i, for i < NOBSMODE.
         """
         primary_hdu = fits.PrimaryHDU()
-        primary_hdu.header["MISSION"] = self.mission
-        primary_hdu.header["TARGET"] = self.target
+        primary_hdu.header["MISSION"] = (self.mission, "observing mission")
+        primary_hdu.header["TARGET"] = (self.target, "target ID")
         primary_hdu.header.update(self.meta)
 
         names, codes = np.unique(self.obsmode, return_inverse=True)
@@ -285,13 +288,13 @@ class LiteCurve:
             for k, fmt in FIELDS.items()
         ]
         hdu = fits.BinTableHDU.from_columns(columns, name="LITECURVE")
-        hdu.header["MISSION"] = self.mission
-        hdu.header["TARGET"] = self.target
-        hdu.header["T_START"] = self.t_start
-        hdu.header["T_END"] = self.t_end
-        hdu.header["NOBSMODE"] = len(names)
+        hdu.header["MISSION"] = (self.mission, "observing mission")
+        hdu.header["TARGET"] = (self.target, "target ID")
+        hdu.header["TSTART"] = (self.t_start, "[d] start of data span")
+        hdu.header["TSTOP"] = (self.t_end, "[d] end of data span")
+        hdu.header["NOBSMODE"] = (len(names), "number of obsmodes")
         for i, name in enumerate(names):
-            hdu.header[f"OBSMODE{i}"] = name
+            hdu.header[f"OBSMODE{i}"] = (name, f"obsmode {i}")
 
         # write then rename, so a crash never leaves a partial file at filepath
         fits.HDUList([primary_hdu, hdu]).writeto(filepath + ".tmp", overwrite=True)

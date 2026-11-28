@@ -13,14 +13,10 @@ __all__ = [
 ]
 
 
-import logging
-
 import numpy as np
 from numpy.polynomial import Legendre, Polynomial
 from scipy.special import erfinv
 from scipy.stats import norm as scipy_norm
-
-logger = logging.getLogger(__name__)
 
 
 def uniform_ppf(u, a, b):
@@ -206,17 +202,12 @@ def bin_data(time, data, binsize, bin_centers=None):
 
     binned_data = np.full(len(bin_centers), np.nan)
     binned_error = np.full(len(bin_centers), np.nan)
-    n_empty = 0
     for i, t0 in enumerate(bin_centers):
         d = data[np.abs(time - t0) < binsize / 2]
         if d.size == 0:
-            n_empty += 1
             continue
         binned_data[i] = np.mean(d)
         binned_error[i] = np.std(d) / np.sqrt(d.size)
-
-    if n_empty > 0:
-        logger.warning("some folded transit bins contain no data")
 
     return bin_centers, binned_data, binned_error
 

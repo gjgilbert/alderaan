@@ -646,9 +646,19 @@ class TestSelectFewTransits:
         np.testing.assert_allclose(tt_out.ttime_mod, ttime_obs, rtol=0, atol=1e-9)
         assert np.all(tt_out.kept_ttv)
 
-    def test_fewer_than_3_measured_times_raise(self):
+    def test_fewer_than_3_measured_times_get_linear_ephemeris(self):
         star, planets, lc, _ = _system(ntransit=5, missing=[0, 1, 2])
-        with pytest.raises(UnsupportedTargetError, match="needs at least 3"):
+        tt = planets[0].transit_times
+        planets_out, _ = RegularizeOMC(star, planets, lc).perform(method="select")
+        tt_out = planets_out[0].transit_times
+        assert tt_out.model_name == "linear"
+        assert np.all(np.isnan(tt_out.ttime_obs))
+        np.testing.assert_allclose(tt_out.ttime_mod, tt.linear_ephemeris())
+        assert tt_out.ttv_scatter == np.median(tt.ttime_err[3:])
+
+    def test_no_measured_times_raise(self):
+        star, planets, lc, _ = _system(ntransit=5, missing=[0, 1, 2, 3, 4])
+        with pytest.raises(UnsupportedTargetError, match="0 measured"):
             RegularizeOMC(star, planets, lc).perform(method="select")
 
     def test_linear_planet_passes_through(self):

@@ -1,5 +1,6 @@
 """Clip flux outliers visit-by-visit"""
 
+import copy
 import logging
 
 import numpy as np
@@ -10,112 +11,136 @@ from scipy.signal import savgol_filter
 from alderaan.algorithms.base import BaseAlg
 from alderaan.constants import EXPTIME
 from alderaan.transit_model import TransitModel
-from alderaan.utils.stats import sigma_cutoff
 
 logger = logging.getLogger(__name__)
+
+# smoothing kernel and CDPP timescale (cadences)
+KERNEL_SIZE = 13
+
+# cadence regions: out of the wide mask, in the wide mask out of T14, in T14
+FAR, NEAR, IN = 0, 1, 2
 
 
 class ClipOutliers(BaseAlg):
     """Remove outlier cadences from a litecurve visit-by-visit"""
 
     @staticmethod
-    def _clip_outliers(flux, sigma_upper, sigma_lower, kernel_size, mask=None):
+    def _cdpp(time, flux, mask, exptime, windows):
         """
-        Sigma-clip flux about a median-filter trend, iterating up to 3 times
+        sgCDPP proxy (Gilliland et al. 2011, ApJS 197, 6; Van Cleve et al. 2016,
+        PASP 128, 075002) for the Kepler CDPP (Christiansen et al. 2012, PASP
+        124, 1279), computed on raw flux out of the transit mask
 
-        If > 1% of cadences are flagged, retry with a savgol trend; if still
-        > 1%, reject nothing that iteration.
+        1. Flatten with a 2-day, quadratic Savitzky-Golay filter (masked flux
+           replaced by a linear fill)
+        2. Reject 5-sigma outliers
+        3. CDPP(n) = std of the n-cadence running mean
 
         Parameters
         ----------
-        flux : ndarray
-            flux for one visit
-        sigma_upper : float
-            upper sigma clipping threshold
-        sigma_lower : float
-            lower sigma clipping threshold
-        kernel_size : int
-            size of the smoothing filter kernel
-        mask : array-like, bool, optional
-            never reject masked cadences (e.g. to protect transits)
+        windows : list of int
+            running-mean lengths n (cadences)
 
         Returns
         -------
-        keep : ndarray, bool
-            True for cadences to keep
+        cdpp : ndarray
+            CDPP(n) for each window (relative flux)
         """
-        if mask is None:
-            mask = np.zeros(len(flux), dtype=bool)
-        npts = len(flux)
-        idx = np.arange(npts)
+        f = flux.copy()
+        f[mask] = np.interp(time[mask], time[~mask], flux[~mask])
+        window = min(int(2.0 / exptime) // 2 * 2 + 1, len(f) // 2 * 2 - 1)
+        x = (flux / savgol_filter(f, window_length=window, polyorder=2) - 1)[~mask]
+        x = sigma_clip(x, sigma=5, stdfunc=mad_std).compressed()
+        return np.array(
+            [np.std(np.convolve(x, np.ones(n) / n, "valid")) for n in windows]
+        )
 
-        for _ in range(3):
-            smoothed = median_filter(flux, size=kernel_size, mode="mirror")
+    @staticmethod
+    def _sigma_threshold(time, flux, mask, exptime):
+        """
+        Sigma threshold for clipping: 5, raised by the red-noise factor beta
 
-            bad = sigma_clip(
-                flux - smoothed,
-                sigma_upper=sigma_upper,
-                sigma_lower=sigma_lower,
-                stdfunc=mad_std,
-            ).mask
-            bad = bad * ~mask
+        beta(n) = CDPP(n) sqrt(n) / CDPP(1) is 1 for white noise and > 1 for
+        coherent variability on timescale n (Pont et al. 2006, MNRAS 373, 231);
+        beta = max over n up to the trend kernel size, the variability a local
+        trend may not follow
 
-            if np.sum(bad) / len(bad) > 0.01:
-                logger.debug(
-                    "clip at %g/%g sigma (upper/lower): median filter flagged "
-                    "%d of %d cadences; retrying with savgol filter",
-                    sigma_upper,
-                    sigma_lower,
-                    np.sum(bad),
-                    len(bad),
-                )
-                smoothed = savgol_filter(flux, window_length=kernel_size, polyorder=2)
-                bad = sigma_clip(
-                    flux - smoothed,
-                    sigma_upper=sigma_upper,
-                    sigma_lower=sigma_lower,
-                    stdfunc=mad_std,
-                ).mask
-                bad = bad * ~mask
+        Returns
+        -------
+        sigma, beta : float
+        """
+        windows = [1, 2, 4, 8, KERNEL_SIZE]
+        cdpp = ClipOutliers._cdpp(time, flux, mask, exptime, windows)
+        beta = np.max(cdpp[1:] * np.sqrt(windows[1:]) / cdpp[0])
+        return 5.0 * max(1.0, beta), beta
 
-            if np.sum(bad) / len(bad) > 0.01:
-                logger.warning(
-                    "clip at %g/%g sigma (upper/lower): >1%% of cadences flagged "
-                    "by median and savgol filters (%d of %d); skipping outlier "
-                    "rejection this iteration",
-                    sigma_upper,
-                    sigma_lower,
-                    np.sum(bad),
-                    len(bad),
-                )
-                bad = np.zeros_like(mask)
+    @staticmethod
+    def _trend(time, flux, mask):
+        """
+        Local trend from out-of-mask cadences, interpolated across the mask
 
-            flux = flux[~bad]
-            idx = idx[~bad]
-            mask = mask[~bad]
+        Masked flux is replaced by a linear fill between the mask edges; a short
+        median filter then removes spikes and a savgol filter follows curvature
+        """
+        f = flux.copy()
+        f[mask] = np.interp(time[mask], time[~mask], flux[~mask])
+        f = median_filter(f, size=5, mode="mirror")
+        return savgol_filter(f, window_length=KERNEL_SIZE, polyorder=2)
 
-            if not np.any(bad):
-                break
+    @staticmethod
+    def _clip_outliers(resid, sigma, region, method):
+        """
+        Flag outliers in residuals; return True for cadences to keep
 
-        keep = np.zeros(npts, dtype=bool)
-        keep[idx] = True
+        region labels each cadence FAR (out of the wide mask), NEAR (in the
+        wide mask, out of +/- 0.5 T14) or IN (+/- 0.5 T14); detrending gives
+        each region its own noise, so each has its own median and mad_std
+
+        'local_trend': FAR, both tails beyond sigma x mad_std(FAR); NEAR and IN,
+            upper tail only (a transit cannot raise flux), on the FAR scale;
+            NEAR uses 2 x sigma, for the error of the trend interpolated
+            across the mask
+        'transit_model': each region, both tails beyond sigma x its own mad_std
+        """
+        keep = np.ones(len(resid), dtype=bool)
+        if method == "local_trend":
+            far = region == FAR
+            near = region == NEAR
+            within = region == IN
+            r = resid - np.median(resid[far])
+            scale = mad_std(r[far])
+            keep[far] = np.abs(r[far]) <= sigma * scale
+            keep[near] = r[near] <= 2 * sigma * scale
+            keep[within] = r[within] <= sigma * scale
+            return keep
+
+        for k in (FAR, NEAR, IN):
+            sel = region == k
+            if np.any(sel):
+                r = resid[sel] - np.median(resid[sel])
+                keep[sel] = np.abs(r) <= sigma * mad_std(r)
         return keep
 
-    def perform(self, method):
+    def perform(self, method, raw_litecurve=None):
         """
         Remove outlier cadences from each visit; flux is unchanged
 
         Parameters
         ----------
         method : str
-            'local_trend' : clip flux about a smoothed trend, sparing transits
-                (the larger of 3 x T14 or 2 x (exptime + 1 hour); 2 x T14 +
+            'local_trend' : clip flux about a local trend fit out of the transit
+                mask (the larger of 3 x T14 or 2 x (exptime + 1 hour); 2 x T14 +
                 exptime for ultra-short-period planets, P < 3 d and ror < 0.05);
-                a second pass clips upper outliers everywhere, in transit too
-            'transit_model' : clip (detrended) flux about the transit model, at
-                the sigma beyond which one outlier is expected per visit (>= 5),
-                raised for variable stars with deep transits, where detrending
-                and model errors in transit are not outliers
+                in the mask, clip upper outliers only (at 2 x sigma near transit)
+            'transit_model' : clip (detrended) flux about the transit model;
+                far from transit, near transit (in the wide mask) and in
+                transit (+/- 0.5 T14) each use their own median and mad_std
+        raw_litecurve : LiteCurve, optional
+            raw photometry containing every cadence; required for
+            'transit_model', whose flux is detrended, to measure CDPP
+
+        Both methods clip at 5 sigma, raised by the CDPP red-noise factor of
+        the raw flux (see _sigma_threshold)
         """
         if method not in ("local_trend", "transit_model"):
             raise ValueError(
@@ -125,62 +150,78 @@ class ClipOutliers(BaseAlg):
         lc = self.litecurve
         visits = np.unique(lc.visit)
 
-        if method == "transit_model":
+        # same mask as the DetrendVisits wide mask
+        wide_mask = np.zeros(len(lc.time), dtype=bool)
+        usp = np.array([p.period < 3 and p.ror < 0.05 for p in self.planets])
+        for v in visits:
+            in_visit = lc.visit == v
+            exptime = EXPTIME[lc.obsmode[in_visit][0]]
+            wide_mask[in_visit] = self.make_transit_mask(
+                rel_size=np.where(usp, 2.0, 3.0),
+                abs_size=np.where(usp, 0.0, 2 * (exptime + 1 / 24)),
+                buffer=np.where(usp, exptime, 0.0),
+                time=lc.time[in_visit],
+            )
+
+        in_transit = self.make_transit_mask(rel_size=1.0)
+        region = np.where(in_transit, IN, np.where(wide_mask, NEAR, FAR))
+
+        if method == "local_trend":
+            raw_flux = lc.flux
+        else:
+            if raw_litecurve is None:
+                raise ValueError("method 'transit_model' requires raw_litecurve")
             tm = TransitModel(self.star, self.planets, lc)
             f_mod = tm.model_flux(tm.theta_initial())
+            raw = copy.deepcopy(lc)
+            raw.reset(raw_litecurve)
+            raw_flux = raw.flux
 
         keep = np.ones(len(lc.time), dtype=bool)
         for v in visits:
-            use = (lc.visit == v) & keep
-            npts_initial = int(np.sum(use))
-
+            use = lc.visit == v
+            reg = region[use]
             if method == "local_trend":
-                logger.info("visit %d: clip about local trend", v)
-                # same mask as the DetrendVisits wide mask
-                exptime = EXPTIME[lc.obsmode[use][0]]
-                usp = np.array([p.period < 3 and p.ror < 0.05 for p in self.planets])
-                transit_mask = self.make_transit_mask(
-                    rel_size=np.where(usp, 2.0, 3.0),
-                    abs_size=np.where(usp, 0.0, 2 * (exptime + 1 / 24)),
-                    buffer=np.where(usp, exptime, 0.0),
-                    time=lc.time[use],
-                )
-                keep[use] = self._clip_outliers(
-                    lc.flux[use],
-                    sigma_upper=5,
-                    sigma_lower=5,
-                    kernel_size=13,
-                    mask=transit_mask,
-                )
-                # second pass: upper outliers only, including in transit
-                use = (lc.visit == v) & keep
-                keep[use] = self._clip_outliers(
-                    lc.flux[use], sigma_upper=5, sigma_lower=1000, kernel_size=13
-                )
+                trend = self._trend(lc.time[use], lc.flux[use], wide_mask[use])
+            else:
+                trend = f_mod[use]
+            resid = lc.flux[use] - trend
 
-            elif method == "transit_model":
-                sigma = sigma_cutoff(int(np.sum(use)), sigma_min=5.0)
-                rms = lc.meta[f"RMSDET{v}"]
-                stellar_variability = lc.meta[f"RMSRAW{v}"] / rms
-                snr_approx = max(p.ror**2 for p in self.planets) / rms
-                sigma *= np.sqrt(
-                    1 + (0.01 * min(stellar_variability, 10) * snr_approx) ** 2
-                )
-                logger.debug("visit %d: transit-model clipping at %.1f sigma", v, sigma)
-                keep[use] = ~sigma_clip(
-                    lc.flux[use] - f_mod[use],
-                    sigma_upper=sigma,
-                    sigma_lower=sigma,
-                    stdfunc=mad_std,
-                ).mask
+            sigma, beta = self._sigma_threshold(
+                lc.time[use],
+                raw_flux[use],
+                wide_mask[use],
+                EXPTIME[lc.obsmode[use][0]],
+            )
+            keep[use] = self._clip_outliers(resid, sigma, reg, method)
 
+            npts = int(np.sum(use))
+            nrej = npts - int(np.sum(keep[use]))
+            n = [int(np.sum(reg == k)) for k in (FAR, NEAR, IN)]
+            nr = [int(np.sum((reg == k) & ~keep[use])) for k in (FAR, NEAR, IN)]
+            logger.debug("visit %d: beta %.2f, clip at %.1f sigma", v, beta, sigma)
             logger.info(
-                "visit %d: %d of %d cadences rejected as outliers (%s)",
+                "visit %d: %d of %d cadences rejected as outliers; far %d of %d, "
+                "near %d of %d, in transit %d of %d (%s)",
                 v,
-                npts_initial - int(np.sum((lc.visit == v) & keep)),
-                npts_initial,
+                nrej,
+                npts,
+                nr[0],
+                n[0],
+                nr[1],
+                n[1],
+                nr[2],
+                n[2],
                 method,
             )
+            if nrej > 0.01 * npts:
+                logger.warning(
+                    "visit %d: %d of %d cadences (> 1%%) rejected as outliers (%s)",
+                    v,
+                    nrej,
+                    npts,
+                    method,
+                )
 
         lc.select(keep)
 

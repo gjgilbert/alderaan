@@ -136,7 +136,7 @@ class TestFits:
     def test_round_trip(self, tmp_path):
         lc = _lc()
         lc.select(lc.time > 130.3)
-        lc.meta = {"VISITS": "4", "DTNOMP": 2.5}
+        lc.meta.update(VISITS=("4", "quarters"), DTNOMP=(2.5, "[d] period"))
         path = str(tmp_path / "lc.fits")
         lc.to_fits(path)
         out = LiteCurve.from_fits(path)

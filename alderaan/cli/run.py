@@ -85,6 +85,11 @@ def build_parser():
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="console log level (file always logs DEBUG)",
     )
+    parser.add_argument(
+        "--append_log",
+        action="store_true",
+        help="append to an existing target log; used by `alderaan batch --resume`",
+    )
     return parser
 
 
@@ -107,6 +112,7 @@ def main(argv=None):
             catalog=str(args.catalog.resolve()),
             visits=args.visits,
             log_level=args.log_level,
+            append_log=args.append_log,
         )
     except UnsupportedTargetError:
         return 3  # known limit; pipeline.main logged the reason

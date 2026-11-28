@@ -73,6 +73,7 @@ class TestRun:
                 catalog=str((tmp_path / "cat.csv").resolve()),
                 visits=[4, 5],
                 log_level="DEBUG",
+                append_log=False,
             )
         ]
 
