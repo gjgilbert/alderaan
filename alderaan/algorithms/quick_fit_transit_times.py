@@ -244,8 +244,8 @@ class QuickFitTransitTimes(BaseAlg):
         Fit transit times using the Mazeh+13 / Holczer+16 cross-correlation method
 
         The data window around each transit is rel_window_size * T14 +
-        abs_window_size_buffer (days) wide; transits with a sibling transit
-        inside the window or no in-transit data (data gap) are skipped.
+        abs_window_size_buffer (days) wide. Skipped: sibling in window, data gap,
+        poor phot_coverage.
 
         Returns
         -------
@@ -290,9 +290,10 @@ class QuickFitTransitTimes(BaseAlg):
             ],
             dtype=bool,
         )
+        poor_coverage = ~p.transit_times.phot_coverage & ~in_gap
 
         for i, tc in enumerate(p.transit_times.ttime_mod):
-            if sibling_in_window[i] or in_gap[i]:
+            if sibling_in_window[i] or in_gap[i] or poor_coverage[i]:
                 continue
 
             obsmode = transit_obsmode[i]
@@ -307,15 +308,17 @@ class QuickFitTransitTimes(BaseAlg):
             )
 
         nfit = int(np.sum(~np.isnan(ttime)))
-        nattempt = int(np.sum(~sibling_in_window & ~in_gap))
+        nattempt = int(np.sum(~sibling_in_window & ~in_gap & ~poor_coverage))
         logger.info(
             "planet %d: cross-correlation fit %d of %d transits "
-            "(%d skipped: sibling in window; %d skipped: in data gap)",
+            "(%d skipped: sibling in window; %d skipped: in data gap; "
+            "%d skipped: poor coverage)",
             planet_no,
             nfit,
             ntransit,
             np.sum(sibling_in_window),
             np.sum(in_gap & ~sibling_in_window),
+            np.sum(poor_coverage & ~sibling_in_window),
         )
         if nattempt - nfit > 0.5 * nattempt:
             logger.warning(
