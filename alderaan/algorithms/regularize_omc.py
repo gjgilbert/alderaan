@@ -1139,7 +1139,7 @@ class RegularizeOMC(BaseAlg):
         ValueError
             if method is not 'smooth' or 'select'
         UnsupportedTargetError
-            if a planet has < 3 measured transit times
+            if a planet has 0 measured transit times (1-2: linear ephemeris)
 
         Notes
         -----
@@ -1155,18 +1155,31 @@ class RegularizeOMC(BaseAlg):
         # fit measured times with good photometry (FlagBadTransits) only; the rest
         # are returned unmeasured and filled by the model
         tts = [p.transit_times for p in self.planets]
-        # low per-transit SNR (QuickFitTransitTimes): kept as given
+        # linear (QuickFitTransitTimes, or < 3 measured times below): kept as given
         linear = [tt.model_name == "linear" for tt in tts]
         measured = [
             tt.phot_coverage & tt.phot_noise & np.isfinite(tt.ttime_obs) for tt in tts
         ]
-        for n, m in enumerate(measured):
-            # 1-2 transit planets need special handling (not yet implemented)
+        for n, (tt, m) in enumerate(zip(tts, measured)):
+            if np.sum(m) == 0 and not linear[n]:
+                raise UnsupportedTargetError(f"planet {n}: 0 measured transit times")
             if np.sum(m) < 3 and not linear[n]:
-                raise UnsupportedTargetError(
-                    f"planet {n}: {np.sum(m)} measured transit times; "
-                    "RegularizeOMC needs at least 3"
+                logger.info(
+                    "planet %d: %d measured transit times; linear", n, np.sum(m)
                 )
+                tts[n] = TransitTimes(
+                    tt.mission,
+                    tt.target,
+                    tt.index,
+                    ttime_obs=np.full(len(tt.index), np.nan),
+                    ttime_mod=tt.linear_ephemeris(),
+                    phot_coverage=tt.phot_coverage,
+                    phot_noise=tt.phot_noise,
+                    model_name="linear",
+                    model_dof=2.0,
+                    ttv_scatter=np.nanmedian(tt.ttime_err[m]),
+                )
+                linear[n] = True
         # OMC x-axis: the linear ephemeris (noise-free and sorted), as in legacy
         tlin = [tt.linear_ephemeris() for tt in tts]
         omc = [
