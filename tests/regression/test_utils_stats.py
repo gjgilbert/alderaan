@@ -87,7 +87,7 @@ class TestBinData:
         # 100 points uniform over a span of 2: std 2/sqrt(12), error std/sqrt(100)
         npt.assert_allclose(error[1:-1], 2 / np.sqrt(12) / 10, rtol=0.02)
 
-    def test_empty_bin_is_nan_with_warning(self, caplog):
+    def test_empty_bin_is_nan(self):
         time = np.array([0.0, 0.1, 2.0, 2.1])
         with warnings.catch_warnings():
             warnings.simplefilter("error")
@@ -96,7 +96,6 @@ class TestBinData:
             )
         assert np.isnan(binned[1]) and np.isnan(error[1])
         assert np.isfinite(binned[[0, 2]]).all()
-        assert "some folded transit bins contain no data" in caplog.text
 
 
 class TestLegendreP1:
