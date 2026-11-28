@@ -496,8 +496,8 @@ class QuickFitTransitTimes(BaseAlg):
         (floored at the predicted error) are NaN where unmeasured, and ttime_mod
         is ttime_obs where measured, else unchanged.
 
-        A planet with per-transit SNR < 2, or T14 shorter than its shortest
-        cadence, is not measured: it gets its linear ephemeris, model_name
+        A planet with per-transit SNR < 2, or T14 shorter than 2 of its shortest
+        cadences, is not measured: it gets its linear ephemeris, model_name
         'linear', and no observed times.
         """
         star = self.star
@@ -505,7 +505,7 @@ class QuickFitTransitTimes(BaseAlg):
         litecurve = self.litecurve
         npl = len(planets)
 
-        # below SNR ~ 2, or with T14 shorter than one cadence, a single-transit
+        # below SNR ~ 2, or with T14 shorter than 2 cadences, a single-transit
         # time locks onto noise: linear ephemeris, with the predicted timing error
         # as its TTV scatter
         tm = TransitModel(star, planets, litecurve)
@@ -513,7 +513,7 @@ class QuickFitTransitTimes(BaseAlg):
         linear = []
         for n, p in enumerate(planets):
             snr = self.per_transit_snr(p, litecurve)
-            linear.append(snr < 2 or p.duration < exptime)
+            linear.append(snr < 2 or p.duration < 2 * exptime)
             if linear[n]:
                 logger.info(
                     "planet %d: per-transit SNR = %.2f, T14 = %.1f min; linear",

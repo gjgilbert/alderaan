@@ -12,10 +12,10 @@ NOISE = 1e-4
 PERIOD, EPOCH, DURATION = 3.1, 1.3, 0.2
 
 
-def _system(t_max=80.0, seed=7):
+def _system(t_max=80.0, seed=7, duration=DURATION):
     """Star, one planet, and a flat long cadence litecurve with white noise"""
     star = Star("Kepler", "SYN", koi_id=1, kic_id=1, u1=0.4, u2=0.25)
-    p = Planet("Kepler", "SYN", PERIOD, EPOCH, 0.03, 0.0, DURATION)
+    p = Planet("Kepler", "SYN", PERIOD, EPOCH, 0.03, 0.0, duration)
     p.set_transit_times(
         TransitTimes.from_linear_ephemeris("Kepler", "SYN", PERIOD, EPOCH, 0, t_max)
     )
@@ -144,6 +144,28 @@ class TestNoise:
         tt = planets_out[0].transit_times
         assert tt.phot_noise[3]
         assert not tt.phot_coverage[5]
+
+
+class TestShortTransit:
+    # T14 < 2 long cadences: coverage needs only data in the window, no noise check
+    T14 = 1.5 * EXPTIME["long cadence"]
+
+    def test_sparse_in_transit_coverage_is_good(self):
+        star, planets, lc = _system(duration=self.T14)
+        lc.select(np.abs(lc.time - _tc(planets, 8)) >= 0.5 * self.T14)
+        assert 8 in _run(star, planets, lc, "phot_coverage")
+
+    def test_flags_transit_in_a_data_gap(self):
+        star, planets, lc = _system(duration=self.T14)
+        lc.select(np.abs(lc.time - _tc(planets, 5)) > 2 * self.T14)
+        assert 5 not in _run(star, planets, lc, "phot_coverage")
+
+    def test_high_noise_not_flagged(self):
+        star, planets, lc = _system(duration=self.T14)
+        window = np.abs(lc.time - _tc(planets, 12)) < 1 / 24
+        rng = np.random.default_rng(3)
+        lc.flux[window] = 1 + rng.normal(0, 10 * NOISE, window.sum())
+        assert 12 in _run(star, planets, lc, "phot_noise")
 
 
 class TestTooFewTransits:

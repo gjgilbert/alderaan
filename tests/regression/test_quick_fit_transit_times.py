@@ -203,7 +203,7 @@ class TestQuickFitTransitTimes:
         "planet1",
         [
             (11.7, 111.65, 0.006, 0.4, 0.2),  # per-transit SNR ~ 1
-            (11.7, 111.65, 0.07, 0.4, 0.015),  # T14 < 1 long cadence, high SNR
+            (11.7, 111.65, 0.07, 0.4, 0.03),  # 1 < T14 < 2 long cadences, high SNR
         ],
     )
     def test_planet_gets_linear_ephemeris(self, planet1):
